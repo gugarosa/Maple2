@@ -368,6 +368,12 @@ Maple2/
 └── Maple2.Tools/             # Development tools
 ```
 
+### MCP Database Access
+
+Two MySQL MCP servers are configured in `.mcp.json`:
+- **mysql-game**: `game-server` database - player data (quests, characters, items). Has write access.
+- **mysql-data**: `maple-data` database - game metadata (quest definitions, NPC info, map data). Read-only.
+
 ## References
 
 - Setup Guide: https://github.com/MS2Community/Maple2/wiki/Prerequisites
