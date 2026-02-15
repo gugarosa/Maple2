@@ -71,12 +71,14 @@ public partial class MovementState {
     private void StateWalkDirectionUpdate(long tickCount, long tickDelta, float delta) {
         Vector3 newPosition = actor.Position + delta * Speed * walkDirection;
 
-        actor.Navigation!.UpdatePosition(newPosition);
+        actor.Navigation?.UpdatePosition(newPosition);
 
         Velocity = Speed * walkDirection;
 
         UpdateDebugMarker(actor.Position, debugNpc, tickCount);
-        UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        if (actor.Navigation is not null) {
+            UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        }
     }
 
     private void StateWalkUpdate(long tickCount, long tickDelta) {
@@ -158,7 +160,9 @@ public partial class MovementState {
 
         UpdateDebugMarker(actor.Position, debugNpc, tickCount);
         UpdateDebugMarker(walkTargetPosition, debugTarget, tickCount);
-        UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        if (actor.Navigation is not null) {
+            UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        }
 
         bool reached;
 

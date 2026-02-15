@@ -5,7 +5,7 @@ using Maple2.Tools;
 namespace Maple2.Model.Game.Dungeon;
 
 public class DungeonMission : IByteSerializable {
-    public readonly DungeonMissionMetadata Metadata;
+    public required DungeonMissionMetadata Metadata;
     public int Id => Metadata.Id;
     public short Score { get; private set; }
     public short Counter { get; private set; }

@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace Maple2.Tools;
 
-public class ConcurrentMultiDictionary<TK1, TK2, TV> where TK1 : notnull where TK2 : notnull {
+public class ConcurrentMultiDictionary<TK1, TK2, TV> where TK1 : notnull where TK2 : notnull where TV : notnull {
     private readonly ConcurrentDictionary<TK1, TV> data;
     private readonly ConcurrentDictionary<TK2, TK1> mapping;
 

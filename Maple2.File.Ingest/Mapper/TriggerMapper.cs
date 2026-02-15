@@ -47,6 +47,7 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
 
             var trigger = new TriggerMetadata(folderName, triggerName, normalizedXml);
 
+#pragma warning disable CS0162 // Unreachable code — DebugTriggers is a compile-time constant toggled for development
             if (Constant.DebugTriggers) { // for debugging purposes
                 string filePathName = Path.Combine(Paths.DEBUG_TRIGGERS_DIR, folderName, $"{triggerName}.xml");
                 Directory.CreateDirectory(Path.GetDirectoryName(filePathName)!);
@@ -62,6 +63,7 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
                 using var writer = XmlWriter.Create(filePathName, settings);
                 formattedXml.Save(writer);
             }
+#pragma warning restore CS0162
             yield return trigger;
         }
     }

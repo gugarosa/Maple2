@@ -14,7 +14,7 @@ internal class PlayerReport {
     public string ReporterName { get; set; } = string.Empty;
     public string Reason { get; set; } = string.Empty;
     public ReportCategory Category { get; set; }
-    public ReportInfo ReportInfo { get; set; }
+    public ReportInfo ReportInfo { get; set; } = null!;
     public DateTime CreateTime { get; set; }
 
     public static void Configure(EntityTypeBuilder<PlayerReport> builder) {

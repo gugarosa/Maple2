@@ -79,7 +79,9 @@ public static class PacketExtensions {
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T ReadClass<T>(this IByteReader packet) where T : IByteDeserializable {
+#pragma warning disable SYSLIB0050 // FormatterServices is the only way to create uninitialized objects without a parameterless constructor
         var type = (T) FormatterServices.GetSafeUninitializedObject(typeof(T));
+#pragma warning restore SYSLIB0050
         type.ReadFrom(packet);
         return type;
     }

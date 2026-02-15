@@ -7,7 +7,7 @@ public class SoldUgcMarketItem : IByteSerializable {
     public long Id { get; init; }
     public long Price { get; init; }
     public long Profit { get; init; }
-    public string Name { get; init; }
+    public string Name { get; init; } = string.Empty;
     public long SoldTime { get; init; }
     public long AccountId { get; init; }
 

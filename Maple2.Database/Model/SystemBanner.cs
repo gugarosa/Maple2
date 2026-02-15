@@ -8,11 +8,11 @@ namespace Maple2.Database.Model;
 
 internal class SystemBanner {
     public int Id { get; set; }
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
     public SystemBannerType Type { get; set; }
     public SystemBannerFunction Function { get; set; }
-    public string FunctionParameter { get; set; }
-    public string Url { get; set; }
+    public string FunctionParameter { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
     public SystemBannerLanguage Language { get; set; }
     public DateTime BeginTime { get; set; }
     public DateTime EndTime { get; set; }

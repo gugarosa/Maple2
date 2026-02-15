@@ -38,7 +38,6 @@ namespace Maple2.File.Ingest.Mapper;
 public class TableMapper : TypeMapper<TableMetadata> {
     private readonly TableParser parser;
     private readonly ItemOptionParser optionParser;
-    private readonly string language;
 
     public TableMapper(M2dReader xmlReader, string language) {
         parser = new TableParser(xmlReader, language);

@@ -37,6 +37,7 @@ public class TriggerCache : LRUCache<(string, string), Trigger.Helpers.Trigger> 
                 Log.Error("Trigger {TriggerName} not found in {MapXBlock}.", triggerName, mapXBlock);
             }
         } else {
+#pragma warning disable CS0162 // Unreachable code — DebugTriggers is a compile-time constant toggled for development
             string triggerFilePath = Path.Combine(Paths.DEBUG_TRIGGERS_DIR, mapXBlock, triggerName + ".xml");
             if (!File.Exists(triggerFilePath)) {
                 throw new ArgumentException($"You are running DebugTriggers, but the trigger file does not exist: {triggerFilePath}");
@@ -46,6 +47,7 @@ public class TriggerCache : LRUCache<(string, string), Trigger.Helpers.Trigger> 
             trigger = ParseTrigger(mapXBlock, triggerName, document);
             // dont add to cache in debug mode
             return true;
+#pragma warning restore CS0162
         }
 
         trigger = null;
