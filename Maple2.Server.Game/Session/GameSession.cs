@@ -749,6 +749,13 @@ public sealed partial class GameSession : Core.Network.Session {
         // Ensure dispose is only run once
         if (Interlocked.CompareExchange(ref gameDisposeState, 1, 0) != 0) return;
 
+        // If login never completed, Player is null — skip game-level cleanup.
+        if (Player is null) {
+            base.Dispose(disposing);
+            Interlocked.Exchange(ref gameDisposeState, 2);
+            return;
+        }
+
         // Snapshot values needed after teardown
         long fieldTickSnapshot = Field?.FieldTick ?? Environment.TickCount64;
 
