@@ -33,14 +33,18 @@ public sealed class Navigation : IDisposable {
     }
 
     private DtNavMesh LoadNavMesh() {
-        FileStream fs = new FileStream(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Navmeshes", $"{Name}.navmesh"), FileMode.Open, FileAccess.Read);
-        BinaryReader br = new BinaryReader(fs);
-        DtMeshSetReader reader = new DtMeshSetReader();
+        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Navmeshes", $"{Name}.navmesh");
+        if (!File.Exists(path)) {
+            Logger.Warning("Navmesh not found: {Path}. NPCs on this map will not have pathfinding", path);
+            var emptyMesh = new DtNavMesh();
+            emptyMesh.Init(new DtMeshData(), DotRecastHelper.VERTS_PER_POLY, 0);
+            return emptyMesh;
+        }
 
-        DtNavMesh dtNavMesh = reader.Read(br, DotRecastHelper.VERTS_PER_POLY);
-        br.Close();
-        fs.Close();
-        return dtNavMesh;
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+        using var br = new BinaryReader(fs);
+        DtMeshSetReader reader = new DtMeshSetReader();
+        return reader.Read(br, DotRecastHelper.VERTS_PER_POLY);
     }
 
     public AgentNavigation ForAgent(FieldNpc npc, DtCrowdAgent agent) {
