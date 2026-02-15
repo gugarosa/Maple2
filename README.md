@@ -32,19 +32,31 @@ GAME_IP=192.168.1.100   # your host LAN IP for client handoff
 MS2_DOCKER_DATA_FOLDER=C:\\Path\\To\\ClientData  # for file-ingest
 ```
 
-2) Start everything (builds images and starts DB → world/login/web → game):
+2) Import game data and generate navmeshes:
+
+```
+# Import game data (required on first setup)
+docker compose run file-ingest
+
+# Generate navmesh files for NPC pathfinding (required for NPCs to move)
+docker compose run file-ingest -- --run-navmesh
+```
+
+> **Note:** Navmesh generation processes all maps with walkable surfaces and can take a while on the first run. Subsequent runs skip maps that haven't changed. Without navmeshes, maps will still load but NPCs won't have pathfinding.
+
+3) Start everything (builds images and starts DB → world/login/web → game):
 
 ```
 pwsh ./scripts/start_servers.ps1
 ```
 
-3) Tail logs:
+4) Tail logs:
 
 ```
 docker compose logs -f world login game-ch0 game-ch1
 ```
 
-4) Stop and remove containers:
+5) Stop and remove containers:
 
 ```
 docker compose down
@@ -72,7 +84,7 @@ pwsh ./scripts/start_servers.ps1 -GameOnly
 - Specific channels and no instanced content:
 
 ```
-pwsh ./scripts/start_servers.ps1 -GameOnly -IncludeInstanced:$false -NonInstancedChannels 1,2
+pwsh ./scripts/start_servers.ps1 -GameOnly -NoInstanced -NonInstancedChannels 1,2
 ```
 
 - Restart without rebuilding:
