@@ -1,9 +1,10 @@
-﻿using Maple2.Model;
+﻿﻿using Maple2.Model;
 using Maple2.Model.Common;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Maple2.Server.Game.Manager.Field;
+using Maple2.Server.Core.Config;
 using Maple2.Server.Game.Session;
 using Maple2.Tools;
 
@@ -16,7 +17,7 @@ public class ItemDropManager {
         this.field = field;
     }
 
-    public ICollection<Item> GetGlobalDropItems(int globalDropBoxId, int level = 0) {
+    public ICollection<Item> GetGlobalDropItems(int globalDropBoxId, int level = 0, bool isBoss = false) {
         if (!field.ServerTableMetadata.GlobalDropItemBoxTable.DropGroups.TryGetValue(globalDropBoxId, out Dictionary<int, IList<GlobalDropItemBoxTable.Group>>? dropGroup)) {
             return new List<Item>();
         }
@@ -45,15 +46,31 @@ public class ItemDropManager {
 
                 // Implement OwnerDrop???
 
-                var itemsAmount = new WeightedSet<GlobalDropItemBoxTable.Group.DropCount>();
-                foreach (GlobalDropItemBoxTable.Group.DropCount dropCount in group.DropCounts) {
-                    itemsAmount.Add(dropCount, dropCount.Probability);
-                }
-
-                int amount = itemsAmount.Get().Amount;
-                if (amount == 0) {
+                double dropRate = ConfigProvider.Settings.Loot.GlobalDropRate * (isBoss ? ConfigProvider.Settings.Loot.BossDropRate : 1.0f);
+                if (dropRate <= 0) {
                     continue;
                 }
+
+                int sumZero = 0;
+                int sumPositive = 0;
+                var positiveAmounts = new WeightedSet<GlobalDropItemBoxTable.Group.DropCount>();
+                foreach (GlobalDropItemBoxTable.Group.DropCount dropCount in group.DropCounts) {
+                    if (dropCount.Amount <= 0) {
+                        sumZero += dropCount.Probability;
+                    } else {
+                        sumPositive += dropCount.Probability;
+                        positiveAmounts.Add(dropCount, dropCount.Probability);
+                    }
+                }
+                if (sumPositive <= 0) {
+                    continue;
+                }
+                double baseP = (sumZero + sumPositive) > 0 ? (double) sumPositive / (sumZero + sumPositive) : 0.0;
+                double p = Math.Min(1.0, Math.Max(0.0, baseP * dropRate));
+                if (Random.Shared.NextDouble() >= p) {
+                    continue;
+                }
+                int amount = positiveAmounts.Get().Amount;
 
                 var weightedItems = new WeightedSet<GlobalDropItemBoxTable.Item>();
 
@@ -71,7 +88,9 @@ public class ItemDropManager {
                     if (itemEntry.QuestConstraint) {
                         continue;
                     }
-                    weightedItems.Add(itemEntry, itemEntry.Weight);
+                    double rareScale = IsRareGrade(itemEntry.Rarity) ? ConfigProvider.Settings.Loot.RareDropRate : 1.0f;
+                    int scaledWeight = Math.Max(1, (int) Math.Round(itemEntry.Weight * rareScale));
+                    weightedItems.Add(itemEntry, scaledWeight);
                 }
 
                 if (weightedItems.Count == 0) {
@@ -80,13 +99,11 @@ public class ItemDropManager {
 
                 for (int i = 0; i < amount; i++) {
                     GlobalDropItemBoxTable.Item selectedItem = weightedItems.Get();
-
                     int itemAmount = Random.Shared.Next(selectedItem.DropCount.Min, selectedItem.DropCount.Max + 1);
                     Item? createdItem = CreateItem(selectedItem.Id, selectedItem.Rarity, itemAmount);
                     if (createdItem == null) {
                         continue;
                     }
-
                     results.Add(createdItem);
                 }
             }
@@ -95,17 +112,17 @@ public class ItemDropManager {
         return results;
     }
 
-    public ICollection<Item> GetIndividualDropItems(GameSession session, int level, int individualDropBoxId, int index = -1, int dropGroupId = -1) {
+    public ICollection<Item> GetIndividualDropItems(GameSession session, int level, int individualDropBoxId, int index = -1, int dropGroupId = -1, bool isBoss = false) {
         if (!field.ServerTableMetadata.IndividualDropItemTable.Entries.TryGetValue(individualDropBoxId, out IDictionary<int, IndividualDropItemTable.Entry>? entryDict)) {
             return new List<Item>();
         }
 
         if (index >= 0 && dropGroupId > 0) {
             if (entryDict.TryGetValue(dropGroupId, out IndividualDropItemTable.Entry? entry)) {
-                return GetAllGroups(session, level, [entry], index).ToList();
+                return GetAllGroups(session, level, [entry], index, isBoss).ToList();
             }
         }
-        return GetAllGroups(session, level, entryDict.Values.ToList()).ToList();
+        return GetAllGroups(session, level, entryDict.Values.ToList(), isBoss: isBoss).ToList();
     }
 
     public ICollection<Item> GetIndividualDropItems(int individualDropBoxId, int rarity = -1) {
@@ -136,7 +153,7 @@ public class ItemDropManager {
         return CreateIndividualDropBoxItems(selectedItem, session.Player.Value.Character).ToList();
     }
 
-    private IEnumerable<Item> GetAllGroups(GameSession session, int level, List<IndividualDropItemTable.Entry> entry, int index = -1) {
+    private IEnumerable<Item> GetAllGroups(GameSession session, int level, List<IndividualDropItemTable.Entry> entry, int index = -1, bool isBoss = false) {
         var items = new List<Item>();
         foreach (IndividualDropItemTable.Entry group in entry) {
             if (group.MinLevel > level) {
@@ -148,15 +165,31 @@ public class ItemDropManager {
                 itemEntries = GetGenderedEntries(itemEntries, session.Player.Value.Character.Gender).ToList();
             }
 
-            var itemsAmount = new WeightedSet<IndividualDropItemTable.Entry.DropCount>();
-            foreach (IndividualDropItemTable.Entry.DropCount dropCount in group.DropCounts) {
-                itemsAmount.Add(dropCount, dropCount.Probability);
-            }
-
-            int amount = itemsAmount.Get().Count;
-            if (amount == 0) {
+            double dropRate = ConfigProvider.Settings.Loot.GlobalDropRate * (isBoss ? ConfigProvider.Settings.Loot.BossDropRate : 1.0f);
+            if (dropRate <= 0) {
                 continue;
             }
+
+            int sumZero = 0;
+            int sumPositive = 0;
+            var positiveCounts = new WeightedSet<IndividualDropItemTable.Entry.DropCount>();
+            foreach (IndividualDropItemTable.Entry.DropCount dropCount in group.DropCounts) {
+                if (dropCount.Count <= 0) {
+                    sumZero += dropCount.Probability;
+                } else {
+                    sumPositive += dropCount.Probability;
+                    positiveCounts.Add(dropCount, dropCount.Probability);
+                }
+            }
+            if (sumPositive <= 0) {
+                continue;
+            }
+            double baseP = (sumZero + sumPositive) > 0 ? (double) sumPositive / (sumZero + sumPositive) : 0.0;
+            double p = Math.Min(1.0, Math.Max(0.0, baseP * dropRate));
+            if (Random.Shared.NextDouble() >= p) {
+                continue;
+            }
+            int amount = positiveCounts.Get().Count;
 
             if (index >= 0) {
                 items = items.Concat(GetSelectedIndividualDropBoxItem(session, itemEntries, index)).ToList();
@@ -214,7 +247,9 @@ public class ItemDropManager {
         if (rarity <= 0) {
             var raritySet = new WeightedSet<IndividualDropItemTable.Item.Rarity>();
             foreach (IndividualDropItemTable.Item.Rarity rarityEntry in selectedItem.Rarities) {
-                raritySet.Add(rarityEntry, rarityEntry.Probability);
+                double rareScale = IsRareGrade(rarityEntry.Grade) ? ConfigProvider.Settings.Loot.RareDropRate : 1.0f;
+                int scaledWeight = Math.Max(1, (int) Math.Round(rarityEntry.Probability * rareScale));
+                raritySet.Add(rarityEntry, scaledWeight);
             }
 
             rarity = raritySet.Count > 0 ? raritySet.Get().Grade : -1;
@@ -304,6 +339,26 @@ public class ItemDropManager {
             }
         }
 
+        // For meso currency, scale drop count and convert to actual meso value using item sell price
+        if (itemId is >= 90000001 and <= 90000003 && amount > 0) {
+            int scaled = (int) Math.Round(amount * ConfigProvider.Settings.Mesos.DropRate);
+            if (scaled <= 0) {
+                return null;
+            }
+            long pouchValue = 1;
+            long[] sell = itemMetadata.Property.CustomSellPrices?.Length > 0
+                ? itemMetadata.Property.CustomSellPrices
+                : itemMetadata.Property.SellPrices;
+            if (sell != null && sell.Length > 0 && sell[0] > 0) {
+                pouchValue = sell[0];
+            }
+            long total = scaled * pouchValue;
+            if (total > int.MaxValue) {
+                total = int.MaxValue;
+            }
+            amount = (int) total;
+        }
+
         var item = new Item(itemMetadata, rarity, amount);
         item.Stats = field.ItemStatsCalc.GetStats(item, rollMax);
         item.Socket = field.ItemStatsCalc.GetSockets(item);
@@ -336,5 +391,9 @@ public class ItemDropManager {
         }
 
         return default;
+    }
+
+    private static bool IsRareGrade(short grade) {
+        return grade >= 3;
     }
 }

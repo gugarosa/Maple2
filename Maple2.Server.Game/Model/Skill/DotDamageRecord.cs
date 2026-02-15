@@ -48,6 +48,6 @@ public class DotDamageRecord {
         HpAmount = -hpAmount;
         SpAmount = -dotDamage.SpValue;
         EpAmount = -dotDamage.EpValue;
-        RecoverHp = (int) (dotDamage.RecoverHpByDamage * HpAmount);
+        RecoverHp = (int) (dotDamage.RecoverHpByDamage * global::System.Math.Abs(HpAmount));
     }
 }

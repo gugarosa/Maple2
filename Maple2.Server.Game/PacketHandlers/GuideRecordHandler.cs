@@ -17,5 +17,12 @@ public class GuideRecordHandler : FieldPacketHandler {
 
             session.Config.GuideRecords[guideId] = step;
         }
+
+        // Persist guide progress immediately to avoid losing state on abrupt restarts
+        try {
+            using var db = session.GameStorage.Context();
+            session.Config.Save(db);
+        } catch {
+        }
     }
 }

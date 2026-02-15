@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+﻿﻿using System.Globalization;
 using System.Net;
 using System.Reflection;
 using Autofac;
@@ -11,6 +11,7 @@ using Maple2.Server.Core.Constants;
 using Maple2.Server.Core.Modules;
 using Maple2.Server.Core.Network;
 using Maple2.Server.Core.PacketHandlers;
+using Maple2.Server.Core.Config;
 using Maple2.Server.Game;
 using Maple2.Server.Game.Commands;
 using Maple2.Server.Game.DebugGraphics;
@@ -36,7 +37,12 @@ using WorldClient = Maple2.Server.World.Service.World.WorldClient;
 CultureInfo.CurrentCulture = new("en-US");
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-DotEnv.Load();
+if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase)) {
+    DotEnv.Load();
+}
+
+// Load YAML server configuration once
+ConfigProvider.Initialize();
 
 IConfigurationRoot configRoot = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
@@ -50,26 +56,35 @@ Log.Logger = new LoggerConfiguration()
 bool overrideInstanced = args.Contains("--instanced");
 
 AddChannelResponse? response = null;
-const int maxRetries = 3;
-const int delayMs = 5000;
 int attempt = 0;
-
 GrpcChannel channel = GrpcChannel.ForAddress(Target.GrpcWorldUri);
 var worldClient = new WorldClient(channel);
-while (attempt < maxRetries) {
+
+// Retry until World responds, with exponential backoff (cap 30s) and jitter
+while (true) {
     try {
         response = worldClient.AddChannel(new AddChannelRequest {
             GameIp = Target.GameIp.ToString(),
             GrpcGameIp = Target.GrpcGameIp,
             InstancedContent = overrideInstanced || Target.InstancedContent,
         });
-        break; // Success
-    } catch (RpcException e) {
-        attempt++;
-        Log.Warning("Failed to get port information from World Server. Attempt {Attempt} of {MaxRetries}.", attempt, maxRetries);
-        if (attempt < maxRetries) {
-            await Task.Delay(delayMs);
+        if (response != null && response.GamePort != 0 && response.GrpcPort != 0) {
+            break; // Success with valid ports
         }
+        
+        attempt++;
+        int baseDelayMs = (int)Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
+        int jitterMs = Random.Shared.Next(250, 1000);
+        int delayMs = baseDelayMs + jitterMs;
+        Log.Warning("World returned invalid ports. Retry {Attempt} in {DelayMs}ms", attempt, delayMs);
+        await Task.Delay(delayMs);
+    } catch (RpcException) {
+        attempt++;
+        int baseDelayMs = (int)Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
+        int jitterMs = Random.Shared.Next(250, 1000);
+        int delayMs = baseDelayMs + jitterMs;
+        Log.Warning("World not ready yet. Retry {Attempt} in {DelayMs}ms", attempt, delayMs);
+        await Task.Delay(delayMs);
     }
 }
 
@@ -82,6 +97,9 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseKestrel(options => {
     options.Listen(new IPEndPoint(IPAddress.Any, response.GrpcPort), listen => {
         listen.Protocols = HttpProtocols.Http2;
+    });
+    options.Listen(new IPEndPoint(IPAddress.Any, 8080), listen => {
+        listen.Protocols = HttpProtocols.Http1;
     });
 });
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
@@ -168,5 +186,6 @@ app.UseRouting();
 app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client.");
 app.MapGrpcService<ChannelService>();
 app.MapGrpcHealthChecksService();
+app.MapHealthChecks("/health");
 
 await app.RunAsync();

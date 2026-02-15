@@ -1,8 +1,9 @@
-﻿using Maple2.Model;
+﻿﻿using Maple2.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Maple2.Server.Core.Formulas;
+using Maple2.Server.Core.Config;
 using Maple2.Server.Game.LuaFunctions;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Packets;
@@ -45,6 +46,26 @@ public class StatsManager {
 
         if (actor is FieldNpc npc) {
             Values = new Stats(npc.Value.Metadata.Stat);
+            // Apply enemy level offset scaling across key combat stats
+            int baseLevel = npc.Value.Metadata.Basic.Level;
+            int offset = ConfigProvider.Settings.Mob.EnemyLevelOffset;
+            if (baseLevel > 0 && offset != 0) {
+                double factor = Math.Max(1.0, (double)Math.Max(1, baseLevel + offset) / baseLevel);
+                ScaleBasic(BasicAttribute.Health, factor);
+                ScaleBasic(BasicAttribute.PhysicalAtk, factor);
+                ScaleBasic(BasicAttribute.MagicalAtk, factor);
+                ScaleBasic(BasicAttribute.Defense, factor);
+                ScaleBasic(BasicAttribute.PhysicalRes, factor);
+                ScaleBasic(BasicAttribute.MagicalRes, factor);
+                ScaleBasic(BasicAttribute.Accuracy, factor);
+                ScaleBasic(BasicAttribute.Evasion, factor);
+            }
+
+            // Apply additional enemy HP global scaling
+            float hpScale = ConfigProvider.Settings.Mob.EnemyHpScale;
+            if (hpScale != 1.0f) {
+                ScaleBasic(BasicAttribute.Health, hpScale);
+            }
             return;
         }
 
@@ -148,6 +169,17 @@ public class StatsManager {
 
     public void ResetActor(IActor actor) {
         Actor = actor;
+    }
+
+    private void ScaleBasic(BasicAttribute attribute, double factor) {
+        var stat = Values[attribute];
+        if (stat.Total <= 0 && stat.Base <= 0 && stat.Current <= 0) return;
+        long newTotal = (long) Math.Max(1, Math.Round(stat.Total * factor));
+        long newBase = (long) Math.Max(1, Math.Round(stat.Base * factor));
+        long newCurrent = (long) Math.Max(1, Math.Round(stat.Current * factor));
+        stat.Total = newTotal;
+        stat.Base = newBase;
+        stat.Current = Math.Min(newCurrent, newTotal);
     }
 
     private void AddEquips(FieldPlayer player) {

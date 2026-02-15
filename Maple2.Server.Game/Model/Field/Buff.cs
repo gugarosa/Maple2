@@ -246,6 +246,7 @@ public class Buff : IUpdatable, IByteSerializable {
             Caster.Stats.Values[BasicAttribute.Health].Add(record.RecoverHp);
             Field.Broadcast(StatsPacket.Update(Caster, BasicAttribute.Health));
         }
+        Owner.CheckAndHandleDeath();
     }
 
     private void ApplyDotBuff() {

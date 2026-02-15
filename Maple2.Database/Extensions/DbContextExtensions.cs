@@ -14,14 +14,40 @@ public static class DbContextExtensions {
     }
 
     public static bool TrySaveChanges(this DbContext context, bool autoAccept = true) {
-        try {
-            context.SaveChanges(autoAccept);
-            return true;
-        } catch (Exception ex) {
-            Console.WriteLine($"> Failed {context.ContextId}");
-            Console.WriteLine(ex);
-            return false;
+        // Best-effort save with lightweight concurrency resolution.
+        // If a DbUpdateConcurrencyException occurs (due to rowversion columns),
+        // refresh originals from database and retry to prefer last-write-wins for this context.
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                context.SaveChanges(autoAccept);
+                return true;
+            } catch (DbUpdateConcurrencyException ex) {
+                if (attempt == maxAttempts) {
+                    Console.WriteLine($"> Failed {context.ContextId}");
+                    Console.WriteLine(ex);
+                    return false;
+                }
+
+                foreach (var entry in ex.Entries) {
+                    var databaseValues = entry.GetDatabaseValues();
+                    if (databaseValues == null) {
+                        // Row was deleted; detach to avoid looping and let next attempt proceed
+                        entry.State = EntityState.Detached;
+                        continue;
+                    }
+                    // Update original values to current DB to clear the conflict,
+                    // keeping current values as the desired state to write.
+                    entry.OriginalValues.SetValues(databaseValues);
+                }
+                // Retry loop
+            } catch (Exception ex) {
+                Console.WriteLine($"> Failed {context.ContextId}");
+                Console.WriteLine(ex);
+                return false;
+            }
         }
+        return false;
     }
 
     internal static void DisplayStates(this IEnumerable<EntityEntry> entries) {

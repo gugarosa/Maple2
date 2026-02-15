@@ -305,6 +305,8 @@ public sealed partial class GameSession : Core.Network.Session {
         // Gvg
         // Pvp
         Send(StateSyncPacket.SyncNumber(0));
+        // Load guide/first-timer records as early as possible so UI suppresses tips
+        Send(GuideRecordPacket.Load(Config.GuideRecords));
         // SyncWorld
         Send(PrestigePacket.Load(player.Account));
         Send(PrestigePacket.LoadMissions(player.Account));

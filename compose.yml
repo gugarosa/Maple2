@@ -18,102 +18,24 @@ services:
       - ${MS2_DOCKER_DATA_FOLDER}:/ClientData
       - dotnet_tools:/root/.dotnet/tools
 
-  login:
-    build:
-      context: .
-      dockerfile: ./Maple2.Server.Login/Dockerfile
-    container_name: maple2-login
-    image: maple2/login
-    command: dotnet Maple2.Server.Login.dll
-    depends_on:
-      mysql:
-        condition: service_started
-      world:
-        condition: service_started
-    ports:
-      - 20001:20001
-    links:
-      - world
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    container_name: maple2-db
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      GRPC_WORLD_IP: world
-
-  world:
-    build:
-      context: .
-      dockerfile: ./Maple2.Server.World/Dockerfile
-    container_name: maple2-world
-    image: maple2/world
-    command: dotnet Maple2.Server.World.dll
-    depends_on:
-      - mysql
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql:/var/lib/mysql
     ports:
-      - 21001:21001
-    env_file:
-      - .env
-    environment:
-      DB_IP: mysql
-
-  game-ch1:
-    build:
-      context: .
-      dockerfile: ./Maple2.Server.Game/Dockerfile
-    image: maple2/game
-    depends_on:
-      - mysql
-      - world
-    # Ports are dynamically assigned from world server, sadly we can't dynamically expose them here. So we have to hardcode them.
-    ports:
-      - 20003:20003
-      - 21003:21003
-    env_file:
-      - .env
-    environment:
-      DB_IP: mysql
-      GRPC_GAME_IP: game-ch1
-      GRPC_WORLD_IP: world
-
-  game-ch2:
-    build:
-      context: .
-      dockerfile: ./Maple2.Server.Game/Dockerfile
-    image: maple2/game
-    depends_on:
-      - mysql
-      - world
-    # Ports are dynamically assigned from world server, sadly we can't dynamically expose them here. So we have to hardcode them.
-    ports:
-      - 20004:20004
-      - 21004:21004
-    env_file:
-      - .env
-    environment:
-      DB_IP: mysql
-      GRPC_GAME_IP: game-ch2
-      GRPC_WORLD_IP: world
-
-  # Channel 0 is instanced content only
-  game-ch0:
-    build:
-      context: .
-      dockerfile: ./Maple2.Server.Game/Dockerfile
-    image: maple2/game
-    depends_on:
-      - mysql
-      - world
-    # Ports are dynamically assigned from world server, sadly we can't dynamically expose them here. So we have to hardcode them.
-    ports:
-      - 20002:20002
-      - 21002:21002
-    env_file:
-      - .env
-    environment:
-      DB_IP: mysql
-      GRPC_GAME_IP: game-ch0
-      GRPC_WORLD_IP: world
-      INSTANCED_CONTENT: true
+      - 3306:3306
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   web:
     build:
@@ -132,18 +54,122 @@ services:
     environment:
       DB_IP: mysql
 
-  mysql:
-    image: mysql:8.0
-    restart: unless-stopped
-    container_name: maple2-db
+  world:
+    build:
+      context: .
+      dockerfile: ./Maple2.Server.World/Dockerfile
+    container_name: maple2-world
+    image: maple2/world
+    command: dotnet Maple2.Server.World.dll
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - 21001:21001
     env_file:
       - .env
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      DB_IP: mysql
+      GRPC_LOGIN_IP: login
     volumes:
-      - mysql:/var/lib/mysql
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/21001' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  login:
+    build:
+      context: .
+      dockerfile: ./Maple2.Server.Login/Dockerfile
+    container_name: maple2-login
+    image: maple2/login
+    command: dotnet Maple2.Server.Login.dll
+    depends_on:
+      mysql:
+        condition: service_healthy
+      world:
+        condition: service_healthy
     ports:
-      - 3306:3306
+      - 20001:20001
+    links:
+      - world
+    env_file:
+      - .env
+    environment:
+      DB_IP: mysql
+      GRPC_WORLD_IP: world
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/21000' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  game-ch0:
+    build:
+      context: .
+      dockerfile: ./Maple2.Server.Game/Dockerfile
+    image: maple2/game
+    depends_on:
+      mysql:
+        condition: service_healthy
+      world:
+        condition: service_healthy
+    ports:
+      - 20002:20002
+      - 21002:21002
+    env_file:
+      - .env
+    environment:
+      DB_IP: mysql
+      INSTANCED_CONTENT: true
+      GRPC_WORLD_IP: world
+      GRPC_GAME_IP: game-ch0
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  game-ch1:
+    build:
+      context: .
+      dockerfile: ./Maple2.Server.Game/Dockerfile
+    image: maple2/game
+    depends_on:
+      mysql:
+        condition: service_healthy
+      world:
+        condition: service_healthy
+    ports:
+      - 20003:20003
+      - 21003:21003
+    env_file:
+      - .env
+    environment:
+      DB_IP: mysql
+      GRPC_WORLD_IP: world
+      GRPC_GAME_IP: game-ch1
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
 volumes:
   dotnet_tools:

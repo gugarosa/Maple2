@@ -111,48 +111,72 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
     }
 
     private (ushort gamePort, int grpcPort, int channel) AddChannel(string gameIp, string grpcGameIp, bool instancedContent) {
-        int channelId = 1;
-        if (!instancedContent) {
-            // Find the smallest positive integer not used as a channel ID (excluding 0)
-            HashSet<int> usedIds = channels.Keys.Where(id => id > 0).ToHashSet();
-            while (usedIds.Contains(channelId)) {
-                channelId++;
+        int candidate = instancedContent ? 0 : 1;
+        int attempts = 0;
+
+        while (true) {
+            attempts++;
+            int channelId = candidate;
+            int newGamePort = Target.BaseGamePort + channelId;
+            int newGrpcChannelPort = Target.BaseGrpcChannelPort + channelId;
+
+            // If a channel entry for this ID already exists and matches the same IP/content type,
+            // prefer reusing it instead of allocating a new ID. Wait briefly for it to go Inactive.
+            if (channels.TryGetValue(channelId, out Channel? existing) &&
+                existing.InstancedContent == instancedContent &&
+                existing.Endpoint.Address.ToString() == gameIp) {
+                const int maxWaitMs = 8000; // keep short to avoid blocking startup too long
+                const int sleepMs = 200;
+                int waited = 0;
+                while (existing.Status is ChannelStatus.Active or ChannelStatus.Pending && waited < maxWaitMs) {
+                    Thread.Sleep(sleepMs);
+                    waited += sleepMs;
+                }
+                if (existing.Status is ChannelStatus.Inactive) {
+                    existing.Status = ChannelStatus.Pending;
+                    return ((ushort)newGamePort, newGrpcChannelPort, channelId);
+                }
             }
-        } else {
-            channelId = 0;
+
+            IPAddress ipAddress = IPAddress.Parse(gameIp);
+            IPEndPoint gameEndpoint = new IPEndPoint(ipAddress, newGamePort);
+
+            Uri grpcUri;
+
+            bool isDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+            if (isDocker) {
+                // When running in Docker, use the provided grpcGameIp as hostnames
+                grpcUri = new Uri($"http://{grpcGameIp}:{newGrpcChannelPort}");
+            } else {
+                // Outside of Docker, parse the IP addresses normally
+                IPAddress grpcIpAddress = IPAddress.Parse(grpcGameIp);
+                grpcUri = new Uri($"http://{grpcIpAddress}:{newGrpcChannelPort}");
+            }
+
+            GrpcChannel grpcChannel = GrpcChannel.ForAddress(grpcUri);
+            var client = new ChannelClient(grpcChannel);
+            var healthClient = new Health.HealthClient(grpcChannel);
+            var activeChannel = new Channel(ChannelStatus.Pending, channelId, instancedContent, gameEndpoint, client, healthClient, (ushort)newGamePort, newGrpcChannelPort);
+
+            if (channels.TryAdd(channelId, activeChannel)) {
+                var cancel = new CancellationTokenSource();
+                Task.Factory.StartNew(() => MonitorChannel(activeChannel, cancel), cancellationToken: cancel.Token);
+                return ((ushort)newGamePort, newGrpcChannelPort, channelId);
+            }
+
+            // If instanced content, id=0 is unique; no alternative available
+            if (instancedContent) {
+                logger.Error("Failed to add instanced channel (ID 0) due to conflict.");
+                return (0, 0, -1);
+            }
+
+            // Try next available ID to avoid races when multiple game channels start concurrently
+            candidate++;
+            if (attempts > 100) {
+                logger.Error("Failed to allocate a channel after {Attempts} attempts", attempts);
+                return (0, 0, -1);
+            }
         }
-
-        int newGamePort = Target.BaseGamePort + channelId;
-        int newGrpcChannelPort = Target.BaseGrpcChannelPort + channelId;
-
-        IPAddress ipAddress = IPAddress.Parse(gameIp);
-        IPEndPoint gameEndpoint = new IPEndPoint(ipAddress, newGamePort);
-
-        Uri grpcUri;
-
-        bool isDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
-        if (isDocker) {
-            // When running in Docker, use the provided grpcGameIp as hostnames
-            grpcUri = new Uri($"http://{grpcGameIp}:{newGrpcChannelPort}");
-        } else {
-            // Outside of Docker, parse the IP addresses normally
-            IPAddress grpcIpAddress = IPAddress.Parse(grpcGameIp);
-            grpcUri = new Uri($"http://{grpcIpAddress}:{newGrpcChannelPort}");
-        }
-
-        GrpcChannel grpcChannel = GrpcChannel.ForAddress(grpcUri);
-        var client = new ChannelClient(grpcChannel);
-        var healthClient = new Health.HealthClient(grpcChannel);
-        var activeChannel = new Channel(ChannelStatus.Pending, channelId, instancedContent, gameEndpoint, client, healthClient, (ushort) newGamePort, newGrpcChannelPort);
-        if (!channels.TryAdd(channelId, activeChannel)) {
-            logger.Error("Failed to add channel {Channel}", channelId);
-            return (0, 0, -1);
-        }
-
-        var cancel = new CancellationTokenSource();
-        Task.Factory.StartNew(() => MonitorChannel(activeChannel, cancel), cancellationToken: cancel.Token);
-
-        return ((ushort) newGamePort, newGrpcChannelPort, channelId);
     }
 
     private async Task MonitorChannel(Channel channel, CancellationTokenSource cancellationTokenSource) {
@@ -187,7 +211,6 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
                 if (channel.Status is ChannelStatus.Active) {
                     logger.Information("Channel {Channel} has become inactive", channel.Id);
                     Inactive(channel);
-
 #if !DEBUG
                     await cancellationTokenSource.CancelAsync();
 #endif

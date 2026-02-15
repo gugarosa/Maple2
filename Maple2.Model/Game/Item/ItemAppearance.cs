@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+﻿﻿using System.Numerics;
 using Maple2.Model.Common;
 using Maple2.PacketLib.Tools;
 using Maple2.Tools;
@@ -9,6 +9,10 @@ public class ItemAppearance : IByteSerializable, IByteDeserializable {
     public static readonly ItemAppearance Default = new ItemAppearance(default);
 
     public EquipColor Color;
+
+    public ItemAppearance() {
+        Color = default;
+    }
 
     public ItemAppearance(EquipColor color) {
         Color = color;
@@ -34,6 +38,15 @@ public sealed class HairAppearance : ItemAppearance {
     public float FrontLength { get; private set; }
     public Vector3 FrontPosition1 { get; private set; }
     public Vector3 FrontPosition2 { get; private set; }
+
+    public HairAppearance() : base(default) {
+        BackLength = default;
+        BackPosition1 = default;
+        BackPosition2 = default;
+        FrontLength = default;
+        FrontPosition1 = default;
+        FrontPosition2 = default;
+    }
 
     public HairAppearance(EquipColor color, float backLength = default, Vector3 backPosition1 = default,
                           Vector3 backPosition2 = default, float frontLength = default, Vector3 frontPosition1 = default,
@@ -77,6 +90,13 @@ public sealed class DecalAppearance : ItemAppearance {
     public float Position3 { get; private set; }
     public float Position4 { get; private set; }
 
+    public DecalAppearance() : base(default) {
+        Position1 = default;
+        Position2 = default;
+        Position3 = default;
+        Position4 = default;
+    }
+
     public DecalAppearance(EquipColor color, float position1 = default, float position2 = default,
                            float position3 = default, float position4 = default) : base(color) {
         Position1 = position1;
@@ -112,6 +132,14 @@ public sealed class CapAppearance : ItemAppearance {
     public Vector3 Position3 { get; private set; }
     public Vector3 Position4 { get; private set; }
     public float Unknown { get; private set; }
+
+    public CapAppearance() : base(default) {
+        Position1 = default;
+        Position2 = default;
+        Position3 = default;
+        Position4 = default;
+        Unknown = default;
+    }
 
     public CapAppearance(EquipColor color, Vector3 position1 = default, Vector3 position2 = default,
                          Vector3 position3 = default, Vector3 position4 = default, float unknown = default) : base(color) {

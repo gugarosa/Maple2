@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using Maple2.Model.Enum;
+using Maple2.Model;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Maple2.Server.Game.Manager.Field;
@@ -13,6 +14,7 @@ using Maple2.Server.Game.Session;
 using static Maple2.Server.Game.Model.ActorStateComponent.TaskState;
 using Maple2.Server.Game.Model.Enum;
 using Maple2.Server.Core.Packets;
+using Maple2.Server.Core.Config;
 using DotRecast.Detour.Crowd;
 using Maple2.Server.Game.Model.ActorStateComponent;
 using MovementState = Maple2.Server.Game.Model.ActorStateComponent.MovementState;
@@ -85,6 +87,7 @@ public class FieldNpc : Actor<Npc> {
     public readonly SkillMetadata?[] Skills;
 
     public int SpawnPointId = 0;
+    public int EffectiveLevel => Math.Max(1, Value.Metadata.Basic.Level + ConfigProvider.Settings.Mob.EnemyLevelOffset);
 
     public MS2PatrolData? Patrol { get; private set; }
     private int currentWaypointIndex;
@@ -321,7 +324,14 @@ public class FieldNpc : Actor<Npc> {
 
         HandleDamageDealers();
 
-        Remove(delay: TimeSpan.FromSeconds(Value.Metadata.Dead.Time));
+        // Cap the death despawn delay via config, allowing faster cleanup for regular mobs
+        // while letting bosses keep their animations longer. 0 or negative disables capping
+        float cap = Value.IsBoss
+            ? Maple2.Server.Core.Config.ConfigProvider.Settings.Mob.BossDeathDespawnCapSeconds
+            : Maple2.Server.Core.Config.ConfigProvider.Settings.Mob.DeathDespawnCapSeconds;
+        double configured = Value.Metadata.Dead.Time;
+        double seconds = cap > 0 ? Math.Min(configured, cap) : configured;
+        Remove(delay: TimeSpan.FromSeconds(seconds));
     }
 
     public virtual void Animate(string sequenceName, float duration = -1f) {
@@ -352,20 +362,43 @@ public class FieldNpc : Actor<Npc> {
         NpcMetadataDropInfo dropInfo = Value.Metadata.DropInfo;
 
         ICollection<Item> itemDrops = new List<Item>();
+        bool isBoss = false;
+        foreach (string tag in Value.Metadata.Basic.MainTags) {
+            if (tag.Contains("boss", StringComparison.OrdinalIgnoreCase)) { isBoss = true; break; }
+        }
+        if (!isBoss) {
+            foreach (string tag in Value.Metadata.Basic.SubTags) {
+                if (tag.Contains("boss", StringComparison.OrdinalIgnoreCase)) { isBoss = true; break; }
+            }
+        }
         foreach (int globalDropId in dropInfo.GlobalDropBoxIds) {
-            itemDrops = itemDrops.Concat(Field.ItemDrop.GetGlobalDropItems(globalDropId, Value.Metadata.Basic.Level)).ToList();
+            itemDrops = itemDrops.Concat(Field.ItemDrop.GetGlobalDropItems(globalDropId, Value.Metadata.Basic.Level, isBoss)).ToList();
         }
 
         foreach (int individualDropId in dropInfo.IndividualDropBoxIds) {
-            itemDrops = itemDrops.Concat(Field.ItemDrop.GetIndividualDropItems(firstPlayer.Session, Value.Metadata.Basic.Level, individualDropId)).ToList();
+            itemDrops = itemDrops.Concat(Field.ItemDrop.GetIndividualDropItems(firstPlayer.Session, Value.Metadata.Basic.Level, individualDropId, isBoss: isBoss)).ToList();
         }
 
         foreach (Item item in itemDrops) {
+            // If this drop is Mesos, override the amount using NPC level-based roll
+            if (item.IsMeso()) {
+                int level = Value.Metadata.Basic.Level;
+                float min = ConfigProvider.Settings.Mesos.PerLevelMin;
+                float max = Math.Max(min, ConfigProvider.Settings.Mesos.PerLevelMax);
+                double factor = min + (max - min) * Random.Shared.NextDouble();
+                double raw = level * factor;
+                int meso = (int) Math.Round(raw * ConfigProvider.Settings.Mesos.DropRate);
+                if (meso <= 0) {
+                    continue;
+                }
+                item.Amount = meso;
+            }
             float x = Random.Shared.Next((int) Position.X - Value.Metadata.DropInfo.DropDistanceRandom, (int) Position.X + Value.Metadata.DropInfo.DropDistanceRandom);
             float y = Random.Shared.Next((int) Position.Y - Value.Metadata.DropInfo.DropDistanceRandom, (int) Position.Y + Value.Metadata.DropInfo.DropDistanceRandom);
             var position = new Vector3(x, y, Position.Z);
 
-            Field.DropItem(position, Rotation, item, owner: this, characterId: firstPlayer.Value.Character.Id);
+            FieldItem fieldItem = Field.SpawnItem(this, position, Rotation, item, firstPlayer.Value.Character.Id);
+            Field.Broadcast(FieldPacket.DropItem(fieldItem));
         }
     }
 
@@ -427,7 +460,7 @@ public class FieldNpc : Actor<Npc> {
             return;
         }
 
-        player.Session.Exp.AddExp(Value.Metadata.Basic.CustomExp);
+        player.Session.Exp.AddBaseExp(Value.Metadata.Basic.CustomExp, ExpType.monster);
     }
 
     public void SendDebugAiInfo(GameSession requester) {

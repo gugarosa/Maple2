@@ -1,6 +1,7 @@
 ﻿using Maple2.Model.Enum;
 using Maple2.Model.Metadata;
 using Maple2.Server.Core.Formulas;
+using Maple2.Server.Core.Config;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Model.Skill;
 using Maple2.Server.Game.Packets;
@@ -140,6 +141,14 @@ public static class DamageCalculator {
 
             attackDamage -= buff.ShieldHealth;
             target.Buffs.Remove(buff.Id, target.ObjectId);
+        }
+
+        // Apply mob-oriented global damage rates (PvE only)
+        var mob = ConfigProvider.Settings.Mob;
+        if (caster is FieldPlayer && target is FieldNpc) {
+            attackDamage *= mob.DamageDealtRate;
+        } else if (caster is FieldNpc && target is FieldPlayer) {
+            attackDamage *= mob.DamageTakenRate;
         }
 
         return (damageType, (long) Math.Max(1, attackDamage));

@@ -20,6 +20,7 @@ public interface IActor : IFieldEntity {
     public bool IsDead { get; }
     public IPrism Shape { get; }
     public SkillQueue ActiveSkills { get; init; }
+    public void CheckAndHandleDeath() { }
     public virtual void ApplyEffects(SkillEffectMetadata[] effects, IActor caster, IActor owner, EventConditionType type = EventConditionType.Activate, int skillId = 0, int buffId = 0, params IActor[] targets) { }
     public virtual void ApplyEffects(SkillEffectMetadata[] effects, IActor caster, DamageRecord record, params IActor[] targets) { }
     public virtual void ApplyEffect(IActor caster, IActor owner, SkillEffectMetadata effect, long startTick, EventConditionType type = EventConditionType.Activate, int skillId = 0, int buffId = 0, bool notifyField = true) { }

@@ -23,6 +23,9 @@ using Serilog;
 CultureInfo.CurrentCulture = new("en-US");
 
 DotEnv.Load();
+if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), "true", StringComparison.OrdinalIgnoreCase)) {
+    DotEnv.Load();
+}
 
 IConfigurationRoot configRoot = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())

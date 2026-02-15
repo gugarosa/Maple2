@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+﻿﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
 using Maple2.Model.Enum;
@@ -94,6 +94,9 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
     }
 
     public virtual void ApplyDamage(IActor caster, DamageRecord damage, SkillMetadataAttack attack) {
+        if (IsDead) {
+            return;
+        }
         // Determine the source position.
         // For region/trigger skills, the caster is FieldActor at origin - use damage.Position (the skill region's position) instead.
         Vector3 sourcePosition = caster.Position;
@@ -151,6 +154,7 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
             record.AddDamage(DamageType.Normal, positiveDamage);
             Stats.Values[BasicAttribute.Health].Add(damageAmount);
             Field.Broadcast(StatsPacket.Update(this, BasicAttribute.Health));
+            CheckAndHandleDeath();
         }
 
         foreach ((DamageType damageType, long amount) in targetRecord.Damage) {
@@ -362,6 +366,14 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
 
     protected virtual void OnDeath() {
         Buffs.TriggerEvent(this, this, this, EventConditionType.OnDeath);
+    }
+
+    public void CheckAndHandleDeath() {
+        if (IsDead) return;
+        if (Stats.Values[BasicAttribute.Health].Current <= 0) {
+            IsDead = true;
+            OnDeath();
+        }
     }
 
     /// <summary>

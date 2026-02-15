@@ -76,7 +76,7 @@ public static class SkillDamagePacket {
         pWriter.WriteInt(record.Target.ObjectId);
         pWriter.WriteInt(record.ProcCount);
         pWriter.Write<DamageType>(record.Type);
-        pWriter.WriteInt(record.HpAmount);
+        pWriter.WriteInt(global::System.Math.Abs(record.HpAmount));
 
         return pWriter;
     }
