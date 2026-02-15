@@ -126,7 +126,7 @@ if (processCheck.ExitCode != 0) {
     }
 }
 
-string cmdCommand = "cd " + worldServerDir + " && dotnet ef database update";
+string cmdCommand = "cd " + worldServerDir + " && dotnet restore && dotnet ef database update";
 
 Console.WriteLine("Migrating game database...");
 
