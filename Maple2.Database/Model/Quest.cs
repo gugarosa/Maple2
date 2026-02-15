@@ -32,9 +32,11 @@ internal class Quest {
             Conditions = new SortedDictionary<int, QuestCondition>(),
         };
 
-        foreach ((int index, QuestCondition? condition) in other.Conditions) {
-            quest.Conditions.Add(index, condition);
+#pragma warning disable CS8624 // Argument nullability — implicit conversion is never null for dictionary values
+        foreach ((int index, QuestCondition condition) in other.Conditions) {
+            quest.Conditions.Add(index, condition!);
         }
+#pragma warning restore CS8624
 
         return quest;
     }
