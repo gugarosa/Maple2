@@ -86,10 +86,6 @@ $gameServices = @()
 if ($IncludeInstanced) { $gameServices += 'game-ch0' }
 foreach ($ch in $NonInstancedChannels) { $gameServices += "game-ch$ch" }
 
-if ($GameOnly -and -not $PSBoundParameters.ContainsKey('NoBuild')) {
-  $NoBuild = $true
-}
-
 if (-not $NoBuild) {
   if ($GameOnly) {
     if ($gameServices.Count -eq 0) { $gameServices = @('game-ch0') }
