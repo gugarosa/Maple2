@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using DotRecast.Core.Numerics;
 using DotRecast.Detour;
 using DotRecast.Detour.Crowd;
 using DotRecast.Detour.Io;
@@ -37,7 +38,13 @@ public sealed class Navigation : IDisposable {
         if (!File.Exists(path)) {
             Logger.Warning("Navmesh not found: {Path}. NPCs on this map will not have pathfinding", path);
             var emptyMesh = new DtNavMesh();
-            emptyMesh.Init(new DtMeshData(), DotRecastHelper.VERTS_PER_POLY, 0);
+            emptyMesh.Init(new DtNavMeshParams {
+                orig = RcVec3f.Zero,
+                tileWidth = 1,
+                tileHeight = 1,
+                maxTiles = 1,
+                maxPolys = 1,
+            }, DotRecastHelper.VERTS_PER_POLY);
             return emptyMesh;
         }
 
