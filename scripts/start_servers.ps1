@@ -1,8 +1,47 @@
 #!/usr/bin/env pwsh
 
+<#
+.SYNOPSIS
+  Start Maple2 servers via Docker Compose.
+
+.DESCRIPTION
+  Builds and starts the Maple2 Docker services. By default starts everything
+  (mysql, world, login, web, game-ch0, game-ch1). Use -GameOnly to restart
+  just the game channel containers without touching infrastructure services.
+
+.PARAMETER NonInstancedChannels
+  Channel numbers for non-instanced game servers. Default: 1 (game-ch1).
+
+.PARAMETER NoInstanced
+  Skip the instanced-content channel (game-ch0).
+
+.PARAMETER NoBuild
+  Skip the Docker image build step. Uses whatever images already exist.
+
+.PARAMETER GameOnly
+  Only restart game channel containers. Skips mysql/world/login/web and
+  uses --no-deps --force-recreate to swap game channels in-place.
+
+.EXAMPLE
+  # Start everything (default)
+  pwsh ./scripts/start_servers.ps1
+
+.EXAMPLE
+  # Rebuild and restart only game channels
+  pwsh ./scripts/start_servers.ps1 -GameOnly
+
+.EXAMPLE
+  # Start channels 1 and 2, no instanced channel
+  pwsh ./scripts/start_servers.ps1 -NonInstancedChannels 1,2 -NoInstanced
+
+.EXAMPLE
+  # Restart game channels without rebuilding
+  pwsh ./scripts/start_servers.ps1 -GameOnly -NoBuild
+#>
+
 param(
-  [int[]]$NonInstancedChannels,
-  [switch]$IncludeInstanced,
+  [int[]]$NonInstancedChannels = @(1),
+  [switch]$NoInstanced,
   [switch]$NoBuild,
   [switch]$GameOnly
 )
@@ -10,14 +49,16 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Test-ComposeV2 {
-  try { $null = & docker compose version 2>$null; return $LASTEXITCODE -eq 0 } catch { return $false }
+# Require Docker Compose v2
+try { $null = & docker compose version 2>$null } catch { }
+if ($LASTEXITCODE -ne 0) {
+  Write-Error "Docker Compose v2 is required. Install it from https://docs.docker.com/compose/install/"
+  exit 1
 }
-$UseV2 = Test-ComposeV2
 
 function Compose {
   param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-  if ($UseV2) { & docker 'compose' @Args } else { & docker-compose @Args }
+  & docker compose @Args
 }
 
 function Wait-Healthy {
@@ -75,25 +116,18 @@ if (-not $gameIp) {
   Write-Warning "GAME_IP is set to $gameIp. External clients will fail. Set GAME_IP to your host/LAN IP in .env."
 }
 
-if (-not $PSBoundParameters.ContainsKey('NonInstancedChannels') -or -not $NonInstancedChannels) {
-  $NonInstancedChannels = @(1)
-}
-if (-not $PSBoundParameters.ContainsKey('IncludeInstanced')) {
-  $IncludeInstanced = $true
-}
-
 $gameServices = @()
-if ($IncludeInstanced) { $gameServices += 'game-ch0' }
+if (-not $NoInstanced) { $gameServices += 'game-ch0' }
 foreach ($ch in $NonInstancedChannels) { $gameServices += "game-ch$ch" }
+if ($gameServices.Count -eq 0) { $gameServices = @('game-ch0') }
 
 if (-not $NoBuild) {
   if ($GameOnly) {
-    if ($gameServices.Count -eq 0) { $gameServices = @('game-ch0') }
     Write-Host "Building game images only: $($gameServices -join ', ')"
-    Compose (@('build','--pull') + $gameServices)
+    Compose (@('build') + $gameServices)
   } else {
-    Write-Host "Building images..."
-    Compose @('build','--pull')
+    Write-Host "Building all images..."
+    Compose @('build')
   }
 }
 
@@ -112,11 +146,10 @@ if (-not $GameOnly) {
 
 Write-Host "Starting game channels..."
 $started = @()
-if ($gameServices.Count -eq 0) { $gameServices = @('game-ch0') }
 
 $upArgs = @('up','--detach')
 if ($GameOnly) { $upArgs += @('--no-deps','--force-recreate') }
-if (-not $NoBuild -and $UseV2) { $upArgs += '--build' }
+if (-not $NoBuild) { $upArgs += '--build' }
 
 foreach ($svc in $gameServices) {
   if ($GameOnly) {
@@ -131,11 +164,6 @@ foreach ($svc in $gameServices) {
 Write-Host
 Compose ps
 Write-Host
+$joined = ($GameOnly ? $started : ($started + @('world','login'))) -join ' '
 Write-Host "All services started. Tail logs with:"
-if ($GameOnly) {
-  $joined = ($started) -join ' '
-} else {
-  $joined = ($started + @('world','login')) -join ' '
-}
-if ($UseV2) { Write-Host "  docker compose logs -f $joined" }
-else { Write-Host "  docker-compose logs -f $joined" }
+Write-Host "  docker compose logs -f $joined"
