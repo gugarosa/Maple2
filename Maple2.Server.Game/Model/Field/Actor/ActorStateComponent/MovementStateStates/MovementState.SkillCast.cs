@@ -121,7 +121,7 @@ public partial class MovementState {
             castMoveLastTick = castMoveTick;
         }
 
-        actor.Navigation!.UpdatePosition(newPosition);
+        actor.Navigation?.UpdatePosition(newPosition);
 
         float timeStep = 0;
 
@@ -132,7 +132,9 @@ public partial class MovementState {
         Velocity = timeStep * offset;
 
         UpdateDebugMarker(actor.Position, debugNpc, tickCount);
-        UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        if (actor.Navigation is not null) {
+            UpdateDebugMarker(actor.Navigation.GetAgentPosition(), debugAgent, tickCount);
+        }
     }
 
     private void StateSkillCastUpdate(long tickCount, long tickDelta) {
