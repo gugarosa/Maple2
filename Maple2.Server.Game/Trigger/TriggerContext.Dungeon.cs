@@ -33,7 +33,10 @@ public partial class TriggerContext {
     }
 
     public void DungeonCloseTimer() {
-        ErrorLog("[DungeonCloseTimer]");
+        DebugLog("[DungeonCloseTimer]");
+        if (Field.RoomTimer != null) {
+            Field.RoomTimer.Modify(-Field.RoomTimer.Duration);
+        }
     }
 
     public void DungeonDisableRanking() {
@@ -46,7 +49,12 @@ public partial class TriggerContext {
     }
 
     public void DungeonFail() {
-        ErrorLog("[DungeonFail]");
+        DebugLog("[DungeonFail]");
+        if (Field is not DungeonFieldManager dungeonField) {
+            return;
+        }
+
+        dungeonField.ChangeState(Maple2.Model.Enum.DungeonState.Fail);
     }
 
     public void DungeonMissionComplete(string feature, int missionId) {
@@ -70,11 +78,21 @@ public partial class TriggerContext {
     }
 
     public void DungeonResetTime(int seconds) {
-        ErrorLog("[DungeonResetTime] seconds:{Seconds}", seconds);
+        DebugLog("[DungeonResetTime] seconds:{Seconds}", seconds);
+        if (Field is DungeonFieldManager dungeonField && dungeonField.Lobby != null) {
+            RoomTimer? timer = dungeonField.Lobby.RoomTimer;
+            if (timer != null) {
+                int newDuration = seconds * 1000;
+                timer.Modify(newDuration - timer.Duration);
+            }
+        }
     }
 
     public void DungeonSetEndTime() {
-        ErrorLog("[DungeonSetEndTime]");
+        DebugLog("[DungeonSetEndTime]");
+        if (Field is DungeonFieldManager dungeonField) {
+            dungeonField.DungeonRoomRecord.EndTick = Field.FieldTick;
+        }
     }
 
     public void DungeonSetLapTime(int id, int lapTime) {
@@ -82,7 +100,10 @@ public partial class TriggerContext {
     }
 
     public void DungeonStopTimer() {
-        ErrorLog("[DungeonStopTimer]");
+        DebugLog("[DungeonStopTimer]");
+        if (Field is DungeonFieldManager dungeonField && dungeonField.Lobby != null) {
+            dungeonField.Lobby.RoomTimer?.Modify(-dungeonField.Lobby.RoomTimer.Duration);
+        }
     }
 
     public void RandomAdditionalEffect(
@@ -104,7 +125,13 @@ public partial class TriggerContext {
     }
 
     public void SetUserValueFromDungeonRewardCount(string key, int dungeonRewardId) {
-        ErrorLog("[SetUserValueFromDungeonRewardCount] key:{Key}, dungeonRewardId:{RewardId}", key, dungeonRewardId);
+        DebugLog("[SetUserValueFromDungeonRewardCount] key:{Key}, dungeonRewardId:{RewardId}", key, dungeonRewardId);
+        foreach (FieldPlayer player in Field.Players.Values) {
+            DungeonRecord record = player.Session.Dungeon.GetRecord(dungeonRewardId);
+            int rewardCount = player.Session.Dungeon.GetWeeklyClearCount(record);
+            Field.UserValues[key] = rewardCount;
+            return;
+        }
     }
 
     public void StartTutorial() {

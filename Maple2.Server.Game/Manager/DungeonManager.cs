@@ -528,7 +528,7 @@ public class DungeonManager {
         return record.UnionSubClears;
     }
 
-    private int GetWeeklyClearCount(DungeonRecord record) {
+    public int GetWeeklyClearCount(DungeonRecord record) {
         if (!session.TableMetadata.DungeonRoomTable.Entries.TryGetValue(record.DungeonId, out DungeonRoomMetadata? metadata)) {
             return 0;
         }
@@ -593,7 +593,7 @@ public class DungeonManager {
 
     }
 
-    private DungeonRecord GetRecord(int dungeonId) {
+    public DungeonRecord GetRecord(int dungeonId) {
         if (!Records.TryGetValue(dungeonId, out DungeonRecord? record)) {
             Records[dungeonId] = record = new DungeonRecord(dungeonId);
         }
