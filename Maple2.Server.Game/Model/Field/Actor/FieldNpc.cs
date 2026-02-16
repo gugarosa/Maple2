@@ -446,6 +446,23 @@ public class FieldNpc : Actor<Npc> {
             foreach (string tag in Value.Metadata.Basic.MainTags) {
                 player.Session.ConditionUpdate(ConditionType.npc_race, codeString: tag);
             }
+
+            // Track dungeon accumulation records
+            if (player.Session.Dungeon.UserRecord != null) {
+                long totalDamage = damageDealer.Value.Damage.Where(d => d.Type != DamageType.Miss).Sum(d => d.Amount);
+                long critDamage = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Sum(d => d.Amount);
+                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                    DungeonAccumulationRecordType.TotalDamage, (int) totalDamage, (_, v) => v + (int) totalDamage);
+                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                    DungeonAccumulationRecordType.TotalHitCount, damageDealer.Value.Damage.Count, (_, v) => v + damageDealer.Value.Damage.Count);
+                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                    DungeonAccumulationRecordType.DefeatedMonsters, 1, (_, v) => v + 1);
+                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                    DungeonAccumulationRecordType.TotalCriticalDamage, (int) critDamage, (_, v) => v + (int) critDamage);
+                long maxCrit = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Select(d => d.Amount).DefaultIfEmpty(0).Max();
+                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                    DungeonAccumulationRecordType.MaximumCriticalDamage, (int) maxCrit, (_, v) => Math.Max(v, (int) maxCrit));
+            }
         }
     }
 
