@@ -473,6 +473,18 @@ public sealed class QuestManager {
         session.Send(QuestPacket.Expired(questIds));
     }
 
+    public void ExpireDaily() {
+        List<int> expiredIds = characterValues.Values
+            .Concat(accountValues.Values)
+            .Where(q => q.State == QuestState.Started && IsRepeatable(q.Metadata))
+            .Select(q => q.Id)
+            .ToList();
+
+        if (expiredIds.Count > 0) {
+            Expired(expiredIds);
+        }
+    }
+
     public bool Remove(Quest quest) {
         using GameStorage.Request db = session.GameStorage.Context();
         if (quest.Metadata.Basic.Account > 0) {

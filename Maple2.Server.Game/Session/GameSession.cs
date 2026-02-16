@@ -653,6 +653,8 @@ public sealed partial class GameSession : Core.Network.Session {
         // Meso Market
         Player.Value.Account.MesoMarketListed = 0;
         Player.Value.Account.MesoMarketPurchased = 0;
+        // Expire in-progress daily missions and alliance quests
+        Quest.ExpireDaily();
     }
 
     public void WeeklyReset() {
