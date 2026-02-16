@@ -382,6 +382,7 @@ public class FieldPlayer : Actor<Player> {
         Tombstone = new Tombstone(this, Session.Config.DeathCount + 1);
         bool darkTomb = Session.Field.Metadata.Property.OnlyDarkTomb || Session.Config.DeathCount > 0;
         Field.Broadcast(DeadUserPacket.Dead(ObjectId, darkTomb));
+        Field.Broadcast(RevivalPacket.Tombstone(Tombstone));
 
         Buffs.OnDeath();
     }
