@@ -286,6 +286,13 @@ public class DungeonManager {
                 session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_UnderMinUserCount));
                 return;
             }
+            if (metadata.GroupType == DungeonGroupType.guildRaid) {
+                long guildId = session.Guild.Id;
+                if (guildId == 0 || Party.Members.Values.Any(m => m.Info.GuildId != guildId)) {
+                    session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_require_guild_partry));
+                    return;
+                }
+            }
             size = Party.Members.Count;
         }
 
