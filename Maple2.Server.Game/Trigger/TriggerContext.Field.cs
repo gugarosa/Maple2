@@ -219,7 +219,7 @@ public partial class TriggerContext {
             string.Join(",", triggerIds), visible, animationEffect, animationDelay);
         foreach (int triggerId in triggerIds) {
             if (!Objects.Ladders.TryGetValue(triggerId, out TriggerObjectLadder? ladder)) {
-                return;
+                continue;
             }
 
             ladder.Visible = visible;
