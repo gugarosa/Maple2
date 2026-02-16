@@ -117,8 +117,26 @@ public partial class TriggerContext {
         string targetEffect,
         int additionalEffectId
     ) {
-        ErrorLog("[RandomAdditionalEffect] target:{Target}, boxId:{BoxId}, spawnId:{SpawnId}, targetCount:{Count}, targetEffect:{Effect}, additionalEffectId:{Id}",
+        DebugLog("[RandomAdditionalEffect] target:{Target}, boxId:{BoxId}, spawnId:{SpawnId}, targetCount:{Count}, targetEffect:{Effect}, additionalEffectId:{Id}",
             target, boxId, spawnId, targetCount, targetEffect, additionalEffectId);
+
+        if (additionalEffectId <= 0) {
+            return;
+        }
+
+        if (target == "PlayerInBox") {
+            List<FieldPlayer> players = PlayersInBox(boxId).ToList();
+            int count = Math.Min(targetCount, players.Count);
+            foreach (FieldPlayer player in players.OrderBy(_ => Random.Shared.Next()).Take(count)) {
+                player.Buffs.AddBuff(player, player, additionalEffectId, 1, Field.FieldTick);
+            }
+        } else if (target == "NpcInBox") {
+            List<FieldNpc> npcs = NpcsInBox(boxId).ToList();
+            int count = Math.Min(targetCount, npcs.Count);
+            foreach (FieldNpc npc in npcs.OrderBy(_ => Random.Shared.Next()).Take(count)) {
+                npc.Buffs.AddBuff(npc, npc, additionalEffectId, 1, Field.FieldTick);
+            }
+        }
     }
 
     public void SetDungeonVariable(int varId, int value) {
