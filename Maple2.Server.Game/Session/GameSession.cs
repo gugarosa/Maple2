@@ -642,6 +642,10 @@ public sealed partial class GameSession : Core.Network.Session {
         // Prestige
         Player.Value.Account.PrestigeExp = Player.Value.Account.PrestigeCurrentExp;
         Player.Value.Account.PrestigeLevelsGained = 0;
+        foreach (PrestigeMission mission in Player.Value.Account.PrestigeMissions) {
+            mission.GainedLevels = 0;
+            mission.Awarded = false;
+        }
         Send(PrestigePacket.Load(Player.Value.Account));
         // Home
         Player.Value.Home.DecorationRewardTimestamp = 0;
