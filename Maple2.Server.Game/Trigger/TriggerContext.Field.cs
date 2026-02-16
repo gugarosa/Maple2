@@ -238,18 +238,7 @@ public partial class TriggerContext {
     // examples: arg3=200, arg4=3
     public void SetMeshAnimation(int[] triggerIds, bool visible, int startDelay, int interval) {
         DebugLog("[SetMeshAnimation] triggerIds:{Ids}, visible:{Visible}, startDelay:{StartDelay}, interval:{Interval}", string.Join(", ", triggerIds), visible, startDelay, interval);
-        foreach (int triggerId in triggerIds) {
-            if (!Objects.Meshes.TryGetValue(triggerId, out TriggerObjectMesh? mesh)) {
-                continue;
-            }
-            if (mesh.Visible == visible) {
-                continue;
-            }
-
-            mesh.Visible = visible;
-            mesh.Fade = startDelay;
-            Broadcast(TriggerPacket.Update(mesh));
-        }
+        UpdateMesh(triggerIds, visible, startDelay, interval);
     }
 
     public void SetPortal(int portalId, bool visible, bool enabled, bool minimapVisible, bool arg5) {
@@ -288,12 +277,13 @@ public partial class TriggerContext {
                 continue;
             }
 
-            if (interval > 0) {
-                intervalTotal += interval;
-                Events.Schedule(() => UpdateSetMesh(mesh), TimeSpan.FromMilliseconds(intervalTotal + delay));
+            int totalDelay = delay + intervalTotal;
+            if (totalDelay > 0) {
+                Events.Schedule(() => UpdateSetMesh(mesh), TimeSpan.FromMilliseconds(totalDelay));
             } else {
                 UpdateSetMesh(mesh);
             }
+            intervalTotal += interval;
         }
 
         void UpdateSetMesh(TriggerObjectMesh mesh) {
