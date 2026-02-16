@@ -223,7 +223,7 @@ public partial class TriggerContext {
             return;
         }
 
-        foreach (var npc in Field.Npcs.Values.Where(npc => npc.SpawnPointId == spawnId)) {
+        foreach (var npc in Field.EnumerateNpcs().Where(npc => npc.SpawnPointId == spawnId)) {
             Field.Broadcast(TriggerPacket.UiFaceEmotion(npc.ObjectId, emotionName));
         }
     }

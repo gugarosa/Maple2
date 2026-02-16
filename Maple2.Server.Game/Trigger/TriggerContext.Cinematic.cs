@@ -94,7 +94,7 @@ public partial class TriggerContext {
             return;
         }
 
-        FieldNpc? fieldNpc = Field.Npcs.Values.FirstOrDefault(npc => npc.SpawnPointId == spawnId);
+        FieldNpc? fieldNpc = Field.EnumerateNpcs().FirstOrDefault(npc => npc.SpawnPointId == spawnId);
         if (fieldNpc == null) {
             ErrorLog("[AddBalloonTalk] No NPC with spawnId:{SpawnId} found in field", spawnId);
             return;
@@ -105,7 +105,7 @@ public partial class TriggerContext {
 
     public void RemoveBalloonTalk(int spawnId) {
         DebugLog("[RemoveBalloonTalk] spawnId:{SpawnId}", spawnId);
-        foreach (FieldNpc npc in Field.Npcs.Values) {
+        foreach (FieldNpc npc in Field.EnumerateNpcs()) {
             if (spawnId == 0 || npc.SpawnPointId == spawnId) {
                 Broadcast(CinematicPacket.RemoveBalloonTalk(npc.ObjectId));
             }
