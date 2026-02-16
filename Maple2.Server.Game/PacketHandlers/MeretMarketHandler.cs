@@ -350,7 +350,7 @@ public class MeretMarketHandler : FieldPacketHandler {
         Item? item = session.Field?.ItemDrop.CreateItem(entry.ItemMetadata.Id, entry.Metadata.Rarity, entry.Metadata.Quantity + entry.Metadata.BonusQuantity);
         if (item == null) {
             Logger.Fatal("Failed to create item {ItemId}, {Rarity}, {Quantity}", entry.ItemMetadata.Id, entry.Metadata.Rarity, entry.Metadata.Quantity + entry.Metadata.BonusQuantity);
-            throw new InvalidOperationException($"Fatal: Failed to create item {entry.ItemMetadata.Id}, {entry.Metadata.Rarity}, {entry.Metadata.Quantity + entry.Metadata.BonusQuantity}");
+            return null;
         }
 
         if (entry.Metadata.DurationInDays > 0) {

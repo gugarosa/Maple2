@@ -148,14 +148,14 @@ public class UgcHandler : FieldPacketHandler {
         Item? item = session.Field?.ItemDrop.CreateItem(itemId, ugcMetadata.ItemRarity);
         if (item == null) {
             Logger.Fatal("Failed to create UGC item {ItemId}", itemId);
-            throw new InvalidOperationException($"Fatal: Creating UGC item: {itemId}");
+            return;
         }
 
         using WebStorage.Request request = WebStorage.Context();
         UgcResource? resource = request.CreateUgc(ugcType, session.CharacterId);
         if (resource == null) {
             Logger.Fatal("Failed to create UGC resource for item {ItemUid}", item.Uid);
-            throw new InvalidOperationException($"Fatal: Creating UGC resource: {item.Uid}");
+            return;
         }
 
         item.Template = new UgcItemLook {
@@ -213,7 +213,7 @@ public class UgcHandler : FieldPacketHandler {
         UgcResource? resource = request.CreateUgc(UgcType.Banner, session.CharacterId);
         if (resource == null) {
             Logger.Fatal("Failed to create UGC resource for banner {BannerId}", bannerId);
-            throw new InvalidOperationException($"Fatal: Creating UGC resource: {bannerId}");
+            return;
         }
 
         UgcItemLook ugc = new() {
@@ -254,7 +254,7 @@ public class UgcHandler : FieldPacketHandler {
         UgcResource? resource = request.CreateUgc(UgcType.GuildBanner, session.CharacterId);
         if (resource == null) {
             Logger.Fatal("Failed to create UGC resource for banner {BannerId}", bannerId);
-            throw new InvalidOperationException($"Fatal: Creating UGC resource: {bannerId}");
+            return;
         }
 
         session.StagedGuildPoster = new GuildPoster {
@@ -282,7 +282,7 @@ public class UgcHandler : FieldPacketHandler {
         UgcResource? resource = request.CreateUgc(UgcType.GuildEmblem, session.CharacterId);
         if (resource == null) {
             Logger.Fatal("Failed to create UGC resource for guild id {GuildId}", session.Guild.Id);
-            throw new InvalidOperationException($"Fatal: Creating UGC resource: {session.Guild.Id}");
+            return;
         }
 
         session.Send(UgcPacket.Upload(resource));
@@ -304,7 +304,7 @@ public class UgcHandler : FieldPacketHandler {
         UgcResource? resource = request.CreateUgc(UgcType.LayoutBlueprint, session.CharacterId);
         if (resource == null) {
             Logger.Fatal("Failed to create UGC resource for layout blueprint for character {CharacterId}", session.CharacterId);
-            throw new InvalidOperationException($"Fatal: Creating UGC resource for layout blueprint for character: {session.CharacterId}");
+            return;
         }
 
         item.Template = new UgcItemLook {
@@ -481,7 +481,7 @@ public class UgcHandler : FieldPacketHandler {
             using GameStorage.Request gameRequest = session.GameStorage.Context();
             if (!gameRequest.UpdateItem(item)) {
                 Logger.Fatal("Failed to update UGC Item {ugcUid}", ugcUid);
-                throw new InvalidOperationException($"Fatal: UGC Item update: {ugcUid}");
+                return;
             }
 
             session.Send(UgcPacket.UpdateLayoutBlueprint(session.Player.ObjectId, item));

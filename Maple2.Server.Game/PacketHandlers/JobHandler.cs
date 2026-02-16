@@ -64,7 +64,7 @@ public class JobHandler : FieldPacketHandler {
 
         // TODO: Does awakening use this same packet? Handle if so.
 
-        Job job = session.NpcScript.JobCondition.ChangeToJobCode switch {
+        Job? job = session.NpcScript.JobCondition.ChangeToJobCode switch {
             JobCode.Newbie => Job.Newbie,
             JobCode.Knight => Job.Knight,
             JobCode.Berserker => Job.Berserker,
@@ -77,19 +77,24 @@ public class JobHandler : FieldPacketHandler {
             JobCode.RuneBlader => Job.RuneBlader,
             JobCode.Striker => Job.Striker,
             JobCode.SoulBinder => Job.SoulBinder,
-            _ => throw new ArgumentException($"Invalid JobCode: {session.NpcScript.JobCondition.ChangeToJobCode}"),
+            _ => null,
         };
 
+        if (job == null) {
+            Logger.Warning("Invalid JobCode: {JobCode}", session.NpcScript.JobCondition.ChangeToJobCode);
+            return;
+        }
+
         Job currentJob = session.Player.Value.Character.Job;
-        if (currentJob.Code() != job.Code()) {
+        if (currentJob.Code() != job.Value.Code()) {
             foreach (SkillTab skillTab in session.Config.Skill.SkillBook.SkillTabs) {
                 skillTab.Skills.Clear();
             }
             session.ConditionUpdate(ConditionType.job_change, codeLong: (int) session.NpcScript.JobCondition.ChangeToJobCode);
         }
 
-        session.Player.Value.Character.Job = job;
-        session.Config.Skill.SkillInfo.SetJob(job);
+        session.Player.Value.Character.Job = job.Value;
+        session.Config.Skill.SkillInfo.SetJob(job.Value);
 
         session.Player.Buffs.Clear();
         session.Player.Buffs.Initialize();

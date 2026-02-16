@@ -194,7 +194,8 @@ public class LapenshardHandler : FieldPacketHandler {
         }
         foreach ((long uid, int amount) in fodders) {
             if (!session.Item.Inventory.Consume(uid, amount)) {
-                throw new InvalidOperationException($"Failed to consume fodder: {uid} after validating");
+                Logger.Error("Failed to consume fodder: {ItemUid} after validating", uid);
+                return false;
             }
         }
         session.Currency.Meso -= entry.Meso;

@@ -65,7 +65,8 @@ public class GroupChatHandler : FieldPacketHandler {
         }
 
         if (!session.GroupChats.TryAdd(response.GroupChat.Id, new GroupChatManager(response.GroupChat, session))) {
-            throw new InvalidOperationException($"Failed to add group chat: {response.GroupChat.Id}");
+            Logger.Error("Failed to add group chat: {GroupChatId}", response.GroupChat.Id);
+            return;
         }
 
         session.Send(GroupChatPacket.Create(response.GroupChat.Id));

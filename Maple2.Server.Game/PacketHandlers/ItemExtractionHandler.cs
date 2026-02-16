@@ -54,7 +54,8 @@ public class ItemExtractionHandler : FieldPacketHandler {
             using GameStorage.Request db = session.GameStorage.Context();
             resultItem = db.CreateItem(0, resultItem);
             if (resultItem == null) {
-                throw new InvalidOperationException($"Failed to create result item: {entry.ResultItemId}");
+                Logger.Error("Failed to create result item: {ResultItemId}", entry.ResultItemId);
+                return;
             }
 
             session.Item.Inventory.Add(resultItem, true);

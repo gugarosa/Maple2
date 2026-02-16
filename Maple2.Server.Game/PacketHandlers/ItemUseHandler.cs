@@ -506,7 +506,8 @@ public class ItemUseHandler : FieldPacketHandler {
         }
 
         if (!session.Item.Inventory.Consume(item.Uid, 1)) {
-            throw new InvalidOperationException($"Failed to consume item: {item.Uid}");
+            Logger.Error("Failed to consume item: {ItemUid}", item.Uid);
+            return;
         }
         session.Send(PlayerHostPacket.StartMiniGame(session.PlayerName, fieldId));
         FieldPortal portal = session.Field.SpawnEventPortal(session.Player, fieldId, portalDurationTick, password);

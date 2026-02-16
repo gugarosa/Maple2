@@ -75,7 +75,7 @@ public class ItemExchangeScroll : FieldPacketHandler {
                 int consume = Math.Min(remainingScrolls, scroll.Amount);
                 if (!session.Item.Inventory.Consume(scroll.Uid, consume)) {
                     Logger.Fatal("Failed to consume item {ItemUid}", scroll.Uid);
-                    throw new InvalidOperationException($"Fatal: Consuming item: {scroll.Uid}");
+                    return;
                 }
             }
         }
