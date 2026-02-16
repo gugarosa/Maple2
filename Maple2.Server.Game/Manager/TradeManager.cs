@@ -4,11 +4,14 @@ using Maple2.Model.Metadata;
 using Maple2.Server.Game.Manager.Items;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
+using Serilog;
 using static Maple2.Model.Error.TradeError;
 
 namespace Maple2.Server.Game.Manager;
 
 public class TradeManager : IDisposable {
+    private static readonly ILogger Logger = Log.Logger.ForContext<TradeManager>();
+
     private enum TradeState {
         Completed = 0,
         Requested = 1,
@@ -124,8 +127,9 @@ public class TradeManager : IDisposable {
                 IList<(Item Item, int Added)> results = self.Items.Add(item, true);
                 // Sanity check, this should never fail because we ensure an open slot.
                 if (results.Sum(result => result.Added) != amount) {
-                    // caller.Item.Inventory.Add(item); TODO: refund the item to inventory?
-                    throw new InvalidOperationException("AddItem: Trade consistency error");
+                    caller.Item.Inventory.Add(item);
+                    Logger.Error("AddItem: Trade consistency error for item {ItemUid}", item.Uid);
+                    return;
                 }
 
                 foreach ((Item Item, int) result in results) {
@@ -281,7 +285,8 @@ public class TradeManager : IDisposable {
     // |mutex| Locking is done externally.
     private void OnTradeModified() {
         if (state != TradeState.Started) {
-            throw new InvalidOperationException($"Trade was modified while in an invalid state: {state}");
+            Logger.Error("Trade was modified while in an invalid state: {State}", state);
+            return;
         }
 
         if (sender.Finalized) {
