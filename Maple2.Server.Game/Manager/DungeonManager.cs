@@ -227,9 +227,11 @@ public class DungeonManager {
 
         foreach (int missionId in Metadata.UserMissions) {
             if (session.TableMetadata.DungeonMissionTable.Missions.TryGetValue(missionId, out DungeonMissionMetadata? missionMetadata)) {
-                UserRecord.Missions[missionId] = new DungeonMission {
+                var mission = new DungeonMission {
                     Metadata = missionMetadata,
                 };
+                mission.Initialize();
+                UserRecord.Missions[missionId] = mission;
             }
         }
 

@@ -10,14 +10,25 @@ public class DungeonMission : IByteSerializable {
     public short Score { get; private set; }
     public short Counter { get; private set; }
 
+    public void Initialize() {
+        if (Metadata.IsPenaltyType) {
+            Score = Metadata.MaxScore;
+        }
+    }
+
     public bool Update(int counter = 1) {
         if (Counter >= Metadata.ApplyCount) {
             return false;
         }
 
         Counter += (short) counter;
-        float percentage = (float) Counter / Metadata.ApplyCount;
-        Score = (short) (percentage * Metadata.MaxScore);
+        if (Metadata.IsPenaltyType) {
+            float percentage = (float) Counter / Metadata.ApplyCount;
+            Score = (short) (Metadata.MaxScore - (short) (percentage * Metadata.MaxScore));
+        } else {
+            float percentage = (float) Counter / Metadata.ApplyCount;
+            Score = (short) (percentage * Metadata.MaxScore);
+        }
         return true;
     }
 
