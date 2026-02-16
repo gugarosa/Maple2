@@ -116,7 +116,10 @@ public static class NpcTalkUtil {
             return false;
         }
 
-        // TODO: Check if player is in home
+        // Check if player is in home
+        if (jobCondition.Home && session.Field?.MapId != Constant.DefaultHomeMapId) {
+            return false;
+        }
 
         if (jobCondition.Guild && session.Player.Value.Character.GuildId == 0) {
             return false;
@@ -126,7 +129,10 @@ public static class NpcTalkUtil {
             return false;
         }
 
-        // TODO: Check if it's the player's birthday
+        // Birthday check not implemented (no birthday data stored in account)
+        if (jobCondition.IsBirthday) {
+            return false;
+        }
 
         if (jobCondition.MapId > 0 && session.Field?.MapId != jobCondition.MapId) {
             return false;
