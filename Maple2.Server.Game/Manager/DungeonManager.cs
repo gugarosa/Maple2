@@ -77,16 +77,8 @@ public class DungeonManager {
 
         if (session.Field.FieldInstance.Type == InstanceType.DungeonLobby) {
             session.Send(DungeonWaitingPacket.Set(Lobby.DungeonId, Lobby.Size));
-        } else {
-            // DEBUG
-            /*session.Send(RoomStageDungeonPacket.Set(Metadata.Id));
-            ByteWriter pWriter = Packet.Of(SendOp.DungeonMission);
-            pWriter.WriteByte(0);
-            pWriter.WriteInt(1);
-            pWriter.WriteInt(23023005);
-            pWriter.WriteShort(1);
-            pWriter.WriteShort(); // counter
-            session.Send(pWriter);*/
+        } else if (UserRecord != null && UserRecord.Missions.Count > 0) {
+            session.Send(DungeonMissionPacket.Load(UserRecord.Missions));
         }
     }
 
@@ -234,7 +226,11 @@ public class DungeonManager {
         RevivalCount = 0;
 
         foreach (int missionId in Metadata.UserMissions) {
-            //TODO
+            if (session.TableMetadata.DungeonMissionTable.Missions.TryGetValue(missionId, out DungeonMissionMetadata? missionMetadata)) {
+                UserRecord.Missions[missionId] = new DungeonMission {
+                    Metadata = missionMetadata,
+                };
+            }
         }
 
         field.DungeonRoomRecord.UserResults.TryAdd(session.CharacterId, UserRecord);
