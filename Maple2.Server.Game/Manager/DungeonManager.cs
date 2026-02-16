@@ -264,6 +264,11 @@ public class DungeonManager {
             }
         }
 
+        if (metadata.Limit.DayOfWeeks.Length > 0 && !metadata.Limit.DayOfWeeks.Contains(DateTime.Now.DayOfWeek)) {
+            session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_canEnterDayOfWeeks));
+            return;
+        }
+
         if (withParty) {
             if (Party == null) {
                 session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_error_invalidPartyOID));
@@ -271,6 +276,14 @@ public class DungeonManager {
             }
             if (Party.LeaderCharacterId != session.CharacterId) {
                 session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_party_err_not_chief));
+                return;
+            }
+            if (metadata.Limit.MaxUserCount > 0 && Party.Members.Count > metadata.Limit.MaxUserCount) {
+                session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_OverMaxUserCount));
+                return;
+            }
+            if (metadata.Limit.MinUserCount > 0 && Party.Members.Count < metadata.Limit.MinUserCount) {
+                session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_UnderMinUserCount));
                 return;
             }
             size = Party.Members.Count;

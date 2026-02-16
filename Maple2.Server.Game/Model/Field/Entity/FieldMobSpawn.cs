@@ -83,7 +83,7 @@ public class FieldMobSpawn : FieldEntity<MapMetadataSpawn> {
         }
 
         if (remainder > 0) {
-            Log.Logger.Error("Ran out of valid spawns to pick for spawn {SpawnId} in map {MapId}; valid spawns: {SpawnCount}; picking: {Picking}", spawnId, Field.MapId, validSpawns.Count, count);
+            Log.Logger.Warning("Ran out of valid spawns to pick for spawn {SpawnId} in map {MapId}; valid spawns: {SpawnCount}; picking: {Picking}", spawnId, Field.MapId, validSpawns.Count, count);
         }
 
         // ran out of spawns to pick from so we are picking any duplicate now
@@ -122,7 +122,7 @@ public class FieldMobSpawn : FieldEntity<MapMetadataSpawn> {
         }
 
         if (validSpawns.Count == 0) {
-            Log.Logger.Error("Failed to find spawns for spawn {SpawnId} in map {MapId}", spawnId, Field.MapId);
+            Log.Logger.Warning("Failed to find spawns for spawn {SpawnId} in map {MapId}", spawnId, Field.MapId);
 
             validSpawns.Add(Position);
         }
