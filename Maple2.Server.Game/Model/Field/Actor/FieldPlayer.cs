@@ -2,6 +2,7 @@
 using Maple2.Model.Enum;
 using Maple2.Model.Error;
 using Maple2.Model.Game;
+using Maple2.Model.Game.Dungeon;
 using Maple2.Model.Metadata;
 using Maple2.Model.Metadata.FieldEntity;
 using Maple2.Server.Game.Manager;
@@ -391,6 +392,16 @@ public class FieldPlayer : Actor<Player> {
         Field.Broadcast(RevivalPacket.Tombstone(Tombstone));
 
         Buffs.OnDeath();
+
+        // Update dungeon mission DeathCount tracking
+        if (Session.Dungeon.UserRecord != null) {
+            foreach (DungeonMission mission in Session.Dungeon.UserRecord.Missions.Values) {
+                if (mission.Metadata.Type == DungeonMissionType.DeathCount) {
+                    mission.Update();
+                    Session.Send(DungeonMissionPacket.Update(mission));
+                }
+            }
+        }
     }
 
     /// <summary>
