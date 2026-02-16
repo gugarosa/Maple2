@@ -203,9 +203,8 @@ public partial class TriggerContext {
 
     public void AddUserValue(string key, int value) {
         WarnLog("[AddUserValue] key:{Key}, value:{Value}", key, value);
-        if (Field.UserValues.TryGetValue(key, out int userValue)) {
-            Field.UserValues[key] = userValue + value;
-        }
+        int currentValue = Field.UserValues.GetValueOrDefault(key, 0);
+        Field.UserValues[key] = currentValue + value;
     }
 
     public void SetUserValue(int triggerId, string key, int value) {
