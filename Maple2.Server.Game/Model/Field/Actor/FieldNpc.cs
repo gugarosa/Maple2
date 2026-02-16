@@ -433,12 +433,13 @@ public class FieldNpc : Actor<Npc> {
             return;
         }
 
+        DropLoot(firstPlayer);
+
         foreach (KeyValuePair<int, DamageRecordTarget> damageDealer in DamageDealers) {
             if (!Field.TryGetPlayer(damageDealer.Key, out FieldPlayer? player)) {
                 continue;
             }
 
-            DropLoot(firstPlayer);
             GiveExp(player);
 
             player.Session.ConditionUpdate(ConditionType.npc, codeLong: Value.Id, targetLong: Field.MapId);
