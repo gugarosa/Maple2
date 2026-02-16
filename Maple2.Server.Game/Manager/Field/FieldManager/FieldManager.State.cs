@@ -796,7 +796,7 @@ public partial class FieldManager {
     }
 
     public bool RemoveInteract(IInteractObject interactObject, TimeSpan removeDelay = default) {
-        if (!fieldAdBalloons.ContainsKey(interactObject.EntityId) && !fieldInteracts.ContainsKey(interactObject.EntityId)) {
+        if (!fieldAdBalloons.ContainsKey(interactObject.EntityId) && !fieldInteracts.ContainsKey(interactObject.EntityId) && !fieldChests.ContainsKey(interactObject.EntityId)) {
             return false;
         }
 
@@ -808,6 +808,7 @@ public partial class FieldManager {
                 default:
                     fieldInteracts.TryRemove(interactObject.EntityId, out _);
                     fieldAdBalloons.TryRemove(interactObject.EntityId, out _);
+                    fieldChests.TryRemove(interactObject.EntityId, out _);
                     break;
             }
 
