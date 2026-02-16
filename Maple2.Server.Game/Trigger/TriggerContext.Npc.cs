@@ -68,7 +68,8 @@ public partial class TriggerContext {
     }
 
     public void LimitSpawnNpcCount(int limitCount, string desc) {
-        ErrorLog("[LimitSpawnNpcCount] limitCount:{Count}", limitCount);
+        DebugLog("[LimitSpawnNpcCount] limitCount:{Count}, desc:{Desc}", limitCount, desc);
+        Field.SpawnNpcLimit = limitCount;
     }
 
     public void MoveNpc(int spawnId, string patrolName) {
@@ -339,6 +340,11 @@ public partial class TriggerContext {
         IEnumerable<int> npcIdsToSpawn = npcPool.OrderBy(_ => Random.Shared.Next()).Take(spawn.NpcCount);
 
         foreach (int npcId in npcIdsToSpawn) {
+            // Check field-wide spawn limit
+            if (Field.SpawnNpcLimit > 0 && Field.Mobs.Count + Field.Npcs.Count >= Field.SpawnNpcLimit) {
+                break;
+            }
+
             if (!Field.NpcMetadata.TryGet(npcId, out NpcMetadata? npc)) {
                 logger.Error("[SpawnNpc] Invalid npcId:{NpcId}", npcId);
                 continue;

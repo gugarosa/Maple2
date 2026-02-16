@@ -21,7 +21,7 @@ public class DungeonMission : IByteSerializable {
             return false;
         }
 
-        Counter += (short) counter;
+        Counter = (short) Math.Min(Counter + counter, Metadata.ApplyCount);
         if (Metadata.IsPenaltyType) {
             float percentage = (float) Counter / Metadata.ApplyCount;
             Score = (short) (Metadata.MaxScore - (short) (percentage * Metadata.MaxScore));

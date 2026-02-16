@@ -390,15 +390,13 @@ public class DungeonManager {
         UserRecord.TotalSeconds = (int) (Lobby.DungeonRoomRecord.EndTick - Lobby.DungeonRoomRecord.StartTick) / 1000;
 
         // Evaluate LimitUserCount missions (based on total players in dungeon)
-        if (Lobby != null) {
-            int totalPlayers = Lobby.Players.Count + Lobby.RoomFields.Values.Sum(r => r.Players.Count);
-            foreach (DungeonMission mission in UserRecord.Missions.Values) {
-                if (mission.Metadata.Type == DungeonMissionType.LimitUserCount) {
-                    // Value2 is the max player count threshold; complete if within limit
-                    if (totalPlayers <= mission.Metadata.Value2) {
-                        mission.Complete();
-                        session.Send(DungeonMissionPacket.Update(mission));
-                    }
+        int totalPlayers = Lobby.Players.Count + Lobby.RoomFields.Values.Sum(r => r.Players.Count);
+        foreach (DungeonMission mission in UserRecord.Missions.Values) {
+            if (mission.Metadata.Type == DungeonMissionType.LimitUserCount) {
+                // Value2 is the max player count threshold; complete if within limit
+                if (totalPlayers <= mission.Metadata.Value2) {
+                    mission.Complete();
+                    session.Send(DungeonMissionPacket.Update(mission));
                 }
             }
         }
@@ -435,10 +433,9 @@ public class DungeonManager {
 
         if (Metadata.RankTableId > 0 &&
             session.TableMetadata.DungeonConfigTable.MissionRanks.TryGetValue(Metadata.RankTableId, out DungeonMissionRankMetadata? rankMetadata)) {
-            DungeonMissionRank rank = DungeonMissionRank.F;
             foreach (DungeonMissionRankMetadata.Score scoreThreshold in rankMetadata.Scores.OrderByDescending(s => s.Value)) {
                 if (totalScore >= scoreThreshold.Value) {
-                    rank = scoreThreshold.Grade;
+                    UserRecord.Rank = scoreThreshold.Grade;
                     break;
                 }
             }

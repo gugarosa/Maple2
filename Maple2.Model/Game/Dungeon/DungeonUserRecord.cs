@@ -19,6 +19,7 @@ public class DungeonUserRecord : IUserContentRecord {
     public int TotalSeconds;
     public int Score = -1;
     public int HighestScore = -1;
+    public DungeonMissionRank Rank = DungeonMissionRank.None;
     public DungeonBonusFlag Flag = DungeonBonusFlag.None;
     public int Round;
 

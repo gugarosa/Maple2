@@ -53,6 +53,7 @@ public partial class FieldManager {
     private readonly ConcurrentDictionary<FieldProperty, IFieldProperty> fieldProperties = new();
 
     public RoomTimer? RoomTimer { get; private set; }
+    public int SpawnNpcLimit { get; set; }
 
 
     #region Helpers
