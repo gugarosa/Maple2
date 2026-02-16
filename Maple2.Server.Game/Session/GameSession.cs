@@ -437,6 +437,8 @@ public sealed partial class GameSession : Core.Network.Session {
             ConditionUpdate(ConditionType.explore, codeLong: Field.MapId);
         }
 
+        ConditionUpdate(ConditionType.map, codeLong: Field.MapId);
+
         Player.Value.Unlock.Maps.Add(Player.Value.Character.MapId);
         Config.LoadHotBars();
         Field.OnAddPlayer(Player);
