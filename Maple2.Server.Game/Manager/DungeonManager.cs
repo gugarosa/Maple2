@@ -250,6 +250,20 @@ public class DungeonManager {
             return;
         }
 
+        if (metadata.PlayType == DungeonPlayType.limitEnter) {
+            DungeonRecord record = GetRecord(dungeonId);
+            int dailyClears = GetDailyClearCount(record);
+            int weeklyClears = GetWeeklyClearCount(record);
+            if (metadata.Reward.SubRewardCount > 0 && dailyClears >= metadata.Reward.SubRewardCount) {
+                session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_canEnterDayOfWeeks));
+                return;
+            }
+            if (metadata.Reward.Count > 0 && weeklyClears >= metadata.Reward.Count) {
+                session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_notOpenTimeDungeon));
+                return;
+            }
+        }
+
         if (withParty) {
             if (Party == null) {
                 session.Send(DungeonRoomPacket.Error(DungeonRoomError.s_room_dungeon_error_invalidPartyOID));
