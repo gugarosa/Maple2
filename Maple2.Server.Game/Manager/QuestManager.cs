@@ -127,8 +127,10 @@ public sealed class QuestManager {
     /// Starts a new quest (or prexisting if repeatable).
     /// </summary>
     public QuestError Start(int questId, bool bypassRequirements = false) {
-        if (characterValues.ContainsKey(questId) || accountValues.ContainsKey(questId)) {
-            // TODO: see if you can start the quest again
+        if (TryGetQuest(questId, out Quest? existingQuest)) {
+            if (existingQuest.State == QuestState.Completed && IsRepeatable(existingQuest.Metadata)) {
+                return Restart(existingQuest, bypassRequirements);
+            }
             return QuestError.s_quest_error_accept_fail;
         }
 
@@ -176,6 +178,28 @@ public sealed class QuestManager {
         if (quest.Metadata.SummonPortal != null) {
             SummonPortal(quest);
         }
+        return QuestError.none;
+    }
+
+    private static bool IsRepeatable(QuestMetadata metadata) {
+        return metadata.Basic.Type is QuestType.DailyMission or QuestType.AllianceQuest;
+    }
+
+    private QuestError Restart(Quest quest, bool bypassRequirements = false) {
+        if (!bypassRequirements && !CanStart(quest.Metadata)) {
+            return QuestError.s_quest_error_accept_fail;
+        }
+
+        quest.State = QuestState.Started;
+        quest.StartTime = DateTime.Now.ToEpochSeconds();
+        quest.EndTime = 0;
+        quest.Conditions.Clear();
+        for (int i = 0; i < quest.Metadata.Conditions.Length; i++) {
+            quest.Conditions.Add(i, new Quest.Condition(quest.Metadata.Conditions[i]));
+        }
+
+        session.ConditionUpdate(ConditionType.quest_accept, codeLong: quest.Id);
+        session.Send(QuestPacket.Start(quest));
         return QuestError.none;
     }
 
@@ -405,7 +429,7 @@ public sealed class QuestManager {
 
         // Get any new quests that can be started
         foreach (QuestMetadata metadata in allQuests) {
-            if (TryGetQuest(metadata.Id, out Quest? quest) && quest.State == QuestState.Completed /* && repeatable */) {
+            if (TryGetQuest(metadata.Id, out Quest? quest) && quest.State == QuestState.Completed && !IsRepeatable(metadata)) {
                 continue;
             }
 

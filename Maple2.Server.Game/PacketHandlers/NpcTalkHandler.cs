@@ -286,9 +286,20 @@ public class NpcTalkHandler : FieldPacketHandler {
         }
 
         int questId = packet.ReadInt();
-        packet.ReadShort(); // 2 or 0. 2 = Start quest, 0 = Complete quest.
+        short action = packet.ReadShort(); // 2 = Start quest, 0 = Complete quest
 
-        // TODO: similar to HandleQuest but we'll need to check questId against the available quests for the player.
+        if (!session.QuestMetadata.TryGet(questId, out QuestMetadata? metadata)) {
+            return;
+        }
+
+        if (action == 2) {
+            session.Quest.Start(questId);
+        } else {
+            if (!session.Quest.TryGetQuest(questId, out Quest? quest)) {
+                return;
+            }
+            session.Quest.Complete(quest);
+        }
     }
 
     private void HandleTalkAlliance(GameSession session) {
