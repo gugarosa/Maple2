@@ -612,7 +612,7 @@ public partial class FieldManager : IField {
 
         session.ConditionUpdate(ConditionType.map, codeLong: srcPortal.TargetMapId);
 
-        session.Send(session.PrepareField(srcPortal.TargetMapId, portalId: srcPortal.TargetPortalId)
+        session.Send(session.PrepareField(srcPortal.TargetMapId, portalId: srcPortal.TargetPortalId, roomId: fieldPortal.RoomId)
             ? FieldEnterPacket.Request(session.Player)
             : FieldEnterPacket.Error(MigrationError.s_move_err_default));
         return true;
