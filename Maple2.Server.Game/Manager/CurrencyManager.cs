@@ -25,6 +25,9 @@ public class CurrencyManager {
             long delta = Math.Min(value, Constant.MaxMeret) - Currency.Meret;
             Currency.Meret = Math.Min(value, Constant.MaxMeret);
             session.Send(CurrencyPacket.UpdateMeret(Currency, delta));
+            if (delta < 0) {
+                session.ConditionUpdate(ConditionType.use_merat, (int) -delta);
+            }
         }
     }
 
@@ -53,8 +56,13 @@ public class CurrencyManager {
                 throw new ArgumentException("Not enough Mesos");
             }
 
-            Currency.Meso = Math.Min(value, Constant.MaxMeso);
+            long newValue = Math.Min(value, Constant.MaxMeso);
+            long delta = newValue - Currency.Meso;
+            Currency.Meso = newValue;
             session.Send(CurrencyPacket.UpdateMeso(Currency));
+            if (delta > 0) {
+                session.ConditionUpdate(ConditionType.meso, delta);
+            }
         }
     }
 
