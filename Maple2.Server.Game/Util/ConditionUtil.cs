@@ -181,12 +181,40 @@ public static class ConditionUtil {
             case ConditionType.dungeon_key_use:
             case ConditionType.dungeon_reward:
             case ConditionType.dungeon_reward_group:
-                return true;
-        }
-        return false;
-    }
+            case ConditionType.adventure_level:
+            case ConditionType.adventure_level_up:
+            case ConditionType.attendance:
+            case ConditionType.club_join:
+            case ConditionType.dungeon_round_clear:
+            case ConditionType.field_mission:
+            case ConditionType.get_habi_token:
+            case ConditionType.get_honor_token:
+            case ConditionType.get_karma_token:
+            case ConditionType.get_lu_token:
+            case ConditionType.get_mentee_token:
+            case ConditionType.get_mentor_token:
+            case ConditionType.get_reverse_coin:
+            case ConditionType.get_star_point:
+            case ConditionType.guild_attendance:
+            case ConditionType.guild_exp:
+            case ConditionType.guild_join:
+            case ConditionType.guild_join_req:
+            case ConditionType.hero_achieve:
+            case ConditionType.openItemBox:
+            case ConditionType.pet_collect:
+            case ConditionType.play_ensenble_time:
+            case ConditionType.shop_buy:
+            case ConditionType.shop_sell:
+            case ConditionType.use_merat:
+            case ConditionType.wedding_hall_reserve:
+                if (code.Range != null && InRange((ConditionMetadata.Range<int>) code.Range, (int) longValue)) {
+                    return true;
+                }
 
-    private static bool CheckTarget(this ConditionMetadata.Parameters target, GameSession session, ConditionType conditionType, string stringValue = "", long longValue = 0) {
+                if (code.Integers != null && code.Integers.Contains((int) longValue)) {
+                    return true;
+                }
+                break;
         switch (conditionType) {
             case ConditionType.stay_cube:
                 if (target.Strings != null && target.Strings.Contains(stringValue)) {
@@ -335,6 +363,32 @@ public static class ConditionUtil {
             case ConditionType.dungeon_key_use:
             case ConditionType.dungeon_reward:
             case ConditionType.dungeon_reward_group:
+            case ConditionType.adventure_level:
+            case ConditionType.adventure_level_up:
+            case ConditionType.attendance:
+            case ConditionType.club_join:
+            case ConditionType.dungeon_round_clear:
+            case ConditionType.field_mission:
+            case ConditionType.get_habi_token:
+            case ConditionType.get_honor_token:
+            case ConditionType.get_karma_token:
+            case ConditionType.get_lu_token:
+            case ConditionType.get_mentee_token:
+            case ConditionType.get_mentor_token:
+            case ConditionType.get_reverse_coin:
+            case ConditionType.get_star_point:
+            case ConditionType.guild_attendance:
+            case ConditionType.guild_exp:
+            case ConditionType.guild_join:
+            case ConditionType.guild_join_req:
+            case ConditionType.hero_achieve:
+            case ConditionType.openItemBox:
+            case ConditionType.pet_collect:
+            case ConditionType.play_ensenble_time:
+            case ConditionType.shop_buy:
+            case ConditionType.shop_sell:
+            case ConditionType.use_merat:
+            case ConditionType.wedding_hall_reserve:
                 return true;
         }
         return false;
