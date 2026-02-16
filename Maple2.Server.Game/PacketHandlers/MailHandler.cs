@@ -1,4 +1,5 @@
-﻿using Maple2.Database.Storage;
+﻿using System.Web;
+using Maple2.Database.Storage;
 using Maple2.Model.Enum;
 using Maple2.Model.Error;
 using Maple2.Model.Game;
@@ -80,8 +81,8 @@ public class MailHandler : FieldPacketHandler {
             ReceiverId = receiverId,
             Type = MailType.Player,
             SenderName = session.PlayerName,
-            Title = title,     // TODO: xml escaping?
-            Content = content, // TODO: xml escaping?
+            Title = HttpUtility.HtmlEncode(title),
+            Content = HttpUtility.HtmlEncode(content),
         };
 
         mail = db.CreateMail(mail);

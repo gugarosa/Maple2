@@ -72,7 +72,13 @@ public class MesoMarketHandler : FieldPacketHandler {
             return;
         }
 
-        // TODO Also check MyListings Count against Constant.MesoMarketListLimit (s_mesoMarket_error_maxCountOwnProduct)
+        // Check total active listings limit
+        ICollection<MesoListing> myListings = db.GetMyMesoListingsByAccountId(session.AccountId);
+        if (myListings.Count >= Constant.MesoMarketListLimit) {
+            session.Send(MesoMarketPacket.Error(s_mesoMarket_error_maxCountOwnProduct));
+            return;
+        }
+
         if (session.Player.Value.Account.MesoMarketListed >= Constant.MesoMarketListLimitDay) {
             session.Send(MesoMarketPacket.Error(s_mesoMarket_error_maxCountRegister));
             return;
