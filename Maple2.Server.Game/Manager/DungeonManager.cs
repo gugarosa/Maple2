@@ -569,7 +569,8 @@ public class DungeonManager {
     }
 
     public void Reset() {
-        if (session.Party.Party == null || session.Party.Party.LeaderCharacterId != session.CharacterId) {
+        // Only the party leader or a solo player can reset the dungeon
+        if (session.Party.Party != null && session.Party.Party.LeaderCharacterId != session.CharacterId) {
             return;
         }
 
