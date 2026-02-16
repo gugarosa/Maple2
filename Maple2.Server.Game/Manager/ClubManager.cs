@@ -145,6 +145,7 @@ public class ClubManager : IDisposable {
 
         BeginListen(member);
         session.Send(ClubPacket.NotifyAcceptInvite(member, requestorName));
+        session.ConditionUpdate(ConditionType.club_join, codeLong: Club.Id);
         return true;
     }
 

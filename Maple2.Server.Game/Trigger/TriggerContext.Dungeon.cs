@@ -29,6 +29,7 @@ public partial class TriggerContext {
             }
 
             player.Session.Dungeon.UserRecord.Round = round;
+            player.Session.ConditionUpdate(ConditionType.dungeon_round_clear, codeLong: round);
         }
     }
 

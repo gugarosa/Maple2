@@ -233,6 +233,7 @@ public class GuildManager : IDisposable {
 
         session.Send(GuildPacket.GuildExperience(Guild.Experience));
         session.Send(GuildPacket.GuildFunds(Guild.Funds));
+        session.ConditionUpdate(ConditionType.guild_exp, counter: addExp);
         if (session.CharacterId == contributorId) {
             session.Send(GuildPacket.AddContribution(addExp, addFunds));
         }
