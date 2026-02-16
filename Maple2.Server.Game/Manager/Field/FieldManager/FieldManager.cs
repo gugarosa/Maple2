@@ -321,13 +321,15 @@ public partial class FieldManager : IField {
     public void Update() {
         ProcessPackets();
 
+        FieldTick = Environment.TickCount64;
+        RoomTimer?.Update(FieldTick);
+
         if (Players.IsEmpty) {
             return;
         }
 
         Scheduler.InvokeAll();
 
-        FieldTick = Environment.TickCount64;
         foreach (FieldTrigger trigger in fieldTriggers.Values) trigger.Update(FieldTick);
 
         foreach (FieldPlayer player in Players.Values) player.Update(FieldTick);
@@ -346,7 +348,6 @@ public partial class FieldManager : IField {
         foreach (FieldPortal portal in fieldPortals.Values) portal.Update(FieldTick);
         UpdateBanners();
 
-        RoomTimer?.Update(FieldTick);
         PerformanceStage?.Update();
     }
 
