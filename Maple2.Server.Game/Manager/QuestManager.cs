@@ -435,6 +435,10 @@ public sealed class QuestManager {
             session.ConditionUpdate(ConditionType.quest_daily, codeLong: quest.Metadata.Id);
         }
 
+        if (IsRepeatable(quest.Metadata) && quest.CompletionCount > 0) {
+            session.ConditionUpdate(ConditionType.repeat_quest_clear, codeLong: quest.Metadata.Id);
+        }
+
         quest.EndTime = DateTime.Now.ToEpochSeconds();
         quest.State = QuestState.Completed;
         quest.CompletionCount++;
