@@ -396,6 +396,14 @@ public sealed class QuestManager {
             session.Currency[CurrencyType.Rue] += reward.Rue;
         }
 
+        if (reward.MenteeCoin > 0) {
+            session.Currency[CurrencyType.MenteeToken] += reward.MenteeCoin;
+        }
+
+        if (reward.MissionPoint > 0) {
+            session.ConditionUpdate(ConditionType.mission_point, counter: reward.MissionPoint);
+        }
+
         foreach (Item item in rewards) {
             if (!session.Item.Inventory.Add(item, true)) {
                 session.Item.MailItem(item);
