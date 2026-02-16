@@ -27,6 +27,9 @@ public class ItemBoxHandler : FieldPacketHandler {
         }
 
         ItemBoxError error = session.ItemBox.Open(item, count, index);
+        if (error == ItemBoxError.ok) {
+            session.ConditionUpdate(ConditionType.openItemBox, counter: count, codeLong: item.Id);
+        }
         session.Send(ItemBoxPacket.Open(itemId, session.ItemBox.BoxCount, error));
         session.ItemBox.Reset();
     }

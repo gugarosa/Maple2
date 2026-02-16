@@ -38,6 +38,7 @@ public sealed class PetManager : IDisposable {
         if (!session.Player.Value.Unlock.Pets.TryGetValue(pet.Value.Id, out short rarity) || rarity < Pet.Rarity) {
             session.Player.Value.Unlock.Pets[pet.Value.Id] = (short) Pet.Rarity;
             session.Send(PetPacket.AddCollection(pet.Value.Id, (short) Pet.Rarity));
+            session.ConditionUpdate(ConditionType.pet_collect, codeLong: pet.Value.Id);
         }
 
         using GameStorage.Request db = session.GameStorage.Context();
