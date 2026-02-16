@@ -166,9 +166,12 @@ public class InventoryManager {
             }
 
             if (add.Type.IsFurnishing) {
-                session.Item.Furnishing.AddStorage(add, add.Template);
+                long uid = session.Item.Furnishing.AddStorage(add, add.Template);
                 session.Item.Inventory.Discard(add);
-                return true;
+                if (uid > 0 && notifyNew) {
+                    session.Send(ItemInventoryPacket.NotifyNew(uid, add.Amount));
+                }
+                return uid > 0;
             }
 
             if (!tabs.TryGetValue(add.Inventory, out ItemCollection? items)) {
