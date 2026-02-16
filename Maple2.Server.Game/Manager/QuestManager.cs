@@ -381,7 +381,8 @@ public sealed class QuestManager {
         }
 
         if (reward.Exp > 0) {
-            session.Exp.AddBaseExp(reward.Exp, ExpType.quest);
+            ExpType expType = reward.RelativeExp != ExpType.none ? reward.RelativeExp : ExpType.quest;
+            session.Exp.AddBaseExp(reward.Exp, expType);
         }
 
         if (reward.Meso > 0) {
@@ -404,13 +405,20 @@ public sealed class QuestManager {
             session.ConditionUpdate(ConditionType.mission_point, counter: reward.MissionPoint);
         }
 
+        if (reward.GuildCoin > 0 && session.Field != null) {
+            Item? guildCoin = session.Field.ItemDrop.CreateItem(Constant.GuildCoinId, Constant.GuildCoinRarity, reward.GuildCoin);
+            if (guildCoin != null) {
+                rewards.Add(guildCoin);
+            }
+        }
+
         foreach (Item item in rewards) {
             if (!session.Item.Inventory.Add(item, true)) {
                 session.Item.MailItem(item);
             }
         }
 
-        // TODO: Guild rewards, mission points?
+        // TODO: GuildFund, GuildExp rewards require gRPC to World server
 
         session.ConditionUpdate(ConditionType.quest_clear_by_chapter, codeLong: quest.Metadata.Basic.ChapterId);
         session.ConditionUpdate(ConditionType.quest, codeLong: quest.Metadata.Id);
