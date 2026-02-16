@@ -460,6 +460,11 @@ public sealed class ShopManager {
 
         // TODO: Guild Merchant Type/Level, Championship, Alliance
 
+        if (shopItem.Metadata.IsPremiumItem && !session.Config.IsPremiumClubActive()) {
+            session.Send(ShopPacket.Error(ShopError.s_err_invalid_item));
+            return;
+        }
+
         Item item = shopItem.Item.Clone();
         item.Amount = quantity;
         if (!session.Item.Inventory.CanAdd(item)) {

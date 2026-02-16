@@ -431,6 +431,12 @@ public class DungeonManager {
             session.Send(DungeonRoomPacket.Modify(DungeonRoomModify.GiveReward, Lobby.DungeonId));
 
             ICollection<Item> items = [];
+            if (rewardMetadata.LimitedDropBoxIds.Length > 0) {
+                foreach (int boxId in rewardMetadata.LimitedDropBoxIds) {
+                    items = items.Concat(Lobby.ItemDrop.GetIndividualDropItems(boxId)).ToList();
+                    items = items.Concat(Lobby.ItemDrop.GetGlobalDropItems(boxId, Metadata.Level)).ToList();
+                }
+            }
             if (rewardMetadata.UnlimitedDropBoxIds.Length > 0) {
                 foreach (int boxId in rewardMetadata.UnlimitedDropBoxIds) {
                     items = items.Concat(Lobby.ItemDrop.GetIndividualDropItems(boxId)).ToList();
