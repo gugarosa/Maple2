@@ -233,13 +233,20 @@ public partial class TriggerContext : ITriggerContext {
     }
 
     public bool DungeonFirstUserMissionScore(int score, OperatorType operatorType) {
-        ErrorLog("[GetDungeonFirstUserMissionScore]");
+        DebugLog("[GetDungeonFirstUserMissionScore]");
+        int playerScore = 0;
+        foreach (FieldPlayer player in Field.Players.Values) {
+            if (player.Session.Dungeon.UserRecord is { } record) {
+                playerScore = record.Score;
+                break;
+            }
+        }
         return operatorType switch {
-            OperatorType.Greater => score > 0,
-            OperatorType.GreaterEqual => score >= 0,
-            OperatorType.Equal => score == 0,
-            OperatorType.LessEqual => score <= 0,
-            OperatorType.Less => score < 0,
+            OperatorType.Greater => playerScore > score,
+            OperatorType.GreaterEqual => playerScore >= score,
+            OperatorType.Equal => playerScore == score,
+            OperatorType.LessEqual => playerScore <= score,
+            OperatorType.Less => playerScore < score,
             _ => false,
         };
     }
