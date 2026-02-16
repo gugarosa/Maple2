@@ -657,6 +657,8 @@ public sealed partial class GameSession : Core.Network.Session {
         Player.Value.Account.MesoMarketPurchased = 0;
         // Expire in-progress daily missions and alliance quests
         Quest.ExpireDaily();
+        // Shop restock
+        Shop.DailyReset();
     }
 
     public void WeeklyReset() {
@@ -665,6 +667,8 @@ public sealed partial class GameSession : Core.Network.Session {
         Send(PrestigePacket.Load(Player.Value.Account));
         // Dungeon enter limits
         Dungeon.UpdateDungeonEnterLimit();
+        // Shop restock
+        Shop.WeeklyReset();
     }
 
     public void RefreshClubBuffs() {

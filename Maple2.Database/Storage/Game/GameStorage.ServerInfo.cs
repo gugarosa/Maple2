@@ -39,7 +39,8 @@ public partial class GameStorage {
                 Context.Database.ExecuteSqlRaw("UPDATE `character-config` SET `InstantRevivalCount` = 0");
                 Context.Database.ExecuteSqlRaw("UPDATE `nurturing` SET `PlayedBy` = '[]'");
                 Context.Database.ExecuteSqlRaw("UPDATE `home` SET `DecorationRewardTimestamp` = 0");
-                // TODO: Death counter
+                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-data` SET `RestockCount` = 0 WHERE `Interval` = 1");
+                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `MarketLimits` = '{\"MesoListed\":0,\"MesoPurchased\":0}'");
             }
         }
 
@@ -57,6 +58,7 @@ public partial class GameStorage {
 
                 Context.Database.ExecuteSqlRaw("UPDATE `guild-member` SET `WeeklyContribution` = 0");
                 Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeRewardsClaimed` = DEFAULT");
+                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-data` SET `RestockCount` = 0 WHERE `Interval` = 2");
             }
         }
     }
