@@ -54,7 +54,17 @@ public partial class TriggerContext {
     }
 
     public void InitNpcRotation(int[] spawnIds) {
-        ErrorLog("[InitNpcRotation] spawnIds:{SpawnIds}", string.Join(", ", spawnIds));
+        DebugLog("[InitNpcRotation] spawnIds:{SpawnIds}", string.Join(", ", spawnIds));
+        foreach (int spawnId in spawnIds) {
+            if (!Field.Entities.EventNpcSpawns.TryGetValue(spawnId, out EventSpawnPointNPC? spawn)) {
+                continue;
+            }
+            foreach (FieldNpc npc in Field.EnumerateNpcs()) {
+                if (npc.SpawnPointId == spawnId) {
+                    npc.Rotation = spawn.Rotation;
+                }
+            }
+        }
     }
 
     public void LimitSpawnNpcCount(int limitCount, string desc) {
