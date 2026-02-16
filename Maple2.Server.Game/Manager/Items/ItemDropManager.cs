@@ -219,7 +219,7 @@ public class ItemDropManager {
                 }
 
                 int weight;
-                if (group.SmartDropRate > 0) {
+                if (group.SmartDropRate > 0 || itemEntry.ProperJobWeight > 0 || itemEntry.ImproperJobWeight > 0) {
                     weight = GetWeightByJob(itemEntry.Ids.FirstOrDefault(), session.Player.Value.Character.Job.Code(), itemEntry.Weight, itemEntry.ProperJobWeight, itemEntry.ImproperJobWeight);
                 } else {
                     weight = itemEntry.Weight;
