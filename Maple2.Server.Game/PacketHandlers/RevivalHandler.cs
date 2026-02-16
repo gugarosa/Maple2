@@ -89,8 +89,8 @@ public class RevivalHandler : FieldPacketHandler {
             session.Currency.Meso -= cost;
         }
 
-        session.Config.InstantReviveCount++;
         if (session.Player.Revive(true)) {
+            session.Config.InstantReviveCount++;
             session.Player.Tombstone = null;
             if (session.Dungeon.Metadata != null) {
                 session.Dungeon.RevivalCount++;
