@@ -137,6 +137,7 @@ public sealed class AchievementManager {
             session.ConditionUpdate(ConditionType.revise_achieve_multi_grade, codeLong: achievement.Id, targetLong: achievement.CurrentGrade);
             session.ConditionUpdate(ConditionType.revise_achieve_single_grade, codeLong: achievement.Id, targetLong: achievement.CurrentGrade);
             session.ConditionUpdate(ConditionType.hero_achieve, codeLong: achievement.Id, targetLong: achievement.CurrentGrade);
+            session.ConditionUpdate(ConditionType.hero_achieve_grade, codeLong: achievement.CurrentGrade);
             session.ConditionUpdate(ConditionType.trophy_point, targetLong: session.Player.Value.Character.AchievementInfo.Total);
             if (!achievement.Metadata.Grades.TryGetValue(achievement.CurrentGrade, out grade)) {
                 break;
