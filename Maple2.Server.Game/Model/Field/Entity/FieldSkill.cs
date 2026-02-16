@@ -93,14 +93,18 @@ public class FieldSkill : FieldEntity<SkillMetadata> {
         }
 
     activated:
-        // TODO: These are buffs? seems irrelevant to FieldSkill?
-        // foreach (SkillEffectMetadata skill in Value.Data.Skills) {
-        //     if (skill.Condition != null) {
-        //         ConditionSkill(Field.Players.Values, skill);
-        //     } else if (skill.Splash != null) {
-        //         SplashSkill(skill);
-        //     }
-        // }
+        // Apply skill-level effects (buffs) to targets in range
+        if (Value.Data.Skills.Length > 0) {
+            foreach (SkillMetadataMotion motion in Value.Data.Motions) {
+                foreach (SkillMetadataAttack attack in motion.Attacks) {
+                    Prism[] skillPrisms = Points.Select(point => attack.Range.GetPrism(point, UseDirection ? Rotation.Z : 0)).ToArray();
+                    IActor[] skillTargets = Field.GetTargets(Caster, skillPrisms, attack.Range.ApplyTarget, attack.TargetCount).ToArray();
+                    if (skillTargets.Length > 0) {
+                        Caster.ApplyEffects(Value.Data.Skills, Caster, Caster, skillId: Value.Id, targets: skillTargets);
+                    }
+                }
+            }
+        }
 
         var record = new SkillRecord(Value, 0, Caster) {
             TargetUid = (long) ObjectId << 32,
