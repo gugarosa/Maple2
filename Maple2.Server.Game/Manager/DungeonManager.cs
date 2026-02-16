@@ -441,6 +441,10 @@ public class DungeonManager {
             return;
         }
 
+        if (Lobby?.DungeonRoomRecord.RankingDisabled == true) {
+            return;
+        }
+
         int totalScore = UserRecord.Missions.Values.Sum(m => m.Score);
         UserRecord.Score = totalScore;
 

@@ -41,7 +41,11 @@ public partial class TriggerContext {
     }
 
     public void DungeonDisableRanking() {
-        ErrorLog("[DungeonDisableRanking]");
+        DebugLog("[DungeonDisableRanking]");
+        if (Field is not DungeonFieldManager dungeonField) {
+            return;
+        }
+        dungeonField.DungeonRoomRecord.RankingDisabled = true;
     }
 
     public void DungeonEnableGiveUp(bool enabled) {

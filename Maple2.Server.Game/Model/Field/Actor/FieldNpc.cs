@@ -448,6 +448,7 @@ public class FieldNpc : Actor<Npc> {
             GiveExp(player);
 
             player.Session.ConditionUpdate(ConditionType.npc, codeLong: Value.Id, targetLong: Field.MapId);
+            player.Session.ConditionUpdate(ConditionType.killcount, codeLong: Value.Id);
             foreach (string tag in Value.Metadata.Basic.MainTags) {
                 player.Session.ConditionUpdate(ConditionType.npc_race, codeString: tag);
             }

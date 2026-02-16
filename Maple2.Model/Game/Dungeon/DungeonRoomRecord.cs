@@ -10,6 +10,7 @@ public class DungeonRoomRecord {
     public long StartTick { get; set; }
     public long EndTick { get; set; }
     public DungeonState State { get; set; } = DungeonState.None;
+    public bool RankingDisabled { get; set; }
 
     public DungeonRoomRecord(DungeonRoomMetadata metadata) {
         Metadata = metadata;

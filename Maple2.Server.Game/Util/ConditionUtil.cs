@@ -39,6 +39,7 @@ public static class ConditionUtil {
                 break;
             case ConditionType.interact_object:
             case ConditionType.interact_object_rep:
+            case ConditionType.killcount:
                 if ((code.Range != null && InRange((ConditionMetadata.Range<int>) code.Range, (int) longValue)) ||
                     (code.Integers != null && code.Integers.Contains((int) longValue))) {
                     return true;
@@ -299,6 +300,8 @@ public static class ConditionUtil {
             case ConditionType.taxifind:
             case ConditionType.trophy_point:
             case ConditionType.interact_object:
+            case ConditionType.interact_object_rep:
+            case ConditionType.killcount:
             case ConditionType.gemstone_upgrade_success:
             case ConditionType.gemstone_upgrade_try:
             case ConditionType.socket_unlock_success:
@@ -317,6 +320,8 @@ public static class ConditionUtil {
             case ConditionType.item_add:
             case ConditionType.item_pickup:
             case ConditionType.item_destroy:
+            case ConditionType.item_collect:
+            case ConditionType.item_collect_revise:
             case ConditionType.beauty_add:
             case ConditionType.beauty_change:
             case ConditionType.beauty_change_color:
@@ -332,6 +337,7 @@ public static class ConditionUtil {
             case ConditionType.mastery_farming:
             case ConditionType.mastery_harvest_otherhouse:
             case ConditionType.mastery_manufacturing:
+            case ConditionType.openStoryBook:
             case ConditionType.quest_accept:
             case ConditionType.quest_clear_by_chapter:
             case ConditionType.quest_clear:
