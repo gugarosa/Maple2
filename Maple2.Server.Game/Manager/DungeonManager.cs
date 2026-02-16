@@ -363,6 +363,7 @@ public class DungeonManager {
         UserRecord.IsDungeonSuccess = Lobby.DungeonRoomRecord.State == DungeonState.Clear;
         UserRecord.TotalSeconds = (int) (Lobby.DungeonRoomRecord.EndTick - Lobby.DungeonRoomRecord.StartTick) / 1000;
 
+        CalculateRankScore();
         CalculateRewards(clearTimestamp);
 
         session.ConditionUpdate(ConditionType.dungeon_reward, codeLong: Metadata.Id);
@@ -371,6 +372,27 @@ public class DungeonManager {
         }
 
         session.Send(DungeonRewardPacket.Dungeon(UserRecord));
+    }
+
+    private void CalculateRankScore() {
+        if (Metadata == null || UserRecord == null) {
+            return;
+        }
+
+        int totalScore = UserRecord.Missions.Values.Sum(m => m.Score);
+        UserRecord.Score = totalScore;
+
+        if (Metadata.RankTableId > 0 &&
+            session.TableMetadata.DungeonConfigTable.MissionRanks.TryGetValue(Metadata.RankTableId, out DungeonMissionRankMetadata? rankMetadata)) {
+            DungeonMissionRank rank = DungeonMissionRank.F;
+            foreach (DungeonMissionRankMetadata.Score scoreThreshold in rankMetadata.Scores.OrderByDescending(s => s.Value)) {
+                if (totalScore >= scoreThreshold.Value) {
+                    rank = scoreThreshold.Grade;
+                    break;
+                }
+            }
+            UserRecord.HighestScore = Math.Max(UserRecord.HighestScore, totalScore);
+        }
     }
 
     private void CalculateRewards(long clearTimeStamp) {
@@ -505,7 +527,6 @@ public class DungeonManager {
             return;
         }
 
-        // TODO: Rank score
         if (metadata.GroupType == DungeonGroupType.colosseum) {
             record.TotalClears = UserRecord.Round;
         } else {
