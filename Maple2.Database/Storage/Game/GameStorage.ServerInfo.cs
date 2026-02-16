@@ -7,15 +7,20 @@ public partial class GameStorage {
     public partial class Request {
         public DateTime GetLastDailyReset() {
             ServerInfo? dailyReset = Context.ServerInfo.Find("DailyReset");
-            return dailyReset?.LastModified ?? CreateDailyReset();
+            return dailyReset?.LastModified ?? CreateServerInfo("DailyReset");
         }
 
-        private DateTime CreateDailyReset() {
+        public DateTime GetLastWeeklyReset() {
+            ServerInfo? weeklyReset = Context.ServerInfo.Find("WeeklyReset");
+            return weeklyReset?.LastModified ?? CreateServerInfo("WeeklyReset");
+        }
+
+        private DateTime CreateServerInfo(string key) {
             var model = new ServerInfo {
-                Key = "DailyReset",
+                Key = key,
             };
             Context.ServerInfo.Add(model);
-            Context.SaveChanges(); // Exception if failed.
+            Context.SaveChanges();
 
             return model.LastModified;
         }
@@ -35,6 +40,23 @@ public partial class GameStorage {
                 Context.Database.ExecuteSqlRaw("UPDATE `nurturing` SET `PlayedBy` = '[]'");
                 Context.Database.ExecuteSqlRaw("UPDATE `home` SET `DecorationRewardTimestamp` = 0");
                 // TODO: Death counter
+            }
+        }
+
+        public void WeeklyReset() {
+            lock (Context) {
+                ServerInfo? serverInfo = Context.ServerInfo.Find("WeeklyReset");
+                if (serverInfo == null) {
+                    serverInfo = new ServerInfo { Key = "WeeklyReset" };
+                    Context.ServerInfo.Add(serverInfo);
+                } else {
+                    serverInfo.LastModified = DateTime.Now;
+                    Context.Update(serverInfo);
+                }
+                Context.SaveChanges();
+
+                Context.Database.ExecuteSqlRaw("UPDATE `guild-member` SET `WeeklyContribution` = 0");
+                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeRewardsClaimed` = DEFAULT");
             }
         }
     }

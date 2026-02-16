@@ -53,6 +53,7 @@ public class WorldServer {
         db.DeleteUnownedItems();
 
         StartDailyReset();
+        StartWeeklyReset();
         StartWorldEvents();
         ScheduleGameEvents();
         FieldPlotExpiryCheck();
@@ -175,7 +176,40 @@ public class WorldServer {
     }
     #endregion
 
-    private void StartWorldEvents() {
+    #region Weekly Reset
+    private void StartWeeklyReset() {
+        using GameStorage.Request db = gameStorage.Context();
+        DateTime lastReset = db.GetLastWeeklyReset();
+
+        DateTime now = DateTime.Now;
+        // Calculate the most recent Friday midnight
+        int daysSinceFriday = ((int) now.DayOfWeek - (int) DayOfWeek.Friday + 7) % 7;
+        DateTime lastFridayMidnight = new DateTime(now.Year, now.Month, now.Day).AddDays(-daysSinceFriday);
+
+        if (lastReset < lastFridayMidnight) {
+            db.WeeklyReset();
+        }
+
+        DateTime nextFriday = now.NextDayOfWeek(DayOfWeek.Friday);
+        TimeSpan timeUntilFriday = nextFriday - now;
+        scheduler.Schedule(ScheduleWeeklyReset, timeUntilFriday);
+    }
+
+    private void ScheduleWeeklyReset() {
+        WeeklyReset();
+        scheduler.ScheduleRepeated(WeeklyReset, TimeSpan.FromDays(7), strict: true);
+    }
+
+    private void WeeklyReset() {
+        using GameStorage.Request db = gameStorage.Context();
+        db.WeeklyReset();
+        foreach ((int channelId, ChannelClient channelClient) in channelClients) {
+            channelClient.GameReset(new GameResetRequest {
+                Weekly = new GameResetRequest.Types.Weekly(),
+            });
+        }
+    }
+    #endregion
         // Global Portal
         IReadOnlyDictionary<int, GlobalPortalMetadata> globalEvents = serverTableMetadata.TimeEventTable.GlobalPortal;
         foreach ((int eventId, GlobalPortalMetadata eventData) in globalEvents) {
