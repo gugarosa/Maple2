@@ -103,7 +103,7 @@ public class FurnishingManager {
 
             if (!AddInventory(cube)) {
                 logger.Fatal("Failed to add cube: {CubeId} to inventory", cube.Id);
-                throw new InvalidOperationException($"Failed to add cube: {cube.Id} to inventory");
+                return false;
             }
 
             return true;
@@ -207,7 +207,7 @@ public class FurnishingManager {
             long itemUid = AddStorage(cube);
             if (itemUid == 0) {
                 logger.Fatal("Failed to return cube: {CubeId} to storage", cube.Id);
-                throw new InvalidOperationException($"Failed to return cube: {cube.Id} to storage");
+                return false;
             }
 
             return true;

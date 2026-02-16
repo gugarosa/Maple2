@@ -6,10 +6,12 @@ using Maple2.Model.Game;
 using Maple2.Server.Core.Packets;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
+using Serilog;
 
 namespace Maple2.Server.Game.Manager.Items;
 
 public class EquipManager {
+    private static readonly ILogger Logger = Log.Logger.ForContext<EquipManager>();
     private readonly GameSession session;
 
     public readonly ConcurrentDictionary<EquipSlot, Item> Gear;
@@ -125,12 +127,14 @@ public class EquipManager {
             }
 
             if (!UnequipInternal(slot, isSkin, item.Slot)) {
-                throw new InvalidOperationException("Failed to unequip item");
+                Logger.Error("Failed to unequip item in slot {Slot}", slot);
+                session.Item.Inventory.Add(item);
+                return false;
             }
             if (item.Metadata.SlotNames.Length > 1) { // Two-Handed Weapon, Overall Armor
                 foreach (EquipSlot unequipSlot in item.Metadata.SlotNames) {
                     if (!UnequipInternal(unequipSlot, isSkin)) {
-                        throw new InvalidOperationException("Failed to unequip item");
+                        Logger.Error("Failed to unequip item in slot {Slot}", unequipSlot);
                     }
                 }
             }
@@ -202,7 +206,9 @@ public class EquipManager {
             }
 
             if (!UnequipBadge(badge.Badge.Type, badge.Slot)) {
-                throw new InvalidOperationException("Failed to unequip badge");
+                Logger.Error("Failed to unequip badge type {BadgeType}", badge.Badge.Type);
+                session.Item.Inventory.Add(badge);
+                return false;
             }
 
             if (badge.Metadata.Limit.TransferType is TransferType.BindOnEquip or TransferType.BindOnLoot) {
@@ -274,7 +280,8 @@ public class EquipManager {
             }
 
             if (unequipBadge.Badge == null) {
-                throw new InvalidOperationException("Unequipped badge that is not a badge");
+                Logger.Error("Unequipped badge {Uid} that is not a badge", unequipBadge.Uid);
+                return false;
             }
 
             unequipBadge.Group = ItemGroup.Default;
@@ -282,7 +289,8 @@ public class EquipManager {
 
             bool success = session.Item.Inventory.Add(unequipBadge);
             if (!success) {
-                throw new InvalidOperationException($"Failed to unequip badge: {unequipBadge.Uid}");
+                Logger.Error("Failed to unequip badge: {BadgeUid}", unequipBadge.Uid);
+                return false;
             }
 
             session.Field?.Broadcast(EquipPacket.UnequipBadge(session.Player, unequipBadge.Badge.Type));
@@ -317,7 +325,8 @@ public class EquipManager {
         }
 
         if (!success) {
-            throw new InvalidOperationException($"Failed to unequip item: {unequipItem.Uid}");
+            Logger.Error("Failed to unequip item: {ItemUid}", unequipItem.Uid);
+            return false;
         }
 
         session.Field?.Broadcast(EquipPacket.UnequipItem(session.Player, unequipItem));

@@ -74,7 +74,8 @@ public sealed class AchievementManager {
                 GameStorage.Request db = session.GameStorage.Context();
                 achievement = db.CreateAchievement(metadata.AccountWide ? session.AccountId : session.CharacterId, achievement);
                 if (achievement == null) {
-                    throw new InvalidOperationException($"Failed to create achievement: {metadata.Id}");
+                    logger.Error("Failed to create achievement: {AchievementId}", metadata.Id);
+                    continue;
                 }
                 achievements.Add(metadata.Id, achievement);
             }
@@ -279,7 +280,8 @@ public sealed class AchievementManager {
                 GameStorage.Request db = session.GameStorage.Context();
                 achievement = db.CreateAchievement(metadata.AccountWide ? session.AccountId : session.CharacterId, achievement);
                 if (achievement == null) {
-                    throw new InvalidOperationException($"Failed to create achievement: {metadata.Id}");
+                    logger.Error("Failed to create achievement: {AchievementId}", metadata.Id);
+                    return;
                 }
                 if (metadata.AccountWide) {
                     accountValues.TryAdd(metadata.Id, achievement);

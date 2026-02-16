@@ -315,7 +315,7 @@ public class ItemEnchantManager {
             foreach ((long fodderUid, _) in fodders) {
                 if (!session.Item.Inventory.Consume(fodderUid, 1)) {
                     logger.Fatal("Failed to consume item {ItemUid}", fodderUid);
-                    throw new InvalidOperationException($"Fatal: Consuming item: {fodderUid}");
+                    return false;
                 }
             }
 

@@ -78,7 +78,7 @@ public partial class FieldManager {
                 ICollection<PlotCube>? results = db.SaveCubes(plot, plot.Cubes.Values);
                 if (results == null) {
                     logger.Fatal("Failed to save plot cubes: {PlotId}", plot.Id);
-                    throw new InvalidOperationException($"Failed to save plot cubes: {plot.Id}");
+                    return;
                 }
 
                 List<PlotCube> portalCubes = plot.Cubes.Values.Where(c => c.Interact?.PortalSettings is not null).ToList();

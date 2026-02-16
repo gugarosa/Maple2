@@ -141,13 +141,13 @@ public sealed class ShopManager {
 
         if (data.RestockTime < DateTime.Now.ToEpochSeconds()) {
             using GameStorage.Request db = session.GameStorage.Context();
-            if (!TryRemoveShopData(data.ShopId)) {
-                throw new InvalidOperationException($"Failed to remove shop data {metadata.Id} for character {session.CharacterId}");
-            }
-            db.DeleteCharacterShopData(metadata.RestockData.AccountWide ? session.AccountId : session.CharacterId, metadata.Id);
+            if (TryRemoveShopData(data.ShopId)) {
+                db.DeleteCharacterShopData(metadata.RestockData.AccountWide ? session.AccountId : session.CharacterId, metadata.Id);
 
-            long restockTime = GetRestockTime(metadata);
-            return CreateInstancedShop(metadata, CreateShopData(metadata, restockTime), restockTime);
+                long restockTime = GetRestockTime(metadata);
+                return CreateInstancedShop(metadata, CreateShopData(metadata, restockTime), restockTime);
+            }
+            logger.Error("Failed to remove shop data {ShopId} for character {CharacterId}", metadata.Id, session.CharacterId);
         }
 
         // Assemble shop
@@ -277,9 +277,11 @@ public sealed class ShopManager {
         if (metadata.RestockData.ResetType != ResetType.Default) {
             using GameStorage.Request db = session.GameStorage.Context();
             long ownerId = metadata.RestockData.AccountWide ? session.AccountId : session.CharacterId;
-            data = db.CreateCharacterShopData(ownerId, data);
-            if (data == null) {
-                throw new InvalidOperationException($"Failed to create shop data {metadata.Id} for character {session.CharacterId}");
+            CharacterShopData? dbData = db.CreateCharacterShopData(ownerId, data);
+            if (dbData == null) {
+                logger.Error("Failed to create shop data {ShopId} for character {CharacterId}", metadata.Id, session.CharacterId);
+            } else {
+                data = dbData;
             }
         }
 
