@@ -65,6 +65,7 @@ public class FieldPlayer : Actor<Player> {
     private long StateSyncTrackingTick { get; set; }
 
     private long LastCurrentBlockUpdateTick { get; set; }
+    private long lastHazardDamageTick;
 
     public FieldEntity? StandingOnBlock { get; set; }
 
@@ -170,6 +171,11 @@ public class FieldPlayer : Actor<Player> {
 
         if (InBattle && tickCount - battleTick > Constant.UserBattleDurationTick) {
             InBattle = false;
+        }
+
+        if ((State is ActorState.Swim or ActorState.SwimDash) && tickCount - lastHazardDamageTick >= 1000) {
+            lastHazardDamageTick = tickCount;
+            ApplyHazardousLiquidDamage();
         }
 
         UpdateStateSkill();
@@ -461,6 +467,23 @@ public class FieldPlayer : Actor<Player> {
             },
             Async = true,
         });
+    }
+
+    private void ApplyHazardousLiquidDamage() {
+        int damage = 0;
+        Session.Field?.AccelerationStructure?.QueryFluidsCenter(Position, new Vector3(50, 50, 50), fluid => {
+            if (damage > 0) {
+                return;
+            }
+            damage = fluid.LiquidType switch {
+                LiquidType.lava => (int) (Stats.Values[BasicAttribute.Health].Total * 0.1),
+                LiquidType.poison => (int) (Stats.Values[BasicAttribute.Health].Total * 0.05),
+                _ => 0,
+            };
+        });
+        if (damage > 0) {
+            ConsumeHp(damage);
+        }
     }
 
     /// <summary>
