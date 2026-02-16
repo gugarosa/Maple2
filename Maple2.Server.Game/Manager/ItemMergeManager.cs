@@ -35,7 +35,7 @@ public sealed class ItemMergeManager {
         if (item == null) {
             item = session.Item.Equips.Get(itemUid);
             if (item == null) {
-                // TODO: Error
+                logger.Error("Item Merge: item not found in inventory or equips: {Uid}", itemUid);
                 return;
             }
         }

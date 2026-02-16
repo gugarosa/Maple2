@@ -150,8 +150,20 @@ public partial class TriggerContext {
     }
 
     public void ShowEventResult(string type, string text, int duration, int userTagId, int boxId, bool isOutSide) {
-        ErrorLog("[ShowEventResult] type:{Type}, text:{Text}, duration:{Duration}, userTagId:{TagId}, boxId:{BoxId}, isOutSide:{IsOutside}",
+        DebugLog("[ShowEventResult] type:{Type}, text:{Text}, duration:{Duration}, userTagId:{TagId}, boxId:{BoxId}, isOutSide:{IsOutside}",
             type, text, duration, userTagId, boxId, isOutSide);
+
+        BannerType bannerType = type.ToLower() switch {
+            "winner" => BannerType.Winner,
+            "gameover" => BannerType.GameOver,
+            "lose" => BannerType.Lose,
+            "success" => BannerType.Success,
+            "fail" => BannerType.Fail,
+            "bonus" => BannerType.Bonus,
+            "draw" => BannerType.Draw,
+            _ => BannerType.Text,
+        };
+        Broadcast(MassiveEventPacket.Banner(bannerType, text, duration));
     }
 
     public void ShowGuideSummary(int entityId, int textId, int duration) {
