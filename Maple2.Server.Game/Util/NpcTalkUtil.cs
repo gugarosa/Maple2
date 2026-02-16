@@ -252,6 +252,6 @@ public static class NpcTalkUtil {
 
     public static int GetFirstStateScript(IEnumerable<int> questStates, int lowerBound, int upperBound) {
         IEnumerable<int> statesInRange = questStates.Where(id => id >= lowerBound && id <= upperBound);
-        return statesInRange.Min();
+        return statesInRange.DefaultIfEmpty(0).Min();
     }
 }

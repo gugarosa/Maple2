@@ -88,7 +88,6 @@ public class FishingHandler : FieldPacketHandler {
     }
 
     private static void HandleFailMinigame(GameSession session) {
-        Console.WriteLine("Fail Minigame");
         session.Fishing.FailMinigame();
     }
 }

@@ -196,6 +196,7 @@ public class PartyManager : IDisposable {
         if (Party.Members.Count > 1) {
             session.Send(PartyPacket.Disband());
         }
+        session.Dungeon.Reset();
         RemoveParty();
         return true;
     }

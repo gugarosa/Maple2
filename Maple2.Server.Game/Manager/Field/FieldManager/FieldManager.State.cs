@@ -635,7 +635,7 @@ public partial class FieldManager {
         MapMetadata bonusMapMetadata = bonusMaps[Random.Shared.Next(bonusMaps.Count)];
         IField? bonusMap = FieldFactory.Create(bonusMapMetadata.Id);
         bonusMap?.Init();
-        Console.WriteLine($"Creating bonus map {bonusMapMetadata.Id} at {spawn.Position} in {delay} ms.");
+        logger.Debug("Creating bonus map {MapId} at {Position} in {Delay} ms", bonusMapMetadata.Id, spawn.Position, delay);
         if (bonusMap == null) {
             return;
         }

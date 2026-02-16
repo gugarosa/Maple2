@@ -142,7 +142,8 @@ public class NpcTalkHandler : FieldPacketHandler {
             selectedState = questState;
             talkType = NpcTalkType.Quest;
             // now that quest is selected, change the metadata to the quest's metadata
-            if (!ScriptMetadata.TryGet(session.Quest.GetAvailableQuests(npc.Value.Id).Keys.Min(), out metadata)) {
+            SortedDictionary<int, QuestMetadata> availableQuests = session.Quest.GetAvailableQuests(npc.Value.Id);
+            if (availableQuests.Count == 0 || !ScriptMetadata.TryGet(availableQuests.Keys.Min(), out metadata)) {
                 session.Send(NpcTalkPacket.Close());
                 npc.StopTalk();
                 return;

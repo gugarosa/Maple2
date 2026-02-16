@@ -182,7 +182,7 @@ public sealed class QuestManager {
     }
 
     private static bool IsRepeatable(QuestMetadata metadata) {
-        return metadata.Basic.Type is QuestType.DailyMission or QuestType.AllianceQuest;
+        return metadata.Basic.Type is QuestType.DailyMission or QuestType.AllianceQuest or QuestType.GuildQuest;
     }
 
     private QuestError Restart(Quest quest, bool bypassRequirements = false) {

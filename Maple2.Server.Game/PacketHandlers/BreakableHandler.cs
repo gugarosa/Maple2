@@ -53,7 +53,7 @@ public class BreakableHandler : FieldPacketHandler {
             session.ConditionUpdate(ConditionType.breakable_object);
             breakable.UpdateState(BreakableState.Break);
         } else {
-            Console.WriteLine(entityId + " does not exist...");
+            Logger.Warning("Breakable entity {EntityId} does not exist", entityId);
         }
     }
 }
