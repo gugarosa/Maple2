@@ -411,6 +411,14 @@ public sealed class QuestManager {
             session.ConditionUpdate(ConditionType.field_mission);
         }
 
+        if (quest.Metadata.Basic.Type == QuestType.AllianceQuest) {
+            session.ConditionUpdate(ConditionType.quest_alliance, codeLong: quest.Metadata.Id);
+        }
+
+        if (quest.Metadata.Basic.Type == QuestType.DailyMission) {
+            session.ConditionUpdate(ConditionType.quest_daily, codeLong: quest.Metadata.Id);
+        }
+
         quest.EndTime = DateTime.Now.ToEpochSeconds();
         quest.State = QuestState.Completed;
         quest.CompletionCount++;

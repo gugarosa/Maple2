@@ -87,6 +87,8 @@ public static class ConditionUtil {
             case ConditionType.quest_accept:
             case ConditionType.quest_clear_by_chapter:
             case ConditionType.quest_clear:
+            case ConditionType.quest_alliance:
+            case ConditionType.quest_daily:
             case ConditionType.buff:
             case ConditionType.enchant_result:
             case ConditionType.dialogue:
@@ -326,6 +328,8 @@ public static class ConditionUtil {
             case ConditionType.quest_accept:
             case ConditionType.quest_clear_by_chapter:
             case ConditionType.quest_clear:
+            case ConditionType.quest_alliance:
+            case ConditionType.quest_daily:
             case ConditionType.buff:
             case ConditionType.dialogue:
             case ConditionType.talk_in:
