@@ -140,6 +140,7 @@ public class GuildManager : IDisposable {
         }
 
         session.ConditionUpdate(ConditionType.guild_join_req);
+        session.ConditionUpdate(ConditionType.guild_join);
         return true;
     }
 
