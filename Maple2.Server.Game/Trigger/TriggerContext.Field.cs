@@ -472,7 +472,12 @@ public partial class TriggerContext {
     }
 
     public void RoomExpire() {
-        ErrorLog("[RoomExpire]");
+        DebugLog("[RoomExpire]");
+        if (Field.RoomTimer != null) {
+            Field.RoomTimer.Modify(-Field.RoomTimer.Duration);
+        } else {
+            Field.Dispose();
+        }
     }
 
     public void FieldWarEnd(bool isClear) {

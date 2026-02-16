@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using Maple2.Model.Enum;
 using Maple2.Model.Game;
+using Maple2.Model.Game.Dungeon;
 using Maple2.PacketLib.Tools;
 using Maple2.Server.Game.Manager.Field;
 using Maple2.Server.Game.Model;
@@ -82,51 +84,79 @@ public partial class TriggerContext : ITriggerContext {
     }
 
     public bool DungeonVariable(int id, int value) {
-        ErrorLog("[GetDungeonVariable] id:{Id}", id);
-        return false;
+        DebugLog("[GetDungeonVariable] id:{Id}", id);
+        int currentValue = Field.UserValues.GetValueOrDefault($"dungeon_{id}", 0);
+        return currentValue == value;
     }
 
     public bool NpcDamage(int spawnPointId, float damage, OperatorType operatorType) {
-        ErrorLog("[GetNpcDamageRate] spawnPointId:{Id}, damage:{Damage}, operatorType:{Operator}", spawnPointId, damage, operatorType);
+        DebugLog("[GetNpcDamageRate] spawnPointId:{Id}, damage:{Damage}, operatorType:{Operator}", spawnPointId, damage, operatorType);
+        FieldNpc? npc = Field.EnumerateNpcs().FirstOrDefault(n => n.SpawnPointId == spawnPointId);
+        float damageRate = 1.0f;
+        if (npc != null) {
+            Stat health = npc.Stats.Values[BasicAttribute.Health];
+            if (health.Total > 0) {
+                damageRate = 1.0f - ((float) health.Current / health.Total);
+            }
+        }
         return operatorType switch {
-            OperatorType.Greater => damage > 1.0f,
-            OperatorType.GreaterEqual => damage >= 1.0f,
-            OperatorType.Equal => Math.Abs(damage - 1.0f) < 0.0001f,
-            OperatorType.LessEqual => damage <= 1.0f,
-            OperatorType.Less => damage < 1.0f,
+            OperatorType.Greater => damageRate > damage,
+            OperatorType.GreaterEqual => damageRate >= damage,
+            OperatorType.Equal => Math.Abs(damageRate - damage) < 0.0001f,
+            OperatorType.LessEqual => damageRate <= damage,
+            OperatorType.Less => damageRate < damage,
             _ => false,
         };
     }
 
     public bool NpcHp(int spawnPointId, bool isRelative, int value, CompareType compareType) {
-        ErrorLog("[GetNpcHpRate] spawnPointId:{Id}, isRelative:{IsRelative}, value:{Value}, compareType:{CompareType}", spawnPointId, isRelative, value, compareType);
+        DebugLog("[GetNpcHpRate] spawnPointId:{Id}, isRelative:{IsRelative}, value:{Value}, compareType:{CompareType}", spawnPointId, isRelative, value, compareType);
+        FieldNpc? npc = Field.EnumerateNpcs().FirstOrDefault(n => n.SpawnPointId == spawnPointId);
+        int hpPercent = 100;
+        if (npc != null) {
+            Stat health = npc.Stats.Values[BasicAttribute.Health];
+            if (health.Total > 0) {
+                hpPercent = (int) ((float) health.Current / health.Total * 100);
+            }
+        }
         return compareType switch {
-            CompareType.lower => value > 100,
-            CompareType.lowerEqual => value >= 100,
-            CompareType.higher => value < 100,
-            CompareType.higherEqual => value <= 100,
+            CompareType.lower => hpPercent < value,
+            CompareType.lowerEqual => hpPercent <= value,
+            CompareType.higher => hpPercent > value,
+            CompareType.higherEqual => hpPercent >= value,
             _ => false,
         };
     }
 
     public bool DungeonId(int dungeonId) {
-        ErrorLog("[GetDungeonId]");
-        return dungeonId == 0;
+        DebugLog("[GetDungeonId]");
+        return Field.DungeonId == dungeonId;
     }
 
     public bool DungeonLevel(int level) {
-        ErrorLog("[GetDungeonLevel]");
-        return level == 3;
+        DebugLog("[GetDungeonLevel]");
+        if (Field is DungeonFieldManager dungeonField) {
+            return dungeonField.DungeonMetadata.Level == level;
+        }
+        return false;
     }
 
     public bool DungeonMaxUserCount(int value) {
-        ErrorLog("[GetDungeonMaxUserCount]");
-        return value == 1;
+        DebugLog("[GetDungeonMaxUserCount]");
+        return Field.Size == value;
     }
 
     public bool DungeonRound(int round) {
-        ErrorLog("[GetDungeonRoundsRequired]");
-        return int.MaxValue == round;
+        DebugLog("[GetDungeonRoundsRequired]");
+        if (Field is not DungeonFieldManager dungeonField) {
+            return false;
+        }
+        foreach (FieldPlayer player in Field.Players.Values) {
+            if (player.Session.Dungeon.UserRecord is { } record) {
+                return record.Round >= round;
+            }
+        }
+        return false;
     }
 
     public bool CheckUser(bool negate) {
@@ -182,13 +212,23 @@ public partial class TriggerContext : ITriggerContext {
     }
 
     public bool DungeonPlayTime(int playSeconds) {
-        ErrorLog("[GetDungeonPlayTime]");
-        return playSeconds == 0;
+        DebugLog("[GetDungeonPlayTime]");
+        if (Field is DungeonFieldManager dungeonField && dungeonField.Lobby != null) {
+            DungeonRoomRecord record = dungeonField.Lobby.DungeonRoomRecord;
+            if (record.StartTick > 0) {
+                long elapsedMs = dungeonField.Lobby.FieldTick - record.StartTick;
+                return elapsedMs >= playSeconds * 1000L;
+            }
+        }
+        return false;
     }
 
     // Scripts seem to just check if this is "Fail"
     public bool DungeonState(string checkState) {
-        ErrorLog("[GetDungeonState]");
+        DebugLog("[GetDungeonState]");
+        if (Field is DungeonFieldManager dungeonField) {
+            return dungeonField.DungeonRoomRecord.State.ToString() == checkState;
+        }
         return checkState == "";
     }
 

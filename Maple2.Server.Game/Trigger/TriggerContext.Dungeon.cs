@@ -121,7 +121,8 @@ public partial class TriggerContext {
     }
 
     public void SetDungeonVariable(int varId, int value) {
-        ErrorLog("[SetDungeonVariable] varId:{VarId}, value:{Value}", varId, value);
+        DebugLog("[SetDungeonVariable] varId:{VarId}, value:{Value}", varId, value);
+        Field.UserValues[$"dungeon_{varId}"] = value;
     }
 
     public void SetUserValueFromDungeonRewardCount(string key, int dungeonRewardId) {
@@ -180,7 +181,13 @@ public partial class TriggerContext {
     }
 
     public bool DungeonTimeout() {
-        ErrorLog("[DungeonTimeout]");
+        DebugLog("[DungeonTimeout]");
+        if (Field is DungeonFieldManager dungeonField && dungeonField.Lobby != null) {
+            RoomTimer? timer = dungeonField.Lobby.RoomTimer;
+            if (timer != null) {
+                return timer.Expired(Field.FieldTick);
+            }
+        }
         return false;
     }
 

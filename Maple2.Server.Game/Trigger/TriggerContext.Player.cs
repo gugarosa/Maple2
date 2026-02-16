@@ -20,11 +20,21 @@ public partial class TriggerContext {
     }
 
     public void GiveExp(int boxId, float expRate, bool arg3) {
-        ErrorLog("[GiveExp] boxId:{BoxId}, expRate:{ExpRate}", boxId, expRate);
+        DebugLog("[GiveExp] boxId:{BoxId}, expRate:{ExpRate}", boxId, expRate);
+        foreach (FieldPlayer player in PlayersInBox(boxId)) {
+            if (!player.Session.TableMetadata.ExpTable.NextExp.TryGetValue(player.Value.Character.Level, out long nextExp) || nextExp <= 0) {
+                continue;
+            }
+            long exp = (long) (nextExp * expRate);
+            player.Session.Exp.AddBaseExp(exp, ExpType.quest);
+        }
     }
 
     public void GiveRewardContent(int rewardId) {
-        ErrorLog("[GiveRewardContent] rewardId:{RewardId}", rewardId);
+        DebugLog("[GiveRewardContent] rewardId:{RewardId}", rewardId);
+        foreach (FieldPlayer player in Field.Players.Values) {
+            player.Session.GetRewardContent(rewardId);
+        }
     }
 
     public void KickMusicAudience(int targetBoxId, int targetPortalId) {
@@ -171,11 +181,20 @@ public partial class TriggerContext {
     }
 
     public void SetQuestAccept(int questId) {
-        ErrorLog("[SetQuestAccept] questId:{QuestId}", questId);
+        DebugLog("[SetQuestAccept] questId:{QuestId}", questId);
+        foreach (FieldPlayer player in Field.Players.Values) {
+            player.Session.Quest.Start(questId, bypassRequirements: true);
+        }
     }
 
     public void SetQuestComplete(int questId) {
-        ErrorLog("[SetQuestComplete] questId:{QuestId}", questId);
+        DebugLog("[SetQuestComplete] questId:{QuestId}", questId);
+        foreach (FieldPlayer player in Field.Players.Values) {
+            if (!player.Session.Quest.TryGetQuest(questId, out Quest? quest)) {
+                continue;
+            }
+            player.Session.Quest.Complete(quest, bypassConditions: true);
+        }
     }
 
     public void TalkNpc(int spawnId) {
