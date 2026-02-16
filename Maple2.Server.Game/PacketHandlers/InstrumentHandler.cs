@@ -154,7 +154,6 @@ public class InstrumentHandler : FieldPacketHandler {
         int masteryValue = session.Instrument.Score?.Metadata.Music?.MasteryValue ?? 1;
         int masteryValueMax = session.Instrument.Score?.Metadata.Music?.MasteryValueMax ?? 1;
 
-        // TODO: Prestige exp
         long totalTickTime = Environment.TickCount64 - session.Instrument.StartTick;
         session.Mastery[MasteryType.Music] += (int) Math.Min(totalTickTime * masteryValue / 1000, masteryValueMax);
 
