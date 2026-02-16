@@ -143,6 +143,7 @@ public class EquipManager {
             item.Slot = (short) slot;
             equips[slot] = item;
             session.Field?.Broadcast(EquipPacket.EquipItem(session.Player, item, 0));
+            session.ConditionUpdate(ConditionType.change_equip, codeLong: item.Id);
             if (item.Template != null) {
                 session.ConditionUpdate(ConditionType.change_ugc_equip);
             }
