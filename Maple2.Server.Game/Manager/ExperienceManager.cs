@@ -64,6 +64,31 @@ public sealed class ExperienceManager {
                 session.Player.Value.Account.PrestigeMissions.Add(new PrestigeMission(missionId));
             }
         }
+
+        AccumulateRestExp();
+    }
+
+    private void AccumulateRestExp() {
+        long lastOnline = session.Player.Value.Character.LastOnlineTime;
+        if (lastOnline <= 0) {
+            return;
+        }
+
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long offlineSeconds = now - lastOnline;
+        if (offlineSeconds <= 0) {
+            return;
+        }
+
+        if (!session.TableMetadata.ExpTable.NextExp.TryGetValue(Level, out long nextLevelExp) || nextLevelExp <= 0) {
+            return;
+        }
+
+        // Grant 1% of next-level EXP per offline hour, capped at 50% of next-level EXP
+        double offlineHours = offlineSeconds / 3600.0;
+        long restExpGain = (long) (nextLevelExp * 0.01 * offlineHours);
+        long maxRestExp = nextLevelExp / 2;
+        RestExp = Math.Min(RestExp + restExpGain, maxRestExp);
     }
 
     public void ResetChainKill() => ChainKillCount = 0;
