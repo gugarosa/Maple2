@@ -33,12 +33,16 @@ public class WorldMapHandler : FieldPacketHandler {
 
         // 102 = Victoria, 103 = Karkar, 105 = Kritias
         int mapCode = packet.ReadInt();
-        session.Send(WorldMapPacket.Load(new List<ICollection<MapWorldBoss>>(), new List<MapPopulation>()));
+        short channel = GameServer.GetChannel();
+        ICollection<MapPopulation> populations = session.FieldFactory.GetPopulations(channel);
+        session.Send(WorldMapPacket.Load(new List<ICollection<MapWorldBoss>>(), populations));
     }
 
     private static void HandlePopulation(GameSession session, IByteReader packet) {
         // 102 = Victoria, 103 = Karkar, 105 = Kritias
         int mapCode = packet.ReadInt();
-        session.Send(WorldMapPacket.Population(new List<MapPopulation>()));
+        short channel = GameServer.GetChannel();
+        ICollection<MapPopulation> populations = session.FieldFactory.GetPopulations(channel);
+        session.Send(WorldMapPacket.Population(populations));
     }
 }

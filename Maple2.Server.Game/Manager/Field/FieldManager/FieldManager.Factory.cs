@@ -337,6 +337,24 @@ public partial class FieldManager {
             return MigrationError.ok;
         }
 
+        public ICollection<MapPopulation> GetPopulations(short channel) {
+            var populations = new List<MapPopulation>();
+            foreach ((int mapId, ConcurrentDictionary<int, FieldManager> rooms) in fields) {
+                int playerCount = rooms.Values.Where(f => !f.Disposed).Sum(f => f.Players.Count);
+                if (playerCount <= 0) {
+                    continue;
+                }
+                // Population: 1 = high (3 icons), 2 = medium (2 icons), 3 = low (1 icon)
+                int population = playerCount >= 10 ? 1 : playerCount >= 5 ? 2 : 3;
+                populations.Add(new MapPopulation {
+                    MapId = mapId,
+                    Population = population,
+                    Channel = channel,
+                });
+            }
+            return populations;
+        }
+
         public void Dispose() {
             foreach (ConcurrentDictionary<int, FieldManager> fields in fields.Values) {
                 foreach (FieldManager field in fields.Values) {
