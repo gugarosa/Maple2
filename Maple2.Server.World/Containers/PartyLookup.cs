@@ -77,6 +77,10 @@ public class PartyLookup : IDisposable {
             // Failed to remove party after validating.
             return PartyError.s_party_err_not_found;
         }
+
+        if (manager.Party.Search != null) {
+            partySearchLookup.Remove(manager.Party.Search.Id);
+        }
         manager.Dispose();
 
         return PartyError.none;
