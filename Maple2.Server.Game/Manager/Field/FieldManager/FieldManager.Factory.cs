@@ -197,6 +197,10 @@ public partial class FieldManager {
             dungeons.TryAdd(lobbyField.RoomId, lobbyField);
             logger.Debug("Dungeon Lobby Field:{MapId} OwnerId:{OwnerId} Room:{RoomId} initialized in {Time}ms", dungeonMetadata.LobbyFieldId, ownerId, lobbyField.RoomId, sw.ElapsedMilliseconds);
 
+            if (dungeonMetadata.DurationTick > 0) {
+                lobbyField.SetRoomTimer(RoomTimerType.Clock, dungeonMetadata.DurationTick);
+            }
+
             return lobbyField;
         }
 

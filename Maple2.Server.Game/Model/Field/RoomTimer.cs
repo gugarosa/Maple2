@@ -36,15 +36,27 @@ public class RoomTimer : IUpdatable {
         }
 
         if (tickCount > StartTick + Duration) {
-            foreach ((int objectId, FieldPlayer player) in field.Players) {
-                int returnMapId = player.Value.Character.ReturnMaps.Peek();
-                player.Session.Send(player.Session.PrepareField(returnMapId, returnMapId)
-                    ? FieldEnterPacket.Request(player)
-                    : FieldEnterPacket.Error(MigrationError.s_move_err_default));
+            // Teleport all players to their return map
+            TeleportPlayersOut(field);
+
+            // If this is a dungeon lobby, also teleport players from sub-fields
+            if (field is DungeonFieldManager dungeonField) {
+                foreach (DungeonFieldManager roomField in dungeonField.RoomFields.Values) {
+                    TeleportPlayersOut(roomField);
+                }
             }
 
             logger.Debug("Room timer expired, disposing field {FieldId}", field.MapId);
             field.Dispose();
+        }
+    }
+
+    private static void TeleportPlayersOut(FieldManager targetField) {
+        foreach ((int objectId, FieldPlayer player) in targetField.Players) {
+            int returnMapId = player.Value.Character.ReturnMaps.Peek();
+            player.Session.Send(player.Session.PrepareField(returnMapId, returnMapId)
+                ? FieldEnterPacket.Request(player)
+                : FieldEnterPacket.Error(MigrationError.s_move_err_default));
         }
     }
 
