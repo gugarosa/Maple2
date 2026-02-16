@@ -70,7 +70,7 @@ public class MasteryHandler : FieldPacketHandler {
 
         session.Player.Value.Unlock.MasteryRewardsClaimed.Add(rewardBoxDetails, true);
         session.Send(MasteryPacket.ClaimReward(rewardBoxDetails, new List<ItemComponent>() {
-            new(entry.ItemId, (short) entry.ItemRarity, entry.ItemRarity, ItemTag.None),
+            new(entry.ItemId, (short) entry.ItemRarity, entry.ItemAmount, ItemTag.None),
         }));
     }
 
