@@ -1,5 +1,6 @@
 ﻿using Maple2.Model.Enum;
 using Maple2.Model.Game;
+using Maple2.Model.Metadata;
 using Maple2.PacketLib.Tools;
 using Maple2.Server.Core.Constants;
 using Maple2.Server.Game.PacketHandlers.Field;
@@ -37,9 +38,14 @@ public class RevivalHandler : FieldPacketHandler {
         if (session.Field.Metadata.Property.NoRevivalHere || session.Field.Metadata.Property.RevivalReturnId == 0) {
             return;
         }
-        // Revive player - this will handle moving to spawn point
+        if (!CheckDungeonRevivalLimit(session)) {
+            return;
+        }
         if (session.Player.Revive()) {
             session.Player.Tombstone = null;
+            if (session.Dungeon.Metadata != null) {
+                session.Dungeon.RevivalCount++;
+            }
         }
     }
 
@@ -51,16 +57,25 @@ public class RevivalHandler : FieldPacketHandler {
         if (session.Field.Metadata.Property.NoRevivalHere) {
             return;
         }
+        if (!CheckDungeonRevivalLimit(session)) {
+            return;
+        }
 
         bool useVoucher = packet.ReadBool();
 
         if (useVoucher) {
+            if (session.Dungeon.Metadata?.Limit.DisableMeretRevival == true) {
+                return;
+            }
             if (!session.Item.Inventory.Consume([new IngredientInfo(ItemTag.FreeReviveCoupon, 1)])) {
                 // Send error packet?
                 return;
             }
             session.Send(NoticePacket.Notice(NoticePacket.Flags.Alert | NoticePacket.Flags.Message, StringCode.s_revival_use_coupon));
         } else {
+            if (session.Dungeon.Metadata?.Limit.DisableMesoRevival == true) {
+                return;
+            }
             int totalMaxCount = Lua.GetMesoRevivalDailyMaxCount();
             if (session.Config.InstantReviveCount >= totalMaxCount) {
                 return;
@@ -77,6 +92,17 @@ public class RevivalHandler : FieldPacketHandler {
         session.Config.InstantReviveCount++;
         if (session.Player.Revive(true)) {
             session.Player.Tombstone = null;
+            if (session.Dungeon.Metadata != null) {
+                session.Dungeon.RevivalCount++;
+            }
         }
+    }
+
+    private static bool CheckDungeonRevivalLimit(GameSession session) {
+        DungeonRoomMetadata? metadata = session.Dungeon.Metadata;
+        if (metadata == null) {
+            return true;
+        }
+        return metadata.Limit.MaxRevivalCount <= 0 || session.Dungeon.RevivalCount < metadata.Limit.MaxRevivalCount;
     }
 }

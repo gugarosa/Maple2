@@ -31,6 +31,7 @@ public class DungeonManager {
     public DungeonRoomMetadata? Metadata;
     public DungeonRoomRecord? DungeonRoomRecord => Lobby?.DungeonRoomRecord;
     public DungeonUserRecord? UserRecord;
+    public int RevivalCount { get; set; }
     private int LobbyRoomId { get; set; }
 
     private Party? Party => session.Party.Party;
@@ -230,6 +231,7 @@ public class DungeonManager {
         LobbyRoomId = field.RoomId;
         Metadata = field.DungeonMetadata;
         UserRecord = new DungeonUserRecord(field.DungeonId, session.CharacterId);
+        RevivalCount = 0;
 
         foreach (int missionId in Metadata.UserMissions) {
             //TODO
