@@ -369,6 +369,11 @@ public class DungeonManager {
 
         CalculateRewards(clearTimestamp);
 
+        session.ConditionUpdate(ConditionType.dungeon_reward, codeLong: Metadata.Id);
+        if (metadata.UnionRewardId > 0) {
+            session.ConditionUpdate(ConditionType.dungeon_reward_group, codeLong: metadata.UnionRewardId);
+        }
+
         session.Send(DungeonRewardPacket.Dungeon(UserRecord));
     }
 

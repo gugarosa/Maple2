@@ -177,6 +177,9 @@ public static class ConditionUtil {
             case ConditionType.send_mail:
             case ConditionType.change_ugc_equip:
             case ConditionType.unlimited_enchant:
+            case ConditionType.dungeon_key_use:
+            case ConditionType.dungeon_reward:
+            case ConditionType.dungeon_reward_group:
                 return true;
         }
         return false;
@@ -327,6 +330,9 @@ public static class ConditionUtil {
             case ConditionType.send_mail:
             case ConditionType.change_ugc_equip:
             case ConditionType.unlimited_enchant:
+            case ConditionType.dungeon_key_use:
+            case ConditionType.dungeon_reward:
+            case ConditionType.dungeon_reward_group:
                 return true;
         }
         return false;
