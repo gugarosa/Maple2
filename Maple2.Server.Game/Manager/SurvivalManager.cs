@@ -79,12 +79,17 @@ public sealed class SurvivalManager {
             return;
         }
 
-        MedalType type = typeStr switch {
+        MedalType? type = typeStr switch {
             "effectTail" => MedalType.Tail,
             "gliding" => MedalType.Gliding,
             "riding" => MedalType.Riding,
-            _ => throw new InvalidOperationException($"Invalid medal type: {typeStr}"),
+            _ => null,
         };
+
+        if (type == null) {
+            logger.Warning("Failed to add medal: invalid type {Type}", typeStr);
+            return;
+        }
 
         long expiryTime = DateTime.MaxValue.ToEpochSeconds() - 1;
         // Get expiration
@@ -96,13 +101,13 @@ public sealed class SurvivalManager {
         }
 
         // Check if medal already exists
-        if (inventory[type].TryGetValue(id, out Medal? existing)) {
+        if (inventory[type.Value].TryGetValue(id, out Medal? existing)) {
             existing.ExpiryTime = Math.Min(existing.ExpiryTime + expiryTime, DateTime.MaxValue.ToEpochSeconds() - 1);
             session.Send(SurvivalPacket.LoadMedals(inventory, equip));
             return;
         }
 
-        Medal? medal = CreateMedal(id, type, expiryTime);
+        Medal? medal = CreateMedal(id, type.Value, expiryTime);
         if (medal == null) {
             return;
         }
