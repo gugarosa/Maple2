@@ -166,13 +166,15 @@ public class LapenshardHandler : FieldPacketHandler {
         }
         foreach ((long uid, int amount) in fodders) {
             if (!session.Item.Inventory.Consume(uid, amount)) {
-                throw new InvalidOperationException($"Failed to consume fodder: {uid} after validating");
+                Logger.Error("Failed to consume fodder: {Uid} after validating", uid);
+                return false;
             }
         }
         session.Currency.Meso -= entry.Meso;
 
         if (!session.Item.Inventory.Remove(lapenshardUid, out Item? lapenshard, 1)) {
-            throw new InvalidOperationException($"Failed to remove lapenshard: {lapenshardUid} after validating");
+            Logger.Error("Failed to remove lapenshard: {Uid} after validating", lapenshardUid);
+            return false;
         }
 
         Item upgradeLapenshard = lapenshard.Mutate(nextItem, Constant.LapenshardGrade);

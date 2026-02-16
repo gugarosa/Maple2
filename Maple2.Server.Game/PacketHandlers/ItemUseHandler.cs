@@ -322,17 +322,20 @@ public class ItemUseHandler : FieldPacketHandler {
         receiverMail = db.CreateMail(receiverMail);
         if (receiverMail == null) {
             session.Send(NoticePacket.MessageBox((StringCode.s_couple_effect_error_openbox_unknown)));
-            throw new InvalidOperationException($"Failed to create buddy badge mail for receiver character id: {receiverInfo.CharacterId}");
+            Logger.Error("Failed to create buddy badge mail for receiver character id: {CharacterId}", receiverInfo.CharacterId);
+            return;
         }
 
         Item? receiverItem = session.Field?.ItemDrop.CreateItem(buddyBadgeBoxParams[0], buddyBadgeBoxParams[1]);
         if (receiverItem == null) {
-            throw new InvalidOperationException($"Failed to create buddy badge item: {buddyBadgeBoxParams[0]}");
+            Logger.Error("Failed to create buddy badge item: {ItemId}", buddyBadgeBoxParams[0]);
+            return;
         }
         receiverItem.CoupleInfo = new ItemCoupleInfo(session.Player.Value.Character.Id, session.PlayerName);
         receiverItem = db.CreateItem(receiverMail.Id, receiverItem);
         if (receiverItem == null) {
-            throw new InvalidOperationException($"Failed to create buddy badge: {buddyBadgeBoxParams[0]}");
+            Logger.Error("Failed to create buddy badge: {ItemId}", buddyBadgeBoxParams[0]);
+            return;
         }
 
         receiverMail.Items.Add(receiverItem);

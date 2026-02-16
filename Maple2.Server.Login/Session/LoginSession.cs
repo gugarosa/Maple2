@@ -102,7 +102,8 @@ public class LoginSession : Core.Network.Session {
             ReleaseLock(AccountId);
         }
         if (readAccount == null || characters == null) {
-            throw new InvalidOperationException($"Failed to load characters for account: {AccountId}");
+            Logger.Error("Failed to load characters for account: {AccountId}", AccountId);
+            return;
         }
 
         account = readAccount;
@@ -125,7 +126,9 @@ public class LoginSession : Core.Network.Session {
         db.BeginTransaction();
         Character? character = db.CreateCharacter(createCharacter);
         if (character == null) {
-            throw new InvalidOperationException($"Failed to create character: {createCharacter.Id}");
+            Logger.Error("Failed to create character: {CharacterId}", createCharacter.Id);
+            Send(CharacterListPacket.CreateError(s_char_err_system));
+            return;
         }
         CharacterId = character.Id;
 

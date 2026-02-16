@@ -68,7 +68,8 @@ public class CharacterManagementHandler : PacketHandler<LoginSession> {
                 HandleDelete(session, packet);
                 break;
             default:
-                throw new ArgumentException($"Invalid CHARACTER_MANAGEMENT type {command}");
+                Logger.Warning("Invalid CHARACTER_MANAGEMENT type {Command}", command);
+                return;
         }
     }
 

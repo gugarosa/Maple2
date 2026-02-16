@@ -115,12 +115,14 @@ public class AttendanceHandler : FieldPacketHandler {
         using GameStorage.Request db = session.GameStorage.Context();
         receiverMail = db.CreateMail(receiverMail);
         if (receiverMail == null) {
-            throw new InvalidOperationException($"Failed to create mail for attendance reward to user {session.CharacterId}");
+            Logger.Error("Failed to create mail for attendance reward to user {CharacterId}", session.CharacterId);
+            return;
         }
 
         item = db.CreateItem(receiverMail.Id, item);
         if (item == null) {
-            throw new InvalidOperationException($"Failed to create reward item: {reward.ItemId}");
+            Logger.Error("Failed to create reward item: {ItemId}", reward.ItemId);
+            return;
         }
 
         receiverMail.Items.Add(item);
