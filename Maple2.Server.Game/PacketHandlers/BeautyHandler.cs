@@ -241,6 +241,7 @@ public class BeautyHandler : FieldPacketHandler {
 
         EquipColor? startColor = cosmetic.Appearance?.Color;
         if (ModifyBeauty(session, packet, cosmetic.Id) && startColor != null) {
+            session.ConditionUpdate(ConditionType.beauty_change, codeLong: cosmetic.Id);
             Item newCosmetic = session.Item.Equips.Get(cosmetic.Metadata.SlotNames.First())!;
             if (!Equals(newCosmetic.Appearance?.Color, startColor)) {
                 session.ConditionUpdate(ConditionType.beauty_change_color, codeLong: cosmetic.Id);

@@ -65,6 +65,7 @@ public static class ConditionUtil {
             case ConditionType.item_add:
             case ConditionType.item_destroy:
             case ConditionType.beauty_add:
+            case ConditionType.beauty_change:
             case ConditionType.beauty_change_color:
             case ConditionType.beauty_random:
             case ConditionType.beauty_style_add:
@@ -280,6 +281,7 @@ public static class ConditionUtil {
             case ConditionType.item_pickup:
             case ConditionType.item_destroy:
             case ConditionType.beauty_add:
+            case ConditionType.beauty_change:
             case ConditionType.beauty_change_color:
             case ConditionType.beauty_random:
             case ConditionType.beauty_style_add:
