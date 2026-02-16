@@ -94,6 +94,7 @@ public static class ConditionUtil {
             case ConditionType.dialogue:
             case ConditionType.talk_in:
             case ConditionType.npc:
+            case ConditionType.interact_npc:
             case ConditionType.skill:
             case ConditionType.job:
             case ConditionType.job_change:
@@ -338,6 +339,7 @@ public static class ConditionUtil {
             case ConditionType.buff:
             case ConditionType.dialogue:
             case ConditionType.talk_in:
+            case ConditionType.interact_npc:
             case ConditionType.change_profile:
             case ConditionType.buddy_request:
             case ConditionType.job:

@@ -79,6 +79,8 @@ public class NpcTalkHandler : FieldPacketHandler {
             return; // Invalid Npc
         }
 
+        session.ConditionUpdate(ConditionType.interact_npc, codeLong: npc.Value.Id);
+
         int options = 0;
         var talkType = NpcTalkType.None;
         if (npc.Value.Metadata.Basic.ShopId > 0) {
