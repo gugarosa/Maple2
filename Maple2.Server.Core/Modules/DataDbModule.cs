@@ -1,6 +1,7 @@
 ﻿using Autofac;
 using Maple2.Database.Context;
 using Maple2.Database.Storage;
+using Maple2.Model.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Module = Autofac.Module;
 
@@ -51,6 +52,18 @@ public class DataDbModule : Module {
         builder.RegisterType<SkillMetadataStorage>().SingleInstance();
         builder.RegisterType<TableMetadataStorage>().SingleInstance();
         builder.RegisterType<ServerTableMetadataStorage>().SingleInstance();
+
+        // Initialize Constant class with parsed XML values after metadata storages are created
+        builder.RegisterBuildCallback(scope => {
+            try {
+                var tableStorage = scope.Resolve<TableMetadataStorage>();
+                var serverTableStorage = scope.Resolve<ServerTableMetadataStorage>();
+                Constant.Initialize(tableStorage.ConstantsTable, serverTableStorage.ServerConstantsTable);
+            } catch {
+                // Constants will use default hardcoded values if tables aren't available
+            }
+        });
+
         builder.RegisterType<AiMetadataStorage>().SingleInstance();
         builder.RegisterType<FunctionCubeMetadataStorage>().SingleInstance();
         builder.RegisterType<TriggerScriptMetadata>().SingleInstance();

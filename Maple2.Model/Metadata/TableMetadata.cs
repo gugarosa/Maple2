@@ -85,4 +85,5 @@ public class TableMetadata {
 [JsonDerivedType(typeof(SeasonDataTable), typeDiscriminator: "seasondata")]
 [JsonDerivedType(typeof(SmartPushTable), typeDiscriminator: "smartpush")]
 [JsonDerivedType(typeof(AutoActionTable), typeDiscriminator: "autoaction")]
+[JsonDerivedType(typeof(ConstantsTable), typeDiscriminator: "constants")]
 public abstract record Table;

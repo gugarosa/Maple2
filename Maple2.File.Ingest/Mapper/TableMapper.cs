@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Xml;
 using Maple2.Database.Extensions;
 using Maple2.File.Ingest.Utils;
 using Maple2.File.IO;
@@ -38,8 +39,12 @@ namespace Maple2.File.Ingest.Mapper;
 public class TableMapper : TypeMapper<TableMetadata> {
     private readonly TableParser parser;
     private readonly ItemOptionParser optionParser;
+    private readonly M2dReader xmlReader;
+    private readonly string language;
 
     public TableMapper(M2dReader xmlReader, string language) {
+        this.xmlReader = xmlReader;
+        this.language = language;
         parser = new TableParser(xmlReader, language);
         optionParser = new ItemOptionParser(xmlReader);
     }
@@ -119,6 +124,9 @@ public class TableMapper : TypeMapper<TableMetadata> {
         yield return new TableMetadata { Name = TableNames.DUNGEON_RANK_REWARD, Table = ParseDungeonRankReward() };
         yield return new TableMetadata { Name = TableNames.DUNGEON_CONFIG, Table = ParseDungeonConfigTable() };
         yield return new TableMetadata { Name = TableNames.DUNGEON_MISSION, Table = ParseDungeonMissionTable() };
+
+        // Constants
+        yield return new TableMetadata { Name = TableNames.CONSTANTS, Table = ParseConstants() };
     }
 
     private ChatStickerTable ParseChatSticker() {
@@ -1832,5 +1840,48 @@ public class TableMapper : TypeMapper<TableMetadata> {
             results.Add(group.Key, packages);
         }
         return new AutoActionTable(results);
+    }
+
+    private ConstantsTable ParseConstants() {
+        var results = new Dictionary<string, string>();
+        var entry = xmlReader.GetEntry("table/constants.xml");
+        if (entry == null) {
+            return new ConstantsTable(results);
+        }
+
+        // Determine locale filter for locale-specific constants
+        string locale = language switch {
+            "en" => "NA",
+            "ko" => "KR",
+            "zh-CHS" or "zh-CHT" => "CN",
+            "ja" => "JP",
+            "de" => "DE",
+            _ => "NA",
+        };
+
+        XmlDocument doc = xmlReader.GetXmlDocument(entry);
+        XmlNodeList? nodes = doc.SelectNodes("ms2/v");
+        if (nodes == null) {
+            return new ConstantsTable(results);
+        }
+
+        foreach (XmlNode node in nodes) {
+            string? key = node.Attributes?["key"]?.Value;
+            string? value = node.Attributes?["value"]?.Value;
+            if (key == null || value == null) {
+                continue;
+            }
+
+            // If node has locale attribute, only accept matching locale
+            string? nodeLocale = node.Attributes?["locale"]?.Value;
+            if (nodeLocale != null && !string.Equals(nodeLocale, locale, StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            // Locale-specific values override generic ones
+            results[key] = value;
+        }
+
+        return new ConstantsTable(results);
     }
 }

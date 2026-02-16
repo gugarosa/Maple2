@@ -29,6 +29,7 @@ public class ServerTableMetadataStorage {
     private readonly Lazy<CombineSpawnTable> combineSpawnTable;
     private readonly Lazy<EnchantOptionTable> enchantOptionTable;
     private readonly Lazy<UnlimitedEnchantOptionTable> unlimitedEnchantOptionTable;
+    private readonly Lazy<ServerConstantsTable?> serverConstantsTable;
 
     public InstanceFieldTable InstanceFieldTable => instanceFieldTable.Value;
     public ScriptConditionTable ScriptConditionTable => scriptConditionTable.Value;
@@ -53,6 +54,7 @@ public class ServerTableMetadataStorage {
     public CombineSpawnTable CombineSpawnTable => combineSpawnTable.Value;
     public EnchantOptionTable EnchantOptionTable => enchantOptionTable.Value;
     public UnlimitedEnchantOptionTable UnlimitedEnchantOptionTable => unlimitedEnchantOptionTable.Value;
+    public ServerConstantsTable? ServerConstantsTable => serverConstantsTable.Value;
 
     public ServerTableMetadataStorage(MetadataContext context) {
         instanceFieldTable = Retrieve<InstanceFieldTable>(context, ServerTableNames.INSTANCE_FIELD);
@@ -78,6 +80,7 @@ public class ServerTableMetadataStorage {
         combineSpawnTable = Retrieve<CombineSpawnTable>(context, ServerTableNames.COMBINE_SPAWN);
         enchantOptionTable = Retrieve<EnchantOptionTable>(context, ServerTableNames.ENCHANT_OPTION);
         unlimitedEnchantOptionTable = Retrieve<UnlimitedEnchantOptionTable>(context, ServerTableNames.UNLIMITED_ENCHANT_OPTION);
+        serverConstantsTable = RetrieveOptional<ServerConstantsTable>(context, ServerTableNames.CONSTANTS);
     }
 
     public IEnumerable<GameEvent> GetGameEvents() {
@@ -104,6 +107,20 @@ public class ServerTableMetadataStorage {
 
 #if !DEBUG
         // No lazy loading for RELEASE build.
+        _ = result.Value;
+#endif
+        return result;
+    }
+
+    private static Lazy<T?> RetrieveOptional<T>(MetadataContext context, string key) where T : ServerTable {
+        var result = new Lazy<T?>(() => {
+            lock (context) {
+                ServerTableMetadata? row = context.ServerTableMetadata.Find(key);
+                return row?.Table as T;
+            }
+        });
+
+#if !DEBUG
         _ = result.Value;
 #endif
         return result;

@@ -30,8 +30,10 @@ namespace Maple2.File.Ingest.Mapper;
 
 public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
     private readonly ServerTableParser parser;
+    private readonly M2dReader xmlReader;
 
     public ServerTableMapper(M2dReader xmlReader) {
+        this.xmlReader = xmlReader;
         parser = new ServerTableParser(xmlReader);
     }
 
@@ -127,6 +129,10 @@ public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
         yield return new ServerTableMetadata {
             Name = ServerTableNames.UNLIMITED_ENCHANT_OPTION,
             Table = ParseUnlimitedEnchantOption(),
+        };
+        yield return new ServerTableMetadata {
+            Name = ServerTableNames.CONSTANTS,
+            Table = ParseServerConstants(),
         };
 
     }
@@ -2106,5 +2112,33 @@ public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
                 rates.Add(attribute, rate);
             }
         }
+    }
+
+    private ServerConstantsTable ParseServerConstants() {
+        var results = new Dictionary<string, string>();
+        var entry = xmlReader.GetEntry("table/Server/constants.xml")
+                   ?? xmlReader.GetEntry("table/server/constants.xml");
+        if (entry == null) {
+            return new ServerConstantsTable(results);
+        }
+
+        XmlDocument doc = xmlReader.GetXmlDocument(entry);
+        XmlNodeList? nodes = doc.SelectNodes("ms2/v");
+        if (nodes == null) {
+            return new ServerConstantsTable(results);
+        }
+
+        foreach (XmlNode node in nodes) {
+            string? key = node.Attributes?["key"]?.Value;
+            string? value = node.Attributes?["value"]?.Value;
+            if (key == null || value == null) {
+                continue;
+            }
+
+            // Server constants may have locale but we take all (last wins for dupes)
+            results[key] = value;
+        }
+
+        return new ServerConstantsTable(results);
     }
 }

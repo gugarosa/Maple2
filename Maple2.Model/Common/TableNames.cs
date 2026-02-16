@@ -79,6 +79,9 @@ public static class TableNames {
     public const string DUNGEON_CONFIG = "dungeonconfig.xml";
     public const string DUNGEON_MISSION = "dungeonmission.xml";
 
+    // Constants
+    public const string CONSTANTS = "constants.xml";
+
     public static readonly Dictionary<string, string> ItemOptionVariationTableNames = new Dictionary<string, string> {
         { "acc", ITEM_OPTION_VARIATION_ACC },
         { "armor", ITEM_OPTION_VARIATION_ARMOR },
