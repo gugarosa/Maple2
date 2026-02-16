@@ -484,6 +484,7 @@ public sealed class ShopManager {
 
         session.Item.Inventory.Add(item, true);
         session.Send(ShopPacket.Buy(shopItem, shopItem.Metadata.SellUnit * quantity, price));
+        session.ConditionUpdate(ConditionType.shop_buy, counter: quantity, codeLong: shopItem.Item.Id);
     }
 
     public void PurchaseBuyBack(int id) {
@@ -554,6 +555,7 @@ public sealed class ShopManager {
         };
 
         session.Send(ShopPacket.LoadBuyBackItem(buyBackItems[entryId]));
+        session.ConditionUpdate(ConditionType.shop_sell, counter: item.Amount, codeLong: item.Id);
     }
 
     private bool Pay(ShopCost cost, int price) {
