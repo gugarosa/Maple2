@@ -71,6 +71,7 @@ public class AttendanceHandler : FieldPacketHandler {
 
             GetRewards(session, attendGift, gameEvent);
             session.GameEvent.Set(gameEvent.Id, GameEventUserValueType.AttendanceCompletedTimestamp, DateTime.Now.ToEpochSeconds());
+            session.ConditionUpdate(ConditionType.attendance);
         }
     }
 

@@ -63,8 +63,13 @@ public class DungeonFieldManager : FieldManager {
                     continue;
                 }
 
+                DungeonRecord record = player.Session.Dungeon.GetRecord(DungeonMetadata.Id);
+                bool isFirstClear = record.ClearTimestamp == 0;
                 player.Session.Dungeon.CompleteDungeon(clearTimestamp);
                 player.Session.ConditionUpdate(ConditionType.dungeon_clear, codeLong: DungeonMetadata.Id);
+                if (isFirstClear) {
+                    player.Session.ConditionUpdate(ConditionType.dungeon_first_clear, codeLong: DungeonMetadata.Id);
+                }
             }
         }
     }
