@@ -110,7 +110,18 @@ public partial class TriggerContext {
     }
 
     public void NpcToPatrolInBox(int boxId, int npcId, string spawnId, string patrolName) {
-        ErrorLog("[NpcToPatrolInBox] boxId:{BoxId}, npcId:{NpcId}, spawnId:{SpawnId}, patrolName:{PatrolName}", spawnId, npcId, spawnId, patrolName);
+        DebugLog("[NpcToPatrolInBox] boxId:{BoxId}, npcId:{NpcId}, spawnId:{SpawnId}, patrolName:{PatrolName}", boxId, npcId, spawnId, patrolName);
+
+        MS2PatrolData? patrolData = Field.Entities.Patrols.FirstOrDefault(patrol => patrol.Name == patrolName);
+        if (patrolData is null) {
+            return;
+        }
+
+        foreach (FieldNpc npc in NpcsInBox(boxId)) {
+            if (npc.Value.Id == npcId) {
+                npc.SetPatrolData(patrolData);
+            }
+        }
     }
 
     public void SetAiExtraData(string key, int value, bool isModify, int boxId) {
@@ -262,8 +273,22 @@ public partial class TriggerContext {
     }
 
     public bool NpcIsDeadByStringId(string stringId) {
-        ErrorLog("[NpcIsDeadByStringId] stringId:{Round}", stringId);
-        return false;
+        DebugLog("[NpcIsDeadByStringId] stringId:{StringId}", stringId);
+
+        // Find spawn point with matching entity id
+        SpawnPointNPC? spawnPoint = Field.Entities.NpcSpawns.FirstOrDefault(s => s.EntityId == stringId);
+        if (spawnPoint == null) {
+            return false;
+        }
+
+        // Check if any alive NPCs remain at this spawn point
+        foreach (FieldNpc npc in Field.EnumerateNpcs()) {
+            if (npc.SpawnPointId == spawnPoint.SpawnPointId && !npc.IsDead) {
+                return false;
+            }
+        }
+
+        return true;
     }
     #endregion
 

@@ -293,6 +293,7 @@ public class PartyHandler : FieldPacketHandler {
         if (session.Party.Party.Members.Values.Count(member => member.Info.Online) < 2 ||
             session.Party.Party.Members.Count < 4) {
             session.Send(PartyPacket.Error(PartyError.s_party_err_vote_need_more_people));
+            return;
         }
 
         PartyResponse response = World.Party(new PartyRequest {

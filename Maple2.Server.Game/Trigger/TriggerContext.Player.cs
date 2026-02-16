@@ -230,7 +230,7 @@ public partial class TriggerContext {
     }
 
     public void SetState(int triggerId, string[] states, bool randomize) {
-        ErrorLog("[SetState] triggerId:{TriggerId}, states:{States}, randomize:{Randomize}", triggerId, string.Join(", ", states), randomize);
+        DebugLog("[SetState] triggerId:{TriggerId}, states:{States}, randomize:{Randomize}", triggerId, string.Join(", ", states), randomize);
         if (randomize) {
             Random.Shared.Shuffle(states);
         }
@@ -251,8 +251,16 @@ public partial class TriggerContext {
     }
 
     public bool CheckSameUserTag(int boxId, bool negate) {
-        ErrorLog("[CheckSameUserTag] boxId:{BoxId}", boxId);
-        return false;
+        DebugLog("[CheckSameUserTag] boxId:{BoxId}", boxId);
+
+        List<FieldPlayer> players = PlayersInBox(boxId).ToList();
+        if (players.Count <= 1) {
+            return !negate;
+        }
+
+        int firstTag = players[0].TagId;
+        bool allSame = players.All(p => p.TagId == firstTag);
+        return negate ? !allSame : allSame;
     }
 
     public bool QuestUserDetected(int[] boxIds, int[] questIds, int[] questStates, int jobCode, bool negate) {
