@@ -12,8 +12,7 @@ using static Maple2.Model.Error.MesoMarketError;
 namespace Maple2.Server.Game.PacketHandlers;
 
 public class MesoMarketHandler : FieldPacketHandler {
-    // TODO: Periodically update this by querying `meso-market-sold` table
-    private const int AVERAGE_PRICE = 200;
+    private const int DEFAULT_AVERAGE_PRICE = 200;
 
     public override RecvOp OpCode => RecvOp.MesoMarket;
 
@@ -47,10 +46,11 @@ public class MesoMarketHandler : FieldPacketHandler {
     }
 
     private static void HandleLoad(GameSession session) {
-        session.Send(MesoMarketPacket.Load(AVERAGE_PRICE));
+        using GameStorage.Request db = session.GameStorage.Context();
+        long averagePrice = db.GetMesoMarketAveragePrice(DEFAULT_AVERAGE_PRICE);
+        session.Send(MesoMarketPacket.Load(averagePrice));
         session.Send(MesoMarketPacket.Quota(session.Player.Value.Account.MesoMarketListed, session.Player.Value.Account.MesoMarketPurchased));
 
-        using GameStorage.Request db = session.GameStorage.Context();
         ICollection<MesoListing> myListings = db.GetMyMesoListingsByAccountId(session.AccountId);
         session.Send(MesoMarketPacket.MyListings(myListings));
     }
@@ -64,8 +64,10 @@ public class MesoMarketHandler : FieldPacketHandler {
             return;
         }
 
-        const int delta = (int) (AVERAGE_PRICE * Constant.MesoMarketRangeRate);
-        if (AVERAGE_PRICE + delta < price || price < AVERAGE_PRICE - delta) {
+        using GameStorage.Request db = session.GameStorage.Context();
+        long averagePrice = db.GetMesoMarketAveragePrice(DEFAULT_AVERAGE_PRICE);
+        long delta = (long) (averagePrice * Constant.MesoMarketRangeRate);
+        if (averagePrice + delta < price || price < averagePrice - delta) {
             session.Send(MesoMarketPacket.Error(s_mesoMarket_error_invalidBuyMerat));
             return;
         }
@@ -88,7 +90,6 @@ public class MesoMarketHandler : FieldPacketHandler {
             Amount = amount,
         };
 
-        using GameStorage.Request db = session.GameStorage.Context();
         listing = db.CreateMesoListing(listing);
         if (listing == null) {
             session.Send(MesoMarketPacket.Error(s_mesoMarket_error_errorDB));

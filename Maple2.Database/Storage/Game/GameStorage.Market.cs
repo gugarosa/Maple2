@@ -44,6 +44,15 @@ public partial class GameStorage {
             return Context.MesoMarket.Find(listingId);
         }
 
+        public long GetMesoMarketAveragePrice(long fallback) {
+            long[] prices = Context.MesoMarketSold
+                .OrderByDescending(listing => listing.SoldTime)
+                .Take(100)
+                .Select(listing => listing.Price)
+                .ToArray();
+            return prices.Length > 0 ? (long) prices.Average() : fallback;
+        }
+
         public MesoListing? CreateMesoListing(MesoListing listing) {
             Model.MesoListing model = listing;
             Context.MesoMarket.Add(model);
