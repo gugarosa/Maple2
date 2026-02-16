@@ -435,6 +435,11 @@ public class FieldNpc : Actor<Npc> {
 
         DropLoot(firstPlayer);
 
+        // LastHitNpc mission: only the player who dealt the killing blow gets credit
+        if (Field.TryGetPlayer(LastAttackerId, out FieldPlayer? killer)) {
+            killer.Session.Dungeon.UpdateMission(DungeonMissionType.LastHitNpc, Value.Id);
+        }
+
         foreach (KeyValuePair<int, DamageRecordTarget> damageDealer in DamageDealers) {
             if (!Field.TryGetPlayer(damageDealer.Key, out FieldPlayer? player)) {
                 continue;

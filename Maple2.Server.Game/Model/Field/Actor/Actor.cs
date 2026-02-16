@@ -43,6 +43,7 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
     public SkillState SkillState { get; init; }
 
     public virtual bool IsDead { get; protected set; }
+    public int LastAttackerId { get; protected set; }
     public abstract IPrism Shape { get; }
     public SkillQueue ActiveSkills { get; init; }
 
@@ -152,6 +153,14 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
                 DamageDealers.TryAdd(caster.ObjectId, record);
             }
             record.AddDamage(DamageType.Normal, positiveDamage);
+            LastAttackerId = caster.ObjectId;
+
+            // Track dungeon missions: DamageBySkill and DamageToNpc
+            if (caster is FieldPlayer attackingPlayer && this is FieldNpc targetNpc) {
+                attackingPlayer.Session.Dungeon.UpdateMission(DungeonMissionType.DamageBySkill, damage.SkillId);
+                attackingPlayer.Session.Dungeon.UpdateMission(DungeonMissionType.DamageToNpc, targetNpc.Value.Id);
+            }
+
             Stats.Values[BasicAttribute.Health].Add(damageAmount);
             Field.Broadcast(StatsPacket.Update(this, BasicAttribute.Health));
             CheckAndHandleDeath();

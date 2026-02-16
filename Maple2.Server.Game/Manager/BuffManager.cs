@@ -178,6 +178,7 @@ public class BuffManager : IUpdatable {
             }
 
             player.Session.ConditionUpdate(ConditionType.buff, codeLong: buff.Id);
+            player.Session.Dungeon.UpdateMission(DungeonMissionType.GainBuff, buff.Id);
             player.Session.Dungeon.UpdateDungeonEnterLimit();
         }
         if (notifyField) {

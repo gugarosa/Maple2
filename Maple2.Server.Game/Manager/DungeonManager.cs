@@ -357,6 +357,30 @@ public class DungeonManager {
         }
     }
 
+    /// <summary>
+    /// Updates dungeon missions of a specific type. Checks Value1 (NPC/skill/buff IDs) for matching.
+    /// </summary>
+    public void UpdateMission(DungeonMissionType type, long matchId = 0, int counter = 1) {
+        if (UserRecord == null) {
+            return;
+        }
+
+        foreach (DungeonMission mission in UserRecord.Missions.Values) {
+            if (mission.Metadata.Type != type) {
+                continue;
+            }
+
+            // If Value1 has entries, the matchId must be in the list
+            if (mission.Metadata.Value1.Length > 0 && !mission.Metadata.Value1.Contains(matchId)) {
+                continue;
+            }
+
+            if (mission.Update(counter)) {
+                session.Send(DungeonMissionPacket.Update(mission));
+            }
+        }
+    }
+
     public void CompleteDungeon(long clearTimestamp) {
         if (Lobby == null || Metadata == null || UserRecord == null) {
             return;
@@ -364,6 +388,31 @@ public class DungeonManager {
         DungeonRoomRewardMetadata metadata = Metadata.Reward;
         UserRecord.IsDungeonSuccess = Lobby.DungeonRoomRecord.State == DungeonState.Clear;
         UserRecord.TotalSeconds = (int) (Lobby.DungeonRoomRecord.EndTick - Lobby.DungeonRoomRecord.StartTick) / 1000;
+
+        // Evaluate LimitUserCount missions (based on total players in dungeon)
+        if (Lobby != null) {
+            int totalPlayers = Lobby.Players.Count + Lobby.RoomFields.Values.Sum(r => r.Players.Count);
+            foreach (DungeonMission mission in UserRecord.Missions.Values) {
+                if (mission.Metadata.Type == DungeonMissionType.LimitUserCount) {
+                    // Value2 is the max player count threshold; complete if within limit
+                    if (totalPlayers <= mission.Metadata.Value2) {
+                        mission.Complete();
+                        session.Send(DungeonMissionPacket.Update(mission));
+                    }
+                }
+            }
+        }
+
+        // Evaluate PlayTime missions (based on dungeon elapsed seconds)
+        foreach (DungeonMission mission in UserRecord.Missions.Values) {
+            if (mission.Metadata.Type == DungeonMissionType.PlayTime) {
+                // Value2 is the time threshold in seconds; complete if cleared within time
+                if (UserRecord.TotalSeconds <= mission.Metadata.Value2) {
+                    mission.Complete();
+                    session.Send(DungeonMissionPacket.Update(mission));
+                }
+            }
+        }
 
         CalculateRankScore();
         CalculateRewards(clearTimestamp);
