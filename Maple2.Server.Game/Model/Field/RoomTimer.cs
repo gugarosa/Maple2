@@ -30,6 +30,9 @@ public class RoomTimer : IUpdatable {
 
     public void Update(long tickCount) {
         if (!started) {
+            if (field.Players.IsEmpty) {
+                return; // Don't start timer until first player enters
+            }
             StartTick = (int) tickCount;
             field.Broadcast(RoomTimerPacket.Start(this));
             started = true;
