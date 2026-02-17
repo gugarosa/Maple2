@@ -33,14 +33,16 @@ public class WorldServer {
 
     private readonly ILogger logger = Log.ForContext<WorldServer>();
 
+    private readonly PartyLookup partyLookup;
     private readonly LoginClient login;
 
-    public WorldServer(GameStorage gameStorage, ChannelClientLookup channelClients, ServerTableMetadataStorage serverTableMetadata, GlobalPortalLookup globalPortalLookup, PlayerInfoLookup playerInfoLookup, LoginClient login, ItemMetadataStorage itemMetadata) {
+    public WorldServer(GameStorage gameStorage, ChannelClientLookup channelClients, ServerTableMetadataStorage serverTableMetadata, GlobalPortalLookup globalPortalLookup, PlayerInfoLookup playerInfoLookup, PartyLookup partyLookup, LoginClient login, ItemMetadataStorage itemMetadata) {
         this.gameStorage = gameStorage;
         this.channelClients = channelClients;
         this.serverTableMetadata = serverTableMetadata;
         this.globalPortalLookup = globalPortalLookup;
         this.playerInfoLookup = playerInfoLookup;
+        this.partyLookup = partyLookup;
         this.login = login;
         this.itemMetadata = itemMetadata;
         scheduler = new EventQueue(logger);
@@ -118,6 +120,17 @@ public class WorldServer {
             Channel = -1,
             Async = true,
         });
+
+        // Ensure Online check reflects offline status immediately for party cleanup
+        playerInfo.Channel = -1;
+
+        // Clean up party when player goes offline
+        if (partyLookup.TryGetByCharacter(playerInfo.CharacterId, out PartyManager? manager)) {
+            if (playerInfo.CharacterId == manager.Party.LeaderCharacterId) {
+                manager.FindNewLeader(playerInfo.CharacterId);
+            }
+            manager.CheckForDisband();
+        }
     }
 
     private void Loop() {
