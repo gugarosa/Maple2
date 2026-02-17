@@ -35,7 +35,7 @@ public class RevivalHandler : FieldPacketHandler {
     /// </summary>
     private void HandleSafeRevive(GameSession session) {
         if (session.Field is null) return;
-        if (session.Field.Metadata.Property.NoRevivalHere || session.Field.Metadata.Property.RevivalReturnId == 0) {
+        if (session.Field.Metadata.Property.NoRevivalHere) {
             return;
         }
         if (!CheckDungeonRevivalLimit(session)) {
