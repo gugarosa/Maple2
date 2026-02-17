@@ -73,24 +73,12 @@ public class FieldMobSpawn : FieldEntity<MapMetadataSpawn> {
         validSpawns.CopyTo(spawnsRemaining);
 
         int selectSpawns = Math.Min(count, validSpawns.Count);
-        int remainder = count - selectSpawns;
 
         for (int i = 0; i < selectSpawns; ++i) {
             int picked = Random.Shared.Next(spawnsRemaining.Length - i);
 
             spawnsPicked.Add(spawnsRemaining[picked]);
             spawnsRemaining[picked] = spawnsRemaining[selectSpawns - i - 1]; // remove picked from list by replacing with last in list
-        }
-
-        if (remainder > 0) {
-            Log.Logger.Warning("Ran out of valid spawns to pick for spawn {SpawnId} in map {MapId}; valid spawns: {SpawnCount}; picking: {Picking}", spawnId, Field.MapId, validSpawns.Count, count);
-        }
-
-        // ran out of spawns to pick from so we are picking any duplicate now
-        for (int i = 0; i < remainder; ++i) {
-            int picked = Random.Shared.Next(0, validSpawns.Count);
-
-            spawnsPicked.Add(validSpawns[picked]);
         }
 
         return spawnsPicked;
@@ -146,7 +134,7 @@ public class FieldMobSpawn : FieldEntity<MapMetadataSpawn> {
 
         List<Vector3> pickedSpawns = GetRandomSpawns(spawnMobCount);
         int spawnIndex = 0;
-        for (int i = spawnedMobs.Count; i < Value.Population; i++) {
+        for (int i = spawnedMobs.Count; i < Value.Population && spawnIndex < pickedSpawns.Count; i++) {
             FieldNpc? fieldNpc = Field.SpawnNpc(npcs.Get(), pickedSpawns[spawnIndex++], Rotation, owner: this);
             if (fieldNpc == null) {
                 continue;
