@@ -10,6 +10,7 @@ using Maple2.Server.Game.Trigger.Helpers;
 using Maple2.Tools.Scheduler;
 using Serilog;
 using Serilog.Core;
+using CompareType = Maple2.Server.Game.Trigger.Helpers.CompareType;
 
 namespace Maple2.Server.Game.Trigger;
 
