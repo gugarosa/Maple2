@@ -485,6 +485,10 @@ public class ConfigManager {
         return lapenshards.TryGetValue(slot, out int id) ? id : -1;
     }
 
+    public IEnumerable<int> GetEquippedLapenshardIds() {
+        return lapenshards.Values;
+    }
+
     public void SetLapenshard(LapenshardSlot slot, int id) {
         lapenshards[slot] = id;
     }
@@ -536,6 +540,11 @@ public class ConfigManager {
         lapenshards[slot] = lapenshard.Id;
         session.Send(LapenshardPacket.Equip(slot, lapenshard.Id));
 
+        // Apply lapenshard buff to player
+        foreach (ItemMetadataAdditionalEffect buff in lapenshard.Metadata.AdditionalEffects) {
+            session.Player.Buffs.AddBuff(session.Player, session.Player, buff.Id, buff.Level, session.Field.FieldTick);
+        }
+
         return true;
     }
 
@@ -565,6 +574,12 @@ public class ConfigManager {
         }
 
         session.Send(LapenshardPacket.Unequip(slot));
+
+        // Remove lapenshard buffs from player
+        foreach (ItemMetadataAdditionalEffect buff in lapenshard.Metadata.AdditionalEffects) {
+            session.Player.Buffs.Remove(buff.Id, session.Player.ObjectId);
+        }
+
         return true;
     }
     #endregion

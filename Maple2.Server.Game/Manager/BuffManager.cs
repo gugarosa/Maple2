@@ -62,6 +62,15 @@ public class BuffManager : IUpdatable {
 
     public void LoadFieldBuffs() {
         // Lapenshards
+        if (Actor is FieldPlayer lapenshardPlayer) {
+            foreach (int itemId in lapenshardPlayer.Session.Config.GetEquippedLapenshardIds()) {
+                if (Actor.Field.ItemMetadata.TryGet(itemId, out ItemMetadata? metadata)) {
+                    foreach (ItemMetadataAdditionalEffect buff in metadata.AdditionalEffects) {
+                        AddBuff(Actor, Actor, buff.Id, buff.Level, Actor.Field.FieldTick);
+                    }
+                }
+            }
+        }
         // Game Events
         // Prestige
         EnterField();
