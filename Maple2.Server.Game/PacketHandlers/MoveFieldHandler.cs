@@ -100,6 +100,7 @@ public class MoveFieldHandler : PacketHandler<GameSession> {
         }
 
         session.Migrate(home.Indoor.MapId, home.Indoor.OwnerId);
+        session.ConditionUpdate(ConditionType.enter_otherhouse);
     }
 
     private void HandleReturn(GameSession session) {

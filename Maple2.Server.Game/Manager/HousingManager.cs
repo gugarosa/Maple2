@@ -662,6 +662,7 @@ public class HousingManager {
             }
 
             session.Send(CubePacket.PurchaseCube(session.Player.ObjectId));
+            session.ConditionUpdate(ConditionType.buy_cube, codeLong: cube.Id);
             // Now that we have purchased the cube, it must be placeable.
             if (!session.Item.Furnishing.TryAddCube(itemUid, result)) {
                 DeleteCube(result);

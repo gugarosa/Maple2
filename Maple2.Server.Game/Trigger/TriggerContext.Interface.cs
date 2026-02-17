@@ -61,15 +61,18 @@ public partial class TriggerContext {
     }
 
     public void ScoreBoardCreate(string type, string title, int maxScore) {
-        ErrorLog("[ScoreBoardCreate] type:{Type}, maxScore:{MaxScore}", type, maxScore);
+        DebugLog("[ScoreBoardCreate] type:{Type}, title:{Title}, maxScore:{MaxScore}", type, title, maxScore);
+        Field.ScoreBoardScore = 0;
     }
 
     public void ScoreBoardRemove() {
-        ErrorLog("[ScoreBoardRemove]");
+        DebugLog("[ScoreBoardRemove]");
+        Field.ScoreBoardScore = 0;
     }
 
     public void ScoreBoardSetScore(int score) {
-        ErrorLog("[ScoreBoardSetScore] score:{Score}", score);
+        DebugLog("[ScoreBoardSetScore] score:{Score}", score);
+        Field.ScoreBoardScore = score;
     }
 
     public void SetEventUiRound(int[] rounds, int arg3, int vOffset) {

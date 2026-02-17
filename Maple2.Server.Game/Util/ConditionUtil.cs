@@ -212,6 +212,11 @@ public static class ConditionUtil {
             case ConditionType.shop_sell:
             case ConditionType.use_merat:
             case ConditionType.wedding_hall_reserve:
+            case ConditionType.enter_otherhouse:
+            case ConditionType.item_remake_option:
+            case ConditionType.buy_cube:
+            case ConditionType.create_blueprint:
+            case ConditionType.banner:
                 if (code.Range != null && InRange((ConditionMetadata.Range<int>) code.Range, (int) longValue)) {
                     return true;
                 }
@@ -408,6 +413,11 @@ public static class ConditionUtil {
             case ConditionType.shop_sell:
             case ConditionType.use_merat:
             case ConditionType.wedding_hall_reserve:
+            case ConditionType.enter_otherhouse:
+            case ConditionType.item_remake_option:
+            case ConditionType.buy_cube:
+            case ConditionType.create_blueprint:
+            case ConditionType.banner:
                 return true;
         }
         return false;

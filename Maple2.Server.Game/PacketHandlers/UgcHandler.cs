@@ -535,5 +535,8 @@ public class UgcHandler : FieldPacketHandler {
         }
 
         session.Send(UgcPacket.ReserveBannerSlots(bannerId, newSlots));
+        if (newSlots.Count > 0) {
+            session.ConditionUpdate(ConditionType.banner, counter: newSlots.Count);
+        }
     }
 }

@@ -2,6 +2,7 @@
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
+using Maple2.Server.Core.Packets;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Trigger.Helpers;
@@ -14,7 +15,24 @@ public partial class TriggerContext {
     }
 
     public void Announce(int type, string content, bool arg3) {
-        DebugLog("[Announce] type:{Type}, content:{Content}", type, content);
+        DebugLog("[Announce] type:{Type}, content:{Content}, arg3:{Arg3}", type, content, arg3);
+        switch (type) {
+            case 0: // System notice (mint bar at top)
+                Broadcast(NoticePacket.Notice(NoticePacket.Flags.Mint, new InterfaceText(content), 4000));
+                break;
+            case 1: // Center screen announcement (NPC notice style)
+                Broadcast(NpcNoticePacket.Announce(content, 5000));
+                break;
+            case 2: // Large alert
+                Broadcast(NoticePacket.Notice(NoticePacket.Flags.LargeAlert, new InterfaceText(content), 5000));
+                break;
+            case 3: // Message box
+                Broadcast(NoticePacket.MessageBox(new InterfaceText(content)));
+                break;
+            default:
+                Broadcast(NpcNoticePacket.Announce(content, 5000));
+                break;
+        }
     }
 
     public void ChangeBackground(string dds) {

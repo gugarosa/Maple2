@@ -314,7 +314,11 @@ public partial class TriggerContext {
     }
 
     public bool WaitSecondsUserValue(string key, string desc) {
-        return false;
+        int seconds = Field.UserValues.GetValueOrDefault(key, 0);
+        if (seconds <= 0) {
+            return false;
+        }
+        return WaitTick(seconds * 1000);
     }
     #endregion
 

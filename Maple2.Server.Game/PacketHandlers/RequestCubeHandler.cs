@@ -721,6 +721,7 @@ public class RequestCubeHandler : FieldPacketHandler {
 
         session.StagedUgcItem = item;
         session.Send(CubePacket.CreateBlueprint(item.Uid, item.Blueprint!));
+        session.ConditionUpdate(ConditionType.create_blueprint);
     }
 
     private void HandleSaveBlueprint(GameSession session, IByteReader packet) {

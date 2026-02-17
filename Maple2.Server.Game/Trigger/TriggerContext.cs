@@ -252,13 +252,14 @@ public partial class TriggerContext : ITriggerContext {
     }
 
     public bool ScoreBoardScore(int score, OperatorType operatorType) {
-        ErrorLog("[GetScoreBoardScore]");
+        DebugLog("[GetScoreBoardScore] currentScore:{CurrentScore}, targetScore:{TargetScore}", Field.ScoreBoardScore, score);
+        int currentScore = Field.ScoreBoardScore;
         return operatorType switch {
-            OperatorType.Greater => score > 0,
-            OperatorType.GreaterEqual => score >= 0,
-            OperatorType.Equal => score == 0,
-            OperatorType.LessEqual => score <= 0,
-            OperatorType.Less => score < 0,
+            OperatorType.Greater => currentScore > score,
+            OperatorType.GreaterEqual => currentScore >= score,
+            OperatorType.Equal => currentScore == score,
+            OperatorType.LessEqual => currentScore <= score,
+            OperatorType.Less => currentScore < score,
             _ => false,
         };
     }

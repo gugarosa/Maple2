@@ -181,6 +181,7 @@ public class ChangeAttributesHandler : FieldPacketHandler {
             item.Stats[ItemStats.Type.Random] = session.ChangeAttributesItem.Stats[ItemStats.Type.Random];
             session.ChangeAttributesItem = null;
             session.Send(ChangeAttributesPacket.SelectItem(item));
+            session.ConditionUpdate(ConditionType.item_remake_option, codeLong: item.Id);
         }
     }
 
