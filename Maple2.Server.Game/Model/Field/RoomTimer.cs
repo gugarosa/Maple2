@@ -1,5 +1,6 @@
 ﻿using Maple2.Model.Enum;
 using Maple2.Model.Error;
+using Maple2.Model.Metadata;
 using Maple2.Server.Game.Manager.Field;
 using Maple2.Server.Game.Packets;
 using Serilog;
@@ -56,8 +57,10 @@ public class RoomTimer : IUpdatable {
 
     private static void TeleportPlayersOut(FieldManager targetField) {
         foreach ((int objectId, FieldPlayer player) in targetField.Players) {
-            int returnMapId = player.Value.Character.ReturnMaps.Peek();
-            player.Session.Send(player.Session.PrepareField(returnMapId, returnMapId)
+            int returnMapId = player.Value.Character.ReturnMaps.IsEmpty
+                ? Constant.DefaultReturnMapId
+                : player.Value.Character.ReturnMaps.Peek();
+            player.Session.Send(player.Session.PrepareField(returnMapId)
                 ? FieldEnterPacket.Request(player)
                 : FieldEnterPacket.Error(MigrationError.s_move_err_default));
         }

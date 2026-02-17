@@ -562,7 +562,10 @@ public partial class FieldManager : IField {
                 return false;
             case PortalType.LeaveDungeon:
                 //TODO: Migrate back to original channel
-                session.Send(session.PrepareField(session.Player.Value.Character.ReturnMaps.Peek())
+                int leaveDungeonMapId = session.Player.Value.Character.ReturnMaps.IsEmpty
+                    ? Constant.DefaultReturnMapId
+                    : session.Player.Value.Character.ReturnMaps.Peek();
+                session.Send(session.PrepareField(leaveDungeonMapId)
                     ? FieldEnterPacket.Request(session.Player)
                     : FieldEnterPacket.Error(MigrationError.s_move_err_default));
                 return true;

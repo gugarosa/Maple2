@@ -510,7 +510,9 @@ public sealed partial class GameSession : Core.Network.Session {
         }
 
         Character character = player.Character;
-        int mapId = character.ReturnMaps.Peek();
+        int mapId = character.ReturnMaps.IsEmpty
+            ? Constant.DefaultReturnMapId
+            : character.ReturnMaps.Peek();
         Vector3 position = character.ReturnPosition;
 
         if (!MapMetadata.TryGet(mapId, out _)) {
