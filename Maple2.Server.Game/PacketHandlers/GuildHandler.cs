@@ -193,7 +193,7 @@ public class GuildHandler : PacketHandler<GameSession> {
             session.Send(GuildPacket.Error(GuildError.s_guild_err_name_value));
             return;
         }
-        if (guildName.Length is < Constant.GuildNameLengthMin or > Constant.GuildNameLengthMax) {
+        if (guildName.Length < Constant.GuildNameLengthMin || guildName.Length > Constant.GuildNameLengthMax) {
             session.Send(GuildPacket.Error(GuildError.s_guild_err_name_value));
             return;
         }

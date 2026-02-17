@@ -127,7 +127,7 @@ public class PlayerCommand : GameCommand {
 
         private void Handle(InvocationContext ctx, short level) {
             try {
-                if (level is < 1 or > Constant.characterMaxLevel) {
+                if (level < 1 || level > Constant.characterMaxLevel) {
                     ctx.Console.Error.WriteLine($"Invalid level: {level}. Must be between 1 and {Constant.characterMaxLevel}.");
                     return;
                 }
@@ -191,7 +191,7 @@ public class PlayerCommand : GameCommand {
 
         private void Handle(InvocationContext ctx, int level) {
             try {
-                if (level is < 1 or > Constant.AdventureLevelLimit) {
+                if (level < 1 || level > Constant.AdventureLevelLimit) {
                     ctx.Console.Error.WriteLine($"Invalid level: {level}. Must be between 1 and {Constant.AdventureLevelLimit}.");
                     return;
                 }

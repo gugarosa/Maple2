@@ -7,6 +7,7 @@ using Maple2.Server.Core.Constants;
 using Maple2.Server.Game.PacketHandlers.Field;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
+using Serilog;
 
 namespace Maple2.Server.Game.PacketHandlers;
 
@@ -194,7 +195,7 @@ public class LapenshardHandler : FieldPacketHandler {
         }
         foreach ((long uid, int amount) in fodders) {
             if (!session.Item.Inventory.Consume(uid, amount)) {
-                Logger.Error("Failed to consume fodder: {ItemUid} after validating", uid);
+                Log.Logger.Error("Failed to consume fodder: {ItemUid} after validating", uid);
                 return false;
             }
         }

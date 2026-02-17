@@ -12,6 +12,7 @@ using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
 using Maple2.Server.Game.Util;
+using Serilog;
 using static Maple2.Model.Error.CharacterCreateError;
 
 namespace Maple2.Server.Game.PacketHandlers;
@@ -506,7 +507,7 @@ public class ItemUseHandler : FieldPacketHandler {
         }
 
         if (!session.Item.Inventory.Consume(item.Uid, 1)) {
-            Logger.Error("Failed to consume item: {ItemUid}", item.Uid);
+            Log.Logger.Error("Failed to consume item: {ItemUid}", item.Uid);
             return;
         }
         session.Send(PlayerHostPacket.StartMiniGame(session.PlayerName, fieldId));

@@ -1,4 +1,5 @@
-﻿using Maple2.Model.Game.Dungeon;
+﻿using Maple2.Model.Enum;
+using Maple2.Model.Game.Dungeon;
 using Maple2.Server.Game.Manager.Field;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Packets;

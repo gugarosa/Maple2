@@ -45,7 +45,7 @@ public class InventoryManager {
     }
 
     private static short BaseSize(InventoryType type) {
-        return type switch {
+        return (short) (type switch {
             InventoryType.Gear => Constant.BagSlotTabGameCount,
             InventoryType.Outfit => Constant.BagSlotTabSkinCount,
             InventoryType.Mount => Constant.BagSlotTabSummonCount,
@@ -62,11 +62,11 @@ public class InventoryManager {
             InventoryType.Lapenshard => Constant.BagSlotTabLapenshardCount,
             InventoryType.Fragment => Constant.BagSlotTabPieceCount,
             _ => throw new ArgumentOutOfRangeException($"Invalid InventoryType: {type}"),
-        };
+        });
     }
 
     private static short MaxExpandSize(InventoryType type) {
-        return type switch {
+        return (short) (type switch {
             InventoryType.Gear => Constant.BagSlotTabGameCountMax,
             InventoryType.Outfit => Constant.BagSlotTabSkinCountMax,
             InventoryType.Mount => Constant.BagSlotTabSummonCountMax,
@@ -83,7 +83,7 @@ public class InventoryManager {
             InventoryType.Lapenshard => Constant.BagSlotTabLapenshardCountMax,
             InventoryType.Fragment => Constant.BagSlotTabPieceCountMax,
             _ => throw new ArgumentOutOfRangeException($"Invalid InventoryType: {type}"),
-        };
+        });
     }
 
     public void Load() {
