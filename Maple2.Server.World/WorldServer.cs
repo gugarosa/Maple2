@@ -210,6 +210,8 @@ public class WorldServer {
         }
     }
     #endregion
+
+    private void StartWorldEvents() {
         // Global Portal
         IReadOnlyDictionary<int, GlobalPortalMetadata> globalEvents = serverTableMetadata.TimeEventTable.GlobalPortal;
         foreach ((int eventId, GlobalPortalMetadata eventData) in globalEvents) {
