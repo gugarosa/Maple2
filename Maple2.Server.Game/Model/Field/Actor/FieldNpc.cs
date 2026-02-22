@@ -87,9 +87,15 @@ public class FieldNpc : Actor<Npc> {
     public readonly SkillMetadata?[] Skills;
 
     public int SpawnPointId = 0;
+    public bool IsCorpse { get; private set; }
+    private long lastCorpseBroadcastTick;
     public Action<FieldNpc>? WorldBossDeathCallback { get; set; }
     public long LastDamageTick { get; private set; }
     private int lastAttackerObjectId;
+    // The first player to attack this mob; used to assign drop ownership for regular mobs.
+    // TODO: If the mob loses aggro on all players it should heal to full and clear firstAttackerObjectId and DamageDealers,
+    //       resetting the tag so the next attacker becomes the new owner.
+    private int firstAttackerObjectId;
     public int EffectiveLevel => Math.Max(1, Value.Metadata.Basic.Level + ConfigProvider.Settings.Mob.EnemyLevelOffset);
 
     public MS2PatrolData? Patrol { get; private set; }
@@ -144,7 +150,14 @@ public class FieldNpc : Actor<Npc> {
     private long nextDebugPacket = 0;
 
     public override void Update(long tickCount) {
-        if (IsDead) return;
+        if (IsDead) {
+            if (IsCorpse && tickCount - lastCorpseBroadcastTick >= 1000) {
+                lastCorpseBroadcastTick = tickCount;
+                SequenceCounter++;
+                Field.Broadcast(NpcControlPacket.Dead(this));
+            }
+            return;
+        }
 
         base.Update(tickCount);
 
@@ -323,13 +336,27 @@ public class FieldNpc : Actor<Npc> {
 
     protected override void OnDamageReceived(IActor caster, long amount) {
         LastDamageTick = Environment.TickCount64;
+        if (firstAttackerObjectId == 0 && caster is FieldPlayer) {
+            firstAttackerObjectId = caster.ObjectId;
+        }
         lastAttackerObjectId = caster.ObjectId;
+        if (caster is FieldPlayer hitPlayer) {
+            DropHitLoot(hitPlayer);
+        }
     }
 
     protected override void OnDeath() {
         WorldBossDeathCallback?.Invoke(this);
         Owner?.Despawn(ObjectId);
         SendControl = false;
+
+        SequenceCounter++;
+        Field.Broadcast(NpcControlPacket.Dead(this));
+
+        if (Value.Metadata.Corpse?.HitAble == true) {
+            IsCorpse = true;
+            lastCorpseBroadcastTick = Environment.TickCount64;
+        }
 
         HandleDamageDealers();
 
@@ -367,47 +394,97 @@ public class FieldNpc : Actor<Npc> {
         }
     }
 
-    public void DropLoot(FieldPlayer firstPlayer) {
+    public override void ApplyDamage(IActor caster, DamageRecord damage, SkillMetadataAttack attack) {
+        if (IsCorpse) {
+            // Corpse loot intentionally drops on every hit — players are expected to keep
+            // attacking the corpse to collect loot. A per-player rate limit (e.g. once per
+            // second) could be added here if spamming turns out to be an issue, but whether
+            // the original server enforced one is unknown.
+            if (caster is FieldPlayer player) {
+                DropCorpseLoot(player);
+            }
+            SequenceCounter++;
+            Field.Broadcast(NpcControlPacket.CorpseHit(this));
+            return;
+        }
+        base.ApplyDamage(caster, damage, attack);
+    }
+
+    // Drop box semantics (confirmed via KMS2 video analysis):
+    // - GlobalDropBoxIds       : drops spawned on death, shared (no per-player lock unless receiverCharacterId is set).
+    // - GlobalHitDropBoxIds    : drops spawned each time the NPC is hit while alive (triggered in OnDamageReceived).
+    // - DeadGlobalDropBoxIds   : drops spawned when a player hits the NPC corpse (IsCorpse == true).
+    // - IndividualDropBoxIds   : per-player drops on death (each damage dealer gets their own).
+    // - IndividualHitDropBoxIds: per-player drops each time the NPC is hit while alive.
+    //
+    // NOTE on globalDropItemBox vs globalDropItemSet naming:
+    // NPC XML uses globalDropBoxId which references a DROP BOX (defined by dropBoxID in globalDropItemBox).
+    // Each drop box then references item GROUPs (defined by dropGroupID in globalDropItemSet).
+    // These are separate namespaces — e.g. drop BOX 4 (Doondun's death box) contains only mesos and
+    // CN-locale items, while item GROUP 4 ("boss equipment drop") is a completely different entity
+    // only reachable via drop BOX 10, which no NPC uses. Equipment drops for bosses come from
+    // IndividualDropBoxIds instead (keyed to the NPC id, e.g. individualDropBoxId="23000013" for Doondun).
+    private void DropGlobalLoot(long receiverCharacterId = 0) {
         NpcMetadataDropInfo dropInfo = Value.Metadata.DropInfo;
-
-        ICollection<Item> itemDrops = new List<Item>();
-        bool isBoss = false;
-        foreach (string tag in Value.Metadata.Basic.MainTags) {
-            if (tag.Contains("boss", StringComparison.OrdinalIgnoreCase)) { isBoss = true; break; }
-        }
-        if (!isBoss) {
-            foreach (string tag in Value.Metadata.Basic.SubTags) {
-                if (tag.Contains("boss", StringComparison.OrdinalIgnoreCase)) { isBoss = true; break; }
-            }
-        }
+        var globalDrops = new List<Item>();
         foreach (int globalDropId in dropInfo.GlobalDropBoxIds) {
-            itemDrops = itemDrops.Concat(Field.ItemDrop.GetGlobalDropItems(globalDropId, Value.Metadata.Basic.Level, isBoss)).ToList();
+            globalDrops.AddRange(Field.ItemDrop.GetGlobalDropItems(globalDropId, Value.Metadata.Basic.Level));
         }
 
-        foreach (int individualDropId in dropInfo.IndividualDropBoxIds) {
-            itemDrops = itemDrops.Concat(Field.ItemDrop.GetIndividualDropItems(firstPlayer.Session, Value.Metadata.Basic.Level, individualDropId, isBoss: isBoss)).ToList();
+        foreach (Item item in globalDrops) {
+            float x = Random.Shared.Next((int) Position.X - dropInfo.DropDistanceRandom, (int) Position.X + dropInfo.DropDistanceRandom);
+            float y = Random.Shared.Next((int) Position.Y - dropInfo.DropDistanceRandom, (int) Position.Y + dropInfo.DropDistanceRandom);
+            Field.DropItem(new Vector3(x, y, Position.Z), Rotation, item, owner: this, characterId: receiverCharacterId);
+        }
+    }
+
+    private void DropHitLoot(FieldPlayer player) {
+        NpcMetadataDropInfo dropInfo = Value.Metadata.DropInfo;
+        var globalDrops = new List<Item>();
+        foreach (int globalHitDropId in dropInfo.GlobalHitDropBoxIds) {
+            globalDrops.AddRange(Field.ItemDrop.GetGlobalDropItems(globalHitDropId, Value.Metadata.Basic.Level));
         }
 
-        foreach (Item item in itemDrops) {
-            // If this drop is Mesos, override the amount using NPC level-based roll
-            if (item.IsMeso()) {
-                int level = Value.Metadata.Basic.Level;
-                float min = ConfigProvider.Settings.Mesos.PerLevelMin;
-                float max = Math.Max(min, ConfigProvider.Settings.Mesos.PerLevelMax);
-                double factor = min + (max - min) * Random.Shared.NextDouble();
-                double raw = level * factor;
-                int meso = (int) Math.Round(raw * ConfigProvider.Settings.Mesos.DropRate);
-                if (meso <= 0) {
-                    continue;
-                }
-                item.Amount = meso;
+        foreach (Item item in globalDrops) {
+            float x = Random.Shared.Next((int) Position.X - dropInfo.DropDistanceRandom, (int) Position.X + dropInfo.DropDistanceRandom);
+            float y = Random.Shared.Next((int) Position.Y - dropInfo.DropDistanceRandom, (int) Position.Y + dropInfo.DropDistanceRandom);
+            Field.DropItem(new Vector3(x, y, Position.Z), Rotation, item, owner: this);
+        }
+
+        foreach (int individualHitDropId in dropInfo.IndividualHitDropBoxIds) {
+            foreach (Item item in Field.ItemDrop.GetIndividualDropItems(player.Session, player.Value.Character.Level, individualHitDropId)) {
+                float x = Random.Shared.Next((int) Position.X - dropInfo.DropDistanceRandom, (int) Position.X + dropInfo.DropDistanceRandom);
+                float y = Random.Shared.Next((int) Position.Y - dropInfo.DropDistanceRandom, (int) Position.Y + dropInfo.DropDistanceRandom);
+                Field.DropItem(new Vector3(x, y, Position.Z), Rotation, item, owner: this, characterId: player.Value.Character.Id);
             }
-            float x = Random.Shared.Next((int) Position.X - Value.Metadata.DropInfo.DropDistanceRandom, (int) Position.X + Value.Metadata.DropInfo.DropDistanceRandom);
-            float y = Random.Shared.Next((int) Position.Y - Value.Metadata.DropInfo.DropDistanceRandom, (int) Position.Y + Value.Metadata.DropInfo.DropDistanceRandom);
-            var position = new Vector3(x, y, Position.Z);
+        }
+    }
 
-            FieldItem fieldItem = Field.SpawnItem(position, Rotation, item, this, firstPlayer.Value.Character.Id);
-            Field.Broadcast(FieldPacket.DropItem(fieldItem));
+    private void DropIndividualLoot(FieldPlayer player) {
+        NpcMetadataDropInfo dropInfo = Value.Metadata.DropInfo;
+        var individualDrops = new List<Item>();
+        foreach (int individualDropId in dropInfo.IndividualDropBoxIds) {
+            individualDrops.AddRange(Field.ItemDrop.GetIndividualDropItems(player.Session, player.Value.Character.Level, individualDropId));
+        }
+
+        foreach (Item item in individualDrops) {
+            float x = Random.Shared.Next((int) Position.X - dropInfo.DropDistanceRandom, (int) Position.X + dropInfo.DropDistanceRandom);
+            float y = Random.Shared.Next((int) Position.Y - dropInfo.DropDistanceRandom, (int) Position.Y + dropInfo.DropDistanceRandom);
+            Field.DropItem(new Vector3(x, y, Position.Z), Rotation, item, owner: this, characterId: player.Value.Character.Id);
+        }
+    }
+
+    public void DropCorpseLoot(FieldPlayer player) {
+        NpcMetadataDropInfo dropInfo = Value.Metadata.DropInfo;
+        var globalDrops = new List<Item>();
+        foreach (int deadGlobalDropId in dropInfo.DeadGlobalDropBoxIds) {
+            globalDrops.AddRange(Field.ItemDrop.GetGlobalDropItems(deadGlobalDropId, Value.Metadata.Basic.Level));
+        }
+
+        foreach (Item item in globalDrops) {
+            float x = Random.Shared.Next((int) Position.X - dropInfo.DropDistanceRandom, (int) Position.X + dropInfo.DropDistanceRandom);
+            float y = Random.Shared.Next((int) Position.Y - dropInfo.DropDistanceRandom, (int) Position.Y + dropInfo.DropDistanceRandom);
+            Field.DropItem(new Vector3(x, y, Position.Z), Rotation, item, owner: this, characterId: player.Value.Character.Id);
         }
     }
 
@@ -433,50 +510,84 @@ public class FieldNpc : Actor<Npc> {
 
     // mob drops, exp, etc.
     private void HandleDamageDealers() {
-        // TODO: Fix drop loot. Right now we're getting the first player in damage dealers as the receiver of the loot.
-        // How it should work is the person who instigated the first attack on the mob gets tagged. As long as the mob is in aggro, it stays on them, regardless if aggro changes.
-        // If the mob stops aggro to everyone, it resets this and heals/removes all damage records.
-        // Boss drop loot is different. They drop for everyone who did damage to them.
+        if (Value.IsBoss) {
+            // Boss drops: global items once (no receiver lock), individual items per dealer.
+            DropGlobalLoot();
+            foreach (KeyValuePair<int, DamageRecordTarget> damageDealer in DamageDealers) {
+                if (!Field.TryGetPlayer(damageDealer.Key, out FieldPlayer? player)) {
+                    continue;
+                }
 
-        if (!Field.TryGetPlayer(DamageDealers.FirstOrDefault().Key, out FieldPlayer? firstPlayer)) {
-            return;
-        }
+                DropIndividualLoot(player);
+                GiveExp(player);
 
-        DropLoot(firstPlayer);
+                player.Session.ConditionUpdate(ConditionType.npc, codeLong: Value.Id, targetLong: Field.MapId);
+                player.Session.ConditionUpdate(ConditionType.killcount, codeLong: Value.Id);
+                foreach (string tag in Value.Metadata.Basic.MainTags) {
+                    player.Session.ConditionUpdate(ConditionType.npc_race, codeString: tag);
+                }
 
-        // LastHitNpc mission: only the player who dealt the killing blow gets credit
-        if (Field.TryGetPlayer(LastAttackerId, out FieldPlayer? killer)) {
-            killer.Session.Dungeon.UpdateMission(DungeonMissionType.LastHitNpc, Value.Id);
-        }
-
-        foreach (KeyValuePair<int, DamageRecordTarget> damageDealer in DamageDealers) {
-            if (!Field.TryGetPlayer(damageDealer.Key, out FieldPlayer? player)) {
-                continue;
+                // Track dungeon accumulation records
+                if (player.Session.Dungeon.UserRecord != null) {
+                    long totalDamage = damageDealer.Value.Damage.Where(d => d.Type != DamageType.Miss).Sum(d => d.Amount);
+                    long critDamage = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Sum(d => d.Amount);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalDamage, (int) totalDamage, (_, v) => v + (int) totalDamage);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalHitCount, damageDealer.Value.Damage.Count, (_, v) => v + damageDealer.Value.Damage.Count);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.DefeatedMonsters, 1, (_, v) => v + 1);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalCriticalDamage, (int) critDamage, (_, v) => v + (int) critDamage);
+                    long maxCrit = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Select(d => d.Amount).DefaultIfEmpty(0).Max();
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.MaximumCriticalDamage, (int) maxCrit, (_, v) => Math.Max(v, (int) maxCrit));
+                }
+            }
+        } else {
+            // Regular mob: first attacker is tagged and receives all drops.
+            if (!Field.TryGetPlayer(firstAttackerObjectId, out FieldPlayer? taggedPlayer) &&
+                !Field.TryGetPlayer(DamageDealers.FirstOrDefault().Key, out taggedPlayer)) {
+                return;
             }
 
-            GiveExp(player);
+            DropGlobalLoot(taggedPlayer!.Value.Character.Id);
+            DropIndividualLoot(taggedPlayer);
 
-            player.Session.ConditionUpdate(ConditionType.npc, codeLong: Value.Id, targetLong: Field.MapId);
-            player.Session.ConditionUpdate(ConditionType.killcount, codeLong: Value.Id);
-            foreach (string tag in Value.Metadata.Basic.MainTags) {
-                player.Session.ConditionUpdate(ConditionType.npc_race, codeString: tag);
+            // LastHitNpc mission: only the player who dealt the killing blow gets credit
+            if (Field.TryGetPlayer(LastAttackerId, out FieldPlayer? killer)) {
+                killer.Session.Dungeon.UpdateMission(DungeonMissionType.LastHitNpc, Value.Id);
             }
 
-            // Track dungeon accumulation records
-            if (player.Session.Dungeon.UserRecord != null) {
-                long totalDamage = damageDealer.Value.Damage.Where(d => d.Type != DamageType.Miss).Sum(d => d.Amount);
-                long critDamage = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Sum(d => d.Amount);
-                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
-                    DungeonAccumulationRecordType.TotalDamage, (int) totalDamage, (_, v) => v + (int) totalDamage);
-                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
-                    DungeonAccumulationRecordType.TotalHitCount, damageDealer.Value.Damage.Count, (_, v) => v + damageDealer.Value.Damage.Count);
-                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
-                    DungeonAccumulationRecordType.DefeatedMonsters, 1, (_, v) => v + 1);
-                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
-                    DungeonAccumulationRecordType.TotalCriticalDamage, (int) critDamage, (_, v) => v + (int) critDamage);
-                long maxCrit = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Select(d => d.Amount).DefaultIfEmpty(0).Max();
-                player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
-                    DungeonAccumulationRecordType.MaximumCriticalDamage, (int) maxCrit, (_, v) => Math.Max(v, (int) maxCrit));
+            foreach (KeyValuePair<int, DamageRecordTarget> damageDealer in DamageDealers) {
+                if (!Field.TryGetPlayer(damageDealer.Key, out FieldPlayer? player)) {
+                    continue;
+                }
+
+                GiveExp(player);
+
+                player.Session.ConditionUpdate(ConditionType.npc, codeLong: Value.Id, targetLong: Field.MapId);
+                player.Session.ConditionUpdate(ConditionType.killcount, codeLong: Value.Id);
+                foreach (string tag in Value.Metadata.Basic.MainTags) {
+                    player.Session.ConditionUpdate(ConditionType.npc_race, codeString: tag);
+                }
+
+                // Track dungeon accumulation records
+                if (player.Session.Dungeon.UserRecord != null) {
+                    long totalDamage = damageDealer.Value.Damage.Where(d => d.Type != DamageType.Miss).Sum(d => d.Amount);
+                    long critDamage = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Sum(d => d.Amount);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalDamage, (int) totalDamage, (_, v) => v + (int) totalDamage);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalHitCount, damageDealer.Value.Damage.Count, (_, v) => v + damageDealer.Value.Damage.Count);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.DefeatedMonsters, 1, (_, v) => v + 1);
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.TotalCriticalDamage, (int) critDamage, (_, v) => v + (int) critDamage);
+                    long maxCrit = damageDealer.Value.Damage.Where(d => d.Type == DamageType.Critical).Select(d => d.Amount).DefaultIfEmpty(0).Max();
+                    player.Session.Dungeon.UserRecord.AccumulationRecords.AddOrUpdate(
+                        DungeonAccumulationRecordType.MaximumCriticalDamage, (int) maxCrit, (_, v) => Math.Max(v, (int) maxCrit));
+                }
             }
         }
     }

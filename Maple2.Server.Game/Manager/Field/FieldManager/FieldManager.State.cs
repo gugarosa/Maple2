@@ -1049,6 +1049,9 @@ public partial class FieldManager {
         }
         foreach (FieldNpc fieldNpc in Npcs.Values.Concat(Mobs.Values)) {
             added.Session.Send(FieldPacket.AddNpc(fieldNpc));
+            if (fieldNpc.IsCorpse) {
+                added.Session.Send(NpcControlPacket.Dead(fieldNpc));
+            }
         }
         foreach (FieldPet fieldPet in Pets.Values) {
             added.Session.Send(FieldPacket.AddPet(fieldPet));
