@@ -87,6 +87,9 @@ public class FieldNpc : Actor<Npc> {
     public readonly SkillMetadata?[] Skills;
 
     public int SpawnPointId = 0;
+    public Action<FieldNpc>? WorldBossDeathCallback { get; set; }
+    public long LastDamageTick { get; private set; }
+    private int lastAttackerObjectId;
     public int EffectiveLevel => Math.Max(1, Value.Metadata.Basic.Level + ConfigProvider.Settings.Mob.EnemyLevelOffset);
 
     public MS2PatrolData? Patrol { get; private set; }
@@ -318,7 +321,13 @@ public class FieldNpc : Actor<Npc> {
         return approachTask;
     }
 
+    protected override void OnDamageReceived(IActor caster, long amount) {
+        LastDamageTick = Environment.TickCount64;
+        lastAttackerObjectId = caster.ObjectId;
+    }
+
     protected override void OnDeath() {
+        WorldBossDeathCallback?.Invoke(this);
         Owner?.Despawn(ObjectId);
         SendControl = false;
 
@@ -496,6 +505,13 @@ public class FieldNpc : Actor<Npc> {
             }
         }
         requester.Send(CinematicPacket.BalloonTalk(false, ObjectId, message, 2500, 0));
+    }
+
+    public FieldPlayer? GetLastAttacker() {
+        if (lastAttackerObjectId == 0 || !Field.TryGetPlayer(lastAttackerObjectId, out FieldPlayer? player)) {
+            return null;
+        }
+        return player;
     }
 
     public void AppendDebugMessage(string message, bool sanitize = false) {
