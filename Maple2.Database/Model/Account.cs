@@ -11,7 +11,7 @@ namespace Maple2.Database.Model;
 internal class Account {
     public long Id { get; set; }
     public required string Username { get; set; }
-    public string Password { get; set; } = string.Empty;
+    public required string Password { get; set; }
     // TODO: Add list of MachineId and IP addresses used to login
     public Guid MachineId { get; set; }
     public int MaxCharacters { get; set; }
@@ -50,6 +50,7 @@ internal class Account {
             LastModified = other.LastModified,
             Id = other.Id,
             Username = other.Username,
+            Password = string.Empty,
             MachineId = other.MachineId,
             MaxCharacters = other.MaxCharacters,
             PrestigeLevel = other.PrestigeLevel,

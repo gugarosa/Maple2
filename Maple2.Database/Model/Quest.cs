@@ -15,7 +15,7 @@ internal class Quest {
     public long StartTime { get; set; }
     public long EndTime { get; set; }
     public bool Track { get; set; }
-    public SortedDictionary<int, QuestCondition> Conditions { get; set; } = new();
+    public SortedDictionary<int, QuestCondition> Conditions { get; set; } = [];
 
     [return: NotNullIfNotNull(nameof(other))]
     public static implicit operator Quest?(Maple2.Model.Game.Quest? other) {
@@ -32,11 +32,9 @@ internal class Quest {
             Conditions = new SortedDictionary<int, QuestCondition>(),
         };
 
-#pragma warning disable CS8624 // Argument nullability — implicit conversion is never null for dictionary values
-        foreach ((int index, QuestCondition condition) in other.Conditions) {
-            quest.Conditions.Add(index, condition!);
+        foreach ((int index, Maple2.Model.Game.Quest.Condition condition) in other.Conditions) {
+            quest.Conditions.Add(index, condition);
         }
-#pragma warning restore CS8624
 
         return quest;
     }

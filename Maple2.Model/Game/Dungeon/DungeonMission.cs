@@ -10,6 +10,10 @@ public class DungeonMission : IByteSerializable {
     public short Score { get; private set; }
     public short Counter { get; private set; }
 
+    public DungeonMission(DungeonMissionMetadata metadata) {
+        Metadata = metadata;
+    }
+
     public void Initialize() {
         if (Metadata.IsPenaltyType) {
             Score = Metadata.MaxScore;

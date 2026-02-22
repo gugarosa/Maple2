@@ -1,6 +1,5 @@
 ﻿using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using System.Runtime.Serialization;
 using System.Text;
 using ICSharpCode.SharpZipLib.Zip.Compression;
 using Maple2.PacketLib.Tools;
@@ -64,7 +63,7 @@ public static class PacketExtensions {
 
     public static T[] ReadArray<T>(this IByteReader packet, int size) where T : struct {
         var result = new T[size];
-        for (int i = 0; i > size; i++) {
+        for (int i = 0; i < size; i++) {
             result[i] = packet.Read<T>();
         }
 
@@ -79,9 +78,7 @@ public static class PacketExtensions {
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T ReadClass<T>(this IByteReader packet) where T : IByteDeserializable {
-#pragma warning disable SYSLIB0050 // FormatterServices is the only way to create uninitialized objects without a parameterless constructor
-        var type = (T) FormatterServices.GetSafeUninitializedObject(typeof(T));
-#pragma warning restore SYSLIB0050
+        var type = (T) RuntimeHelpers.GetUninitializedObject(typeof(T));
         type.ReadFrom(packet);
         return type;
     }
