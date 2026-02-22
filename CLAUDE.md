@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## AI Assistant Guidelines
+
+- **DO NOT commit changes automatically.** Only commit when explicitly requested by the user.
+- Present changes and let the user decide whether to commit them.
+
 ## Project Overview
 
 This is a MapleStory2 server emulator written in C# targeting .NET 8.0+. It implements a distributed microservices architecture with multiple specialized servers handling different aspects of the game.
@@ -218,6 +223,33 @@ Dynamic scripting for map events:
 - Event-driven with conditions and actions
 
 ## Key Patterns and Conventions
+
+### Logging
+
+Use Serilog for logging throughout the codebase:
+
+```csharp
+using Serilog;
+
+public class MyClass {
+    private readonly ILogger logger = Log.Logger.ForContext<MyClass>();
+
+    public void MyMethod() {
+        logger.Debug("Debug message with {Parameter}", value);
+        logger.Information("Info message");
+        logger.Warning("Warning message");
+        logger.Error(exception, "Error message");
+    }
+}
+```
+
+For static contexts or one-off logging:
+
+```csharp
+using Serilog;
+
+Log.Logger.ForContext<MyClass>().Debug("Message");
+```
 
 ### Dependency Injection (Autofac)
 
