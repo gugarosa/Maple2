@@ -19,6 +19,7 @@ public class InventoryManager {
     private const int BATCH_SIZE = 10;
 
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     private readonly Dictionary<InventoryType, ItemCollection> tabs;
     private readonly List<Item> delete;
@@ -44,46 +45,33 @@ public class InventoryManager {
         }
     }
 
-    private static short BaseSize(InventoryType type) {
-        return (short) (type switch {
-            InventoryType.Gear => Constant.BagSlotTabGameCount,
-            InventoryType.Outfit => Constant.BagSlotTabSkinCount,
-            InventoryType.Mount => Constant.BagSlotTabSummonCount,
-            InventoryType.Catalyst => Constant.BagSlotTabMaterialCount,
-            InventoryType.FishingMusic => Constant.BagSlotTabLifeCount,
-            InventoryType.Quest => Constant.BagSlotTabQuestCount,
-            InventoryType.Gemstone => Constant.BagSlotTabGemCount,
-            InventoryType.Misc => Constant.BagSlotTabMiscCount,
-            InventoryType.LifeSkill => Constant.BagSlotTabMasteryCount,
-            InventoryType.Pets => Constant.BagSlotTabPetCount,
-            InventoryType.Consumable => Constant.BagSlotTabActiveSkillCount,
-            InventoryType.Currency => Constant.BagSlotTabCoinCount,
-            InventoryType.Badge => Constant.BagSlotTabBadgeCount,
-            InventoryType.Lapenshard => Constant.BagSlotTabLapenshardCount,
-            InventoryType.Fragment => Constant.BagSlotTabPieceCount,
-            _ => throw new ArgumentOutOfRangeException($"Invalid InventoryType: {type}"),
-        });
-    }
+    private short BaseSize(InventoryType type) => SlotSizes(type)[0];
 
-    private static short MaxExpandSize(InventoryType type) {
-        return (short) (type switch {
-            InventoryType.Gear => Constant.BagSlotTabGameCountMax,
-            InventoryType.Outfit => Constant.BagSlotTabSkinCountMax,
-            InventoryType.Mount => Constant.BagSlotTabSummonCountMax,
-            InventoryType.Catalyst => Constant.BagSlotTabMaterialCountMax,
-            InventoryType.FishingMusic => Constant.BagSlotTabLifeCountMax,
-            InventoryType.Quest => Constant.BagSlotTabQuestCountMax,
-            InventoryType.Gemstone => Constant.BagSlotTabGemCountMax,
-            InventoryType.Misc => Constant.BagSlotTabMiscCountMax,
-            InventoryType.LifeSkill => Constant.BagSlotTabMasteryCountMax,
-            InventoryType.Pets => Constant.BagSlotTabPetCountMax,
-            InventoryType.Consumable => Constant.BagSlotTabActiveSkillCountMax,
-            InventoryType.Currency => Constant.BagSlotTabCoinCountMax,
-            InventoryType.Badge => Constant.BagSlotTabBadgeCountMax,
-            InventoryType.Lapenshard => Constant.BagSlotTabLapenshardCountMax,
-            InventoryType.Fragment => Constant.BagSlotTabPieceCountMax,
+    private short MaxExpandSize(InventoryType type) => SlotSizes(type)[1];
+
+    private short[] SlotSizes(InventoryType type) {
+        short[]? sizes = type switch {
+            InventoryType.Gear => Constants.bagSlotTabGameCount,
+            InventoryType.Outfit => Constants.bagSlotTabSkinCount,
+            InventoryType.Mount => Constants.bagSlotTabSummonCount,
+            InventoryType.Catalyst => Constants.bagSlotTabMaterialCount,
+            InventoryType.FishingMusic => Constants.bagSlotTabLifeCount,
+            InventoryType.Quest => Constants.bagSlotTabQuestCount,
+            InventoryType.Gemstone => Constants.bagSlotTabGemCount,
+            InventoryType.Misc => Constants.bagSlotTabMiscCount,
+            InventoryType.LifeSkill => Constants.bagSlotTabMasteryCount,
+            InventoryType.Pets => Constants.bagSlotTabPetCount,
+            InventoryType.Consumable => Constants.bagSlotTabActiveSkillCount,
+            InventoryType.Currency => Constants.bagSlotTabCoinCount,
+            InventoryType.Badge => Constants.bagSlotTabBadgeCount,
+            InventoryType.Lapenshard => Constants.bagSlotTabLapenShardCount,
+            InventoryType.Fragment => Constants.bagSlotTabPieceCount,
             _ => throw new ArgumentOutOfRangeException($"Invalid InventoryType: {type}"),
-        });
+        };
+        if (sizes is not { Length: >= 2 }) {
+            throw new InvalidDataException($"Missing base/max slot metadata for inventory type {type}.");
+        }
+        return sizes;
     }
 
     public void Load() {
@@ -561,7 +549,7 @@ public class InventoryManager {
                 return false;
             }
 
-            if (session.Currency.Meret < Constant.InventoryExpandPrice1Row) {
+            if (session.Currency.Meret < Constants.InventoryExpandPrice1Row) {
                 session.Send(ItemInventoryPacket.Error(s_cannot_charge_merat));
                 return false;
             }
@@ -570,7 +558,7 @@ public class InventoryManager {
                 return false;
             }
 
-            session.Currency.Meret -= Constant.InventoryExpandPrice1Row;
+            session.Currency.Meret -= Constants.InventoryExpandPrice1Row;
             if (session.Player.Value.Unlock.Expand.ContainsKey(type)) {
                 session.Player.Value.Unlock.Expand[type] = newExpand;
             } else {

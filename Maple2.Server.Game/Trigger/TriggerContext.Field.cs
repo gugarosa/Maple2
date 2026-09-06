@@ -128,6 +128,10 @@ public partial class TriggerContext {
 
     public void ResetCamera(float interpolationTime) {
         DebugLog("[CameraReset] interpolationTime:{Time}", interpolationTime);
+        foreach (TriggerObjectCamera camera in Objects.Cameras.Values.Where(camera => camera.Visible)) {
+            camera.Visible = false;
+            Broadcast(TriggerPacket.Update(camera));
+        }
         Broadcast(CameraPacket.Interpolate(interpolationTime));
     }
 

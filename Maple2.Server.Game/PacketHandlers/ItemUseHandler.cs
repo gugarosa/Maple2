@@ -308,7 +308,7 @@ public class ItemUseHandler : FieldPacketHandler {
             return;
         }
 
-        var receiverMail = new Mail() {
+        var receiverMail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = receiverInfo.CharacterId,
             Type = MailType.System,
             ContentArgs = [

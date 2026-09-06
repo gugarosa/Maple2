@@ -104,7 +104,7 @@ public class AttendanceHandler : FieldPacketHandler {
             return;
         }
 
-        var receiverMail = new Mail() {
+        var receiverMail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = session.CharacterId,
             Type = MailType.System,
             SenderName = "MapleStory 2",

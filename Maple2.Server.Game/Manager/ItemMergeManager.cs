@@ -13,6 +13,7 @@ namespace Maple2.Server.Game.Manager;
 public sealed class ItemMergeManager {
 
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     private readonly ILogger logger = Log.Logger.ForContext<ItemMergeManager>();
 
@@ -86,7 +87,7 @@ public sealed class ItemMergeManager {
         session.Send(ItemMergePacket.Select(mergeSlot, ItemMerge.CostMultiplier(upgradeItem.Rarity)));
 
         if (!session.ScriptMetadata.TryGet(Constant.EmpowermentNpc, out ScriptMetadata? script) ||
-            !script.States.TryGetValue(Constant.MergeSmithScriptID, out ScriptState? state)) {
+            !script.States.TryGetValue(Constants.MergeSmithScriptID, out ScriptState? state)) {
             return;
         }
 

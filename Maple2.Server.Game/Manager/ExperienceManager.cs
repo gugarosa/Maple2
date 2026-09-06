@@ -1,4 +1,4 @@
-﻿﻿using Maple2.Model;
+﻿using Maple2.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
@@ -14,6 +14,7 @@ namespace Maple2.Server.Game.Manager;
 
 public sealed class ExperienceManager {
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
     private long Exp {
         get => session.Player.Value.Character.Exp;
         set => session.Player.Value.Character.Exp = value;
@@ -112,16 +113,26 @@ public sealed class ExperienceManager {
         }
         float mult = ConfigProvider.Settings.ExpMultiplier(ExpType.monster);
         long scaledBase = ScaleExp(expGained, mult);
-        expGained = scaledBase + GetRestExp((long) (scaledBase * expRate));
+        expGained = AddRestedExperience((long) (scaledBase * expRate));
         LevelUp();
         session.Send(ExperienceUpPacket.Add(expGained, Exp, RestExp, ExpMessageCode.s_msg_take_exp, npc.ObjectId));
+        session.ConditionUpdate(ConditionType.exp, counter: expGained);
     }
 
-    private long GetRestExp(long expGained) {
-        long addedRestExp = Math.Min(RestExp, (long) (expGained * (Constant.RestExpAcquireRate / 10000.0f))); // convert int to a percentage
-        RestExp = Math.Max(0, RestExp - addedRestExp);
-        Exp += expGained;
-        return addedRestExp;
+    internal static (long Total, long RestRemaining) CalculateRestedGain(long amount, long rest, int rate) {
+        ArgumentOutOfRangeException.ThrowIfNegative(amount);
+        ArgumentOutOfRangeException.ThrowIfNegative(rest);
+        ArgumentOutOfRangeException.ThrowIfNegative(rate);
+        long bonus = (long) Math.Min(rest, amount * (decimal) rate / 10000);
+        return (checked(amount + bonus), rest - bonus);
+    }
+
+    private long AddRestedExperience(long amount) {
+        (long total, long remaining) = CalculateRestedGain(amount, RestExp, Constants.RestExpAcquireRate);
+        long updatedExp = checked(Exp + total);
+        RestExp = remaining;
+        Exp = updatedExp;
+        return total;
     }
 
     // Treats the provided amount as already scaled (final) EXP.
@@ -206,7 +217,7 @@ public sealed class ExperienceManager {
     }
 
     private long AddScaledExp(long scaledAmount, ExpMessageCode message) {
-        long total = scaledAmount + GetRestExp(scaledAmount);
+        long total = AddRestedExperience(scaledAmount);
         LevelUp();
         AddPrestigeExp(message.Type());
         session.Send(ExperienceUpPacket.Add(total, Exp, RestExp, message));
@@ -229,7 +240,7 @@ public sealed class ExperienceManager {
 
     public bool LevelUp() {
         int startLevel = Level;
-        for (int level = startLevel; level < Constant.characterMaxLevel; level++) {
+        for (int level = startLevel; level < Constants.characterMaxLevel; level++) {
             if (!session.TableMetadata.ExpTable.NextExp.TryGetValue(level, out long expToNextLevel) || expToNextLevel > Exp) {
                 break;
             }
@@ -257,7 +268,7 @@ public sealed class ExperienceManager {
     }
 
     private void AddPrestigeExp(ExpType expType) {
-        if (Level < Constant.AdventureLevelStartLevel) {
+        if (Level < Constants.AdventureLevelStartLevel) {
             return;
         }
 
@@ -265,19 +276,19 @@ public sealed class ExperienceManager {
             return;
         }
 
-        if (PrestigeCurrentExp - PrestigeExp + (PrestigeLevelsGained * Constant.AdventureLevelLvUpExp) >= Constant.AdventureLevelLvUpExp) {
-            amount = (long) (amount * Constant.AdventureLevelFactor);
+        if (PrestigeCurrentExp - PrestigeExp + (PrestigeLevelsGained * Constants.AdventureLevelLvUpExp) >= Constants.AdventureLevelLvUpExp) {
+            amount = (long) (amount * Constants.AdventureLevelFactor);
         }
 
         PrestigeCurrentExp = Math.Min(amount + PrestigeCurrentExp, long.MaxValue);
 
         int startLevel = PrestigeLevel;
-        for (int level = startLevel; level < Constant.AdventureLevelLimit; level++) {
-            if (Constant.AdventureLevelLvUpExp > PrestigeCurrentExp) {
+        for (int level = startLevel; level < Constants.AdventureLevelLimit; level++) {
+            if (Constants.AdventureLevelLvUpExp > PrestigeCurrentExp) {
                 break;
             }
 
-            PrestigeCurrentExp -= Constant.AdventureLevelLvUpExp;
+            PrestigeCurrentExp -= Constants.AdventureLevelLvUpExp;
             PrestigeLevel++;
         }
         session.Send(PrestigePacket.AddExp(PrestigeCurrentExp, amount));
@@ -287,7 +298,7 @@ public sealed class ExperienceManager {
     }
 
     public void PrestigeLevelUp(int amount = 1) {
-        PrestigeLevel = Math.Clamp(PrestigeLevel + amount, amount, Constant.AdventureLevelLimit);
+        PrestigeLevel = Math.Clamp(PrestigeLevel + amount, amount, Constants.AdventureLevelLimit);
         PrestigeLevelsGained += amount;
         session.ConditionUpdate(ConditionType.adventure_level, counter: amount);
         session.ConditionUpdate(ConditionType.adventure_level_up, counter: amount);
@@ -296,7 +307,7 @@ public sealed class ExperienceManager {
         }
 
         for (int i = 0; i < amount; i++) {
-            Item? item = session.Field?.ItemDrop.CreateItem(Constant.AdventureLevelLvUpRewardItem);
+            Item? item = session.Field?.ItemDrop.CreateItem(Constants.AdventureLevelLvUpRewardItem);
             if (item == null) {
                 break;
             }

@@ -1,10 +1,13 @@
 ﻿using System.Globalization;
 using System.Xml;
+using System.Xml.Serialization;
+using M2dXmlGenerator;
 using Maple2.Database.Extensions;
 using Maple2.File.Ingest.Utils;
 using Maple2.File.IO;
 using Maple2.File.Parser;
 using Maple2.File.Parser.Enum;
+using Maple2.File.Parser.Xml.Table;
 using Maple2.File.Parser.Xml.Table.Server;
 using Maple2.Model;
 using Maple2.Model.Common;
@@ -13,6 +16,7 @@ using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Game.Shop;
 using Maple2.Model.Metadata;
+using System.Reflection;
 using DayOfWeek = System.DayOfWeek;
 using ExpType = Maple2.Model.Enum.ExpType;
 using Fish = Maple2.File.Parser.Xml.Table.Server.Fish;
@@ -25,15 +29,22 @@ using MergeOption = Maple2.File.Parser.Xml.Table.Server.MergeOption;
 using ScriptEventType = Maple2.Model.Enum.ScriptEventType;
 using ScriptType = Maple2.Model.Enum.ScriptType;
 using TimeEventType = Maple2.File.Parser.Enum.TimeEventType;
+using ParsedItemOptionProbability = Maple2.File.Parser.Xml.Table.Server.ItemOptionProbability;
+using ParsedItemOptionRandom = Maple2.File.Parser.Xml.Table.Server.ItemOptionRandom;
+using ParsedItemOptionVariation = Maple2.File.Parser.Xml.Table.Server.ItemOptionVariation;
+using ParsedRandomRoom = Maple2.File.Parser.Xml.Table.Server.RandomRoom;
+using ParsedRoom = Maple2.File.Parser.Xml.Table.Server.RoomRandom;
 
 namespace Maple2.File.Ingest.Mapper;
 
 public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
     private readonly ServerTableParser parser;
     private readonly M2dReader xmlReader;
+    private readonly M2dReader clientReader;
 
-    public ServerTableMapper(M2dReader xmlReader) {
+    public ServerTableMapper(M2dReader xmlReader, M2dReader clientReader) {
         this.xmlReader = xmlReader;
+        this.clientReader = clientReader;
         parser = new ServerTableParser(xmlReader);
     }
 
@@ -131,10 +142,144 @@ public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
             Table = ParseUnlimitedEnchantOption(),
         };
         yield return new ServerTableMetadata {
+            Name = ServerTableNames.ROOM_RANDOM,
+            Table = ParseRoomRandom(),
+        };
+        yield return new ServerTableMetadata {
+            Name = ServerTableNames.ITEM_OPTION_WEIGHTS,
+            Table = ParseItemOptionWeights(),
+        };
+        yield return new ServerTableMetadata {
             Name = ServerTableNames.CONSTANTS,
-            Table = ParseServerConstants(),
+            Table = ParseConstants(),
         };
 
+    }
+
+    private RoomRandomTable ParseRoomRandom() {
+        var randomEntries = new Dictionary<int, RandomRoomEntry>();
+        foreach ((int id, ParsedRandomRoom entry) in parser.ParseRoomRandom()) {
+            if (entry.prob is < 0 or > 10000) {
+                throw new InvalidDataException($"Invalid random room probability {entry.prob} for group {id}.");
+            }
+
+            var weights = new Dictionary<int, int>();
+            foreach (var reference in entry.@ref) {
+                if (reference.weight <= 0 || !weights.TryAdd(reference.roomid, reference.weight)) {
+                    throw new InvalidDataException($"Invalid or duplicate room {reference.roomid} in random room group {id}.");
+                }
+            }
+            if (weights.Count == 0) {
+                throw new InvalidDataException($"Random room group {id} has no room references.");
+            }
+            randomEntries.Add(id, new RandomRoomEntry(id, entry.prob, weights));
+        }
+
+        var rooms = new Dictionary<int, RoomEntry>();
+        foreach ((int id, ParsedRoom entry) in parser.ParseRoom()) {
+            if (entry.fieldIDs.Length == 0 || entry.roomdurationTick <= 0 || entry.maxUserCount <= 0 ||
+                string.IsNullOrWhiteSpace(entry.nifAssetName) || entry.autoClosing is < 0 or > 1) {
+                throw new InvalidDataException($"Invalid room definition {id}.");
+            }
+            rooms.Add(id, new RoomEntry(
+                id,
+                entry.fieldIDs,
+                entry.roomdurationTick,
+                entry.nifAssetName,
+                entry.maxUserCount,
+                entry.autoClosing != 0));
+        }
+
+        foreach ((int groupId, RandomRoomEntry entry) in randomEntries) {
+            foreach (int roomId in entry.RoomWeights.Keys) {
+                if (!rooms.ContainsKey(roomId)) {
+                    throw new InvalidDataException($"Random room group {groupId} references missing room {roomId}.");
+                }
+            }
+        }
+        return new RoomRandomTable(randomEntries, rooms);
+    }
+
+    private ItemOptionWeightTable ParseItemOptionWeights() {
+        var basicProbabilities = new Dictionary<BasicAttribute, ItemOptionProbabilityMetadata>();
+        var specialProbabilities = new Dictionary<SpecialAttribute, ItemOptionProbabilityMetadata>();
+        foreach ((string name, ParsedItemOptionProbability entry) in parser.ParseItemOptionProbability()) {
+            if (name == "sid") {
+                continue;
+            }
+
+            var probability = new ItemOptionProbabilityMetadata(
+                entry.weaponProbability,
+                entry.armorProbability,
+                entry.accProbability,
+                entry.petProbability);
+            if (!TryParseOptionAttribute(name, out BasicAttribute? basic, out SpecialAttribute? special)) {
+                throw new InvalidOperationException($"Unsupported item option probability '{name}'.");
+            }
+            if (basic != null) {
+                basicProbabilities.Add(basic.Value, probability);
+            } else if (special != null) {
+                specialProbabilities.Add(special.Value, probability);
+            }
+        }
+
+        var variations = new Dictionary<int, ParsedItemOptionVariation>();
+        foreach ((int variationId, ParsedItemOptionVariation variation) in parser.ParseItemOptionVariation()) {
+            variations.Add(variationId, variation);
+        }
+        var options = new Dictionary<int, ItemOptionWeight[]>();
+        foreach ((int optionId, ParsedItemOptionRandom option) in parser.ParseItemOptionRandom()) {
+            var itemType = new ItemType(optionId);
+            var entries = new List<ItemOptionWeight>(option.v.Count);
+            foreach (ParsedItemOptionRandom.ItemOptionStat entry in option.v) {
+                if (!TryParseOptionAttribute(entry.name, out BasicAttribute? basic, out SpecialAttribute? special)) {
+                    throw new InvalidOperationException($"Unsupported item option '{entry.name}' in {optionId}.");
+                }
+                if (!variations.TryGetValue(entry.statID, out ParsedItemOptionVariation? variation)) {
+                    throw new InvalidOperationException($"Missing item option variation {entry.statID} for {optionId}:{entry.name}.");
+                }
+                if (entry.weight <= 0 || variation.v.Count == 0 || variation.v.Any(value => value.weight <= 0)) {
+                    throw new InvalidOperationException($"Invalid item option weights for {optionId}:{entry.name}.");
+                }
+
+                ItemOptionProbabilityMetadata? probability = basic != null
+                    ? basicProbabilities.GetValueOrDefault(basic.Value)
+                    : specialProbabilities.GetValueOrDefault(special!.Value);
+                int probabilityWeight = probability?.GetWeight(itemType) ?? 0;
+                if (probabilityWeight != 0 && probabilityWeight != entry.weight) {
+                    throw new InvalidOperationException(
+                        $"Item option weight mismatch for {optionId}:{entry.name}: random={entry.weight}, probability={probabilityWeight}.");
+                }
+
+                entries.Add(new ItemOptionWeight(
+                    basic,
+                    special,
+                    entry.weight,
+                    variation.isRateType != 0,
+                    variation.v.Select(value => new ItemOptionWeightedValue(value.stat, value.weight)).ToArray()));
+            }
+            options.Add(optionId, entries.ToArray());
+        }
+
+        return new ItemOptionWeightTable(basicProbabilities, specialProbabilities, options);
+    }
+
+    private static bool TryParseOptionAttribute(string name, out BasicAttribute? basic, out SpecialAttribute? special) {
+        try {
+            basic = name.ToBasicAttribute();
+            special = null;
+            return true;
+        } catch (ArgumentOutOfRangeException) {
+            try {
+                basic = null;
+                special = name.ToSpecialAttribute();
+                return true;
+            } catch (ArgumentOutOfRangeException) {
+                basic = null;
+                special = null;
+                return false;
+            }
+        }
     }
 
     private InstanceFieldTable ParseInstanceField() {
@@ -2142,31 +2287,64 @@ public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
         }
     }
 
-    private ServerConstantsTable ParseServerConstants() {
-        var results = new Dictionary<string, string>();
-        var entry = xmlReader.GetEntry("table/Server/constants.xml")
-                   ?? xmlReader.GetEntry("table/server/constants.xml");
-        if (entry == null) {
-            return new ServerConstantsTable(results);
-        }
+    private ConstantsTable ParseConstants() {
+        var entry = clientReader.GetEntry("table/constants.xml")
+            ?? throw new InvalidDataException("Client constants were not found in Xml.m2d.");
+        using var reader = new XmlNodeReader(clientReader.GetXmlDocument(entry));
+        var serializer = new XmlSerializer(typeof(Constants));
+        var client = (Constants?) serializer.Deserialize(reader)
+            ?? throw new InvalidDataException("Client constants could not be read from Xml.m2d.");
+        IEnumerable<Constants.Key> clientValues = FeatureLocaleFilter.ResolveFeatureLocale(client.v, value => value.key);
+        return BuildConstants(
+            clientValues.Select(value => (value.key, value.value)),
+            parser.ParseConstants().Select(entry => (entry.Item1, entry.Item2.value)));
+    }
 
-        XmlDocument doc = xmlReader.GetXmlDocument(entry);
-        XmlNodeList? nodes = doc.SelectNodes("ms2/v");
-        if (nodes == null) {
-            return new ServerConstantsTable(results);
-        }
+    internal static ConstantsTable BuildConstants(
+        IEnumerable<(string Key, string Value)> clientValues,
+        IEnumerable<(string Key, string Value)> serverValues) {
+        var constants = new ConstantsTable();
+        Dictionary<string, PropertyInfo> properties = typeof(ConstantsTable).GetProperties()
+            .ToDictionary(property => property.Name, StringComparer.OrdinalIgnoreCase);
+        int parsedCount = 0;
 
-        foreach (XmlNode node in nodes) {
-            string? key = node.Attributes?["key"]?.Value;
-            string? value = node.Attributes?["value"]?.Value;
-            if (key == null || value == null) {
+        // Server configuration overrides client defaults within the same canonical table.
+        foreach ((string key, string rawValue) in clientValues.Concat(serverValues)) {
+            string name = key.Trim();
+            if (!properties.TryGetValue(name, out PropertyInfo? property)) {
                 continue;
             }
 
-            // Server constants may have locale but we take all (last wins for dupes)
-            results[key] = value;
+            try {
+                string value = NormalizeConstantValue(rawValue.Trim(), property);
+                GenericHelper.SetValue(property, constants, value);
+                parsedCount++;
+            } catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException or ArgumentException) {
+                throw new InvalidDataException(
+                    $"Invalid value for constant '{name}' ({property.PropertyType.Name}).", ex);
+            }
         }
 
-        return new ServerConstantsTable(results);
+        if (parsedCount == 0) {
+            throw new InvalidDataException("No supported constants were parsed. Verify Server.m2d and Xml.m2d.");
+        }
+        constants.Validate();
+        return constants;
+    }
+
+    private static string NormalizeConstantValue(string input, PropertyInfo property) {
+        if (property.PropertyType != typeof(TimeSpan)) {
+            return input;
+        }
+
+        TimeSpan value = property.Name switch {
+            "DailyTrophyResetDate" => TimeSpan.Parse(input.Replace('-', ':'), CultureInfo.InvariantCulture),
+            "GlobalCubeSkillIntervalTime" => TimeSpan.FromSeconds(
+                double.Parse(input.TrimEnd('f', 'F'), CultureInfo.InvariantCulture)),
+            "UgcHomeSaleWaitingTime" => TimeSpan.FromSeconds(
+                double.Parse(input.TrimEnd('f', 'F'), CultureInfo.InvariantCulture)),
+            _ => TimeSpan.Parse(input, CultureInfo.InvariantCulture),
+        };
+        return value.ToString("c", CultureInfo.InvariantCulture);
     }
 }

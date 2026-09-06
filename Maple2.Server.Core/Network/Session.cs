@@ -37,6 +37,7 @@ public abstract class Session : IDisposable {
 
     private bool disposed;
     private int disconnecting; // 0 = not disconnecting, 1 = disconnect in progress/already triggered (reentrancy guard)
+    private volatile bool sendFailed;
     private readonly uint siv;
     private readonly uint riv;
 
@@ -82,6 +83,7 @@ public abstract class Session : IDisposable {
 
         client = tcpClient;
         networkStream = tcpClient.GetStream();
+        networkStream.WriteTimeout = SEND_TIMEOUT_MS;
         sendCipher = new MapleCipher.Encryptor(VERSION, siv, BLOCK_IV);
         recvCipher = new MapleCipher.Decryptor(VERSION, riv, BLOCK_IV);
 
@@ -111,7 +113,9 @@ public abstract class Session : IDisposable {
             Logger.Debug(ex, "Complete() threw during Dispose");
         }
         try {
-            thread.Join(STOP_TIMEOUT);
+            if (Thread.CurrentThread != thread && thread.IsAlive) {
+                thread.Join(STOP_TIMEOUT);
+            }
         } catch (Exception ex) {
             Logger.Debug(ex, "thread.Join failed");
         }
@@ -138,7 +142,11 @@ public abstract class Session : IDisposable {
         // Drain the send queue before disposing — ensures queued packets (e.g. migration)
         // are delivered to the client before the connection is closed.
         try { sendQueue.CompleteAdding(); } catch (ObjectDisposedException) { }
-        try { sendWorkerThread.Join(STOP_TIMEOUT); } catch (Exception ex) {
+        try {
+            if (Thread.CurrentThread != sendWorkerThread) {
+                sendWorkerThread.Join(STOP_TIMEOUT);
+            }
+        } catch (Exception ex) {
             Logger.Debug(ex, "SendWorker drain join failed");
         }
 
@@ -306,7 +314,7 @@ public abstract class Session : IDisposable {
      * length: length of packet that only includes data
      */
     private void SendInternal(byte[] packet, int length) {
-        if (disposed || disconnecting == 1) return;
+        if (disposed || sendFailed || Volatile.Read(ref disconnecting) == 1) return;
 #if DEBUG
         LogSend(packet, length);
 #endif
@@ -329,38 +337,14 @@ public abstract class Session : IDisposable {
     }
 
     private void SendRaw(ByteWriter packet) {
-        if (disposed) return;
+        if (disposed || sendFailed) return;
 
         try {
-            // Use async write with timeout to prevent indefinite blocking
-            Task writeTask = networkStream.WriteAsync(packet.Buffer, 0, packet.Length);
-            if (!writeTask.Wait(SEND_TIMEOUT_MS)) {
-                Logger.Warning("SendRaw timeout after {Timeout}ms, disconnecting account={AccountId} char={CharacterId}",
-                    SEND_TIMEOUT_MS, AccountId, CharacterId);
-
-                // Observe the task exception to prevent unobserved task exception
-                // when the task eventually completes/faults after timeout
-                _ = writeTask.ContinueWith(t => {
-                    if (t.IsFaulted) {
-                        Logger.Debug(t.Exception, "WriteAsync faulted after timeout account={AccountId} char={CharacterId}",
-                            AccountId, CharacterId);
-                    }
-                }, TaskContinuationOptions.OnlyOnFaulted);
-
-                Disconnect();
-                return;
-            }
-
-            // Check if write actually failed
-            if (writeTask.IsFaulted) {
-                throw writeTask.Exception?.GetBaseException() ?? new Exception("Write task faulted");
-            }
-        } catch (Exception ex) when (ex.InnerException is IOException or SocketException || ex is IOException or SocketException) {
-            // Expected when client closes the connection (e.g., during migration)
-            Logger.Debug("SendRaw connection closed account={AccountId} char={CharacterId}", AccountId, CharacterId);
-            Disconnect();
-        } catch (Exception ex) {
-            Logger.Warning(ex, "[LIFECYCLE] SendRaw write failed account={AccountId} char={CharacterId}", AccountId, CharacterId);
+            // The worker must retain its pooled buffer until the write has finished.
+            networkStream.Write(packet.Buffer, 0, packet.Length);
+        } catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException) {
+            sendFailed = true;
+            Logger.Debug(ex, "SendRaw failed account={AccountId} char={CharacterId}", AccountId, CharacterId);
             Disconnect();
         }
     }
@@ -368,12 +352,12 @@ public abstract class Session : IDisposable {
     private void SendWorker() {
         try {
             foreach ((byte[] packet, int length) in sendQueue.GetConsumingEnumerable()) {
-                if (disposed) break;
+                if (disposed || sendFailed) break;
 
                 // Encrypt outside lock, then send with timeout
                 PoolByteWriter encryptedPacket;
                 lock (sendCipher) {
-                    if (disposed) break;
+                    if (disposed || sendFailed) break;
                     encryptedPacket = sendCipher.Encrypt(packet, 0, length);
                 }
                 try {
@@ -383,8 +367,10 @@ public abstract class Session : IDisposable {
                 }
             }
         } catch (Exception ex) {
+            sendFailed = true;
             if (!disposed) {
                 Logger.Error(ex, "SendWorker exception account={AccountId} char={CharacterId}", AccountId, CharacterId);
+                Disconnect();
             }
         }
     }

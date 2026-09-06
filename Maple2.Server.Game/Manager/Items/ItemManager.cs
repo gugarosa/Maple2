@@ -59,7 +59,7 @@ public class ItemManager {
     public bool MailItem(Item item) {
         lock (session.Item) {
             using GameStorage.Request db = session.GameStorage.Context();
-            var mail = new Mail {
+            var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
                 Type = MailType.System,
                 ReceiverId = session.CharacterId,
                 Content = "50000000", // id from string/en/systemmailcontentna.xml

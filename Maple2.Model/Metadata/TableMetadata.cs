@@ -79,11 +79,11 @@ public class TableMetadata {
 [JsonDerivedType(typeof(UgcHousingPointRewardTable), typeDiscriminator: "ugchousingpointreward")]
 [JsonDerivedType(typeof(DungeonRoomTable), typeDiscriminator: "dungeonroom")]
 [JsonDerivedType(typeof(DungeonRankRewardTable), typeDiscriminator: "dungeonrankreward")]
+[JsonDerivedType(typeof(DungeonRoundTable), typeDiscriminator: "dungeonrounddata")]
 [JsonDerivedType(typeof(DungeonConfigTable), typeDiscriminator: "dungeonconfig")]
 [JsonDerivedType(typeof(DungeonMissionTable), typeDiscriminator: "dungeonmission")]
 [JsonDerivedType(typeof(RewardContentTable), typeDiscriminator: "rewardcontent")]
 [JsonDerivedType(typeof(SeasonDataTable), typeDiscriminator: "seasondata")]
 [JsonDerivedType(typeof(SmartPushTable), typeDiscriminator: "smartpush")]
 [JsonDerivedType(typeof(AutoActionTable), typeDiscriminator: "autoaction")]
-[JsonDerivedType(typeof(ConstantsTable), typeDiscriminator: "constants")]
 public abstract record Table;

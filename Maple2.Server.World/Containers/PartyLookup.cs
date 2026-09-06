@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
+using Maple2.Database.Storage;
 using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Game.Party;
@@ -10,14 +11,17 @@ public class PartyLookup : IDisposable {
     private readonly ChannelClientLookup channelClients;
     private readonly PlayerInfoLookup playerLookup;
     private readonly PartySearchLookup partySearchLookup;
+    private readonly ServerTableMetadataStorage serverTableMetadata;
 
     private readonly ConcurrentDictionary<int, PartyManager> parties;
     private int nextPartyId = 1;
 
-    public PartyLookup(ChannelClientLookup channelClients, PlayerInfoLookup playerLookup, PartySearchLookup partySearchLookup) {
+    public PartyLookup(ChannelClientLookup channelClients, PlayerInfoLookup playerLookup, PartySearchLookup partySearchLookup,
+                       ServerTableMetadataStorage serverTableMetadata) {
         this.channelClients = channelClients;
         this.playerLookup = playerLookup;
         this.partySearchLookup = partySearchLookup;
+        this.serverTableMetadata = serverTableMetadata;
 
         parties = new ConcurrentDictionary<int, PartyManager>();
     }
@@ -59,6 +63,7 @@ public class PartyLookup : IDisposable {
         var manager = new PartyManager(party) {
             ChannelClients = channelClients,
             PartyLookup = this,
+            ServerTableMetadata = serverTableMetadata,
         };
 
         if (!parties.TryAdd(partyId, manager)) {

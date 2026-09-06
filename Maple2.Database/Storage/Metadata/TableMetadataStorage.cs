@@ -69,9 +69,9 @@ public class TableMetadataStorage {
 
     private readonly Lazy<DungeonRoomTable> dungeonRoomTable;
     private readonly Lazy<DungeonRankRewardTable> dungeonRankRewardTable;
+    private readonly Lazy<DungeonRoundTable> dungeonRoundTable;
     private readonly Lazy<DungeonConfigTable> dungeonConfigTable;
     private readonly Lazy<DungeonMissionTable> dungeonMissionTable;
-    private readonly Lazy<ConstantsTable?> constantsTable;
 
     public ChatStickerTable ChatStickerTable => chatStickerTable.Value;
     public DefaultItemsTable DefaultItemsTable => defaultItemsTable.Value;
@@ -137,9 +137,9 @@ public class TableMetadataStorage {
 
     public DungeonRoomTable DungeonRoomTable => dungeonRoomTable.Value;
     public DungeonRankRewardTable DungeonRankRewardTable => dungeonRankRewardTable.Value;
+    public DungeonRoundTable DungeonRoundTable => dungeonRoundTable.Value;
     public DungeonConfigTable DungeonConfigTable => dungeonConfigTable.Value;
     public DungeonMissionTable DungeonMissionTable => dungeonMissionTable.Value;
-    public ConstantsTable? ConstantsTable => constantsTable.Value;
 
     public TableMetadataStorage(MetadataContext context) {
         chatStickerTable = Retrieve<ChatStickerTable>(context, TableNames.CHAT_EMOTICON);
@@ -200,9 +200,9 @@ public class TableMetadataStorage {
         weaponVariationTable = Retrieve<ItemEquipVariationTable>(context, TableNames.ITEM_OPTION_VARIATION_WEAPON);
         dungeonRoomTable = Retrieve<DungeonRoomTable>(context, TableNames.DUNGEON_ROOM);
         dungeonRankRewardTable = Retrieve<DungeonRankRewardTable>(context, TableNames.DUNGEON_RANK_REWARD);
+        dungeonRoundTable = Retrieve<DungeonRoundTable>(context, TableNames.DUNGEON_ROUND_DATA);
         dungeonConfigTable = Retrieve<DungeonConfigTable>(context, TableNames.DUNGEON_CONFIG);
         dungeonMissionTable = Retrieve<DungeonMissionTable>(context, TableNames.DUNGEON_MISSION);
-        constantsTable = RetrieveOptional<ConstantsTable>(context, TableNames.CONSTANTS);
         seasonDataTable = Retrieve<SeasonDataTable>(context, TableNames.SEASON_DATA);
         smartPushTable = Retrieve<SmartPushTable>(context, TableNames.SMART_PUSH);
         autoActionTable = Retrieve<AutoActionTable>(context, TableNames.AUTO_ACTION);
@@ -228,17 +228,4 @@ public class TableMetadataStorage {
         return result;
     }
 
-    private static Lazy<T?> RetrieveOptional<T>(MetadataContext context, string key) where T : Table {
-        var result = new Lazy<T?>(() => {
-            lock (context) {
-                TableMetadata? row = context.TableMetadata.Find(key);
-                return row?.Table as T;
-            }
-        });
-
-#if !DEBUG
-        _ = result.Value;
-#endif
-        return result;
-    }
 }

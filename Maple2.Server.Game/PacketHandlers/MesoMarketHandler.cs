@@ -59,7 +59,7 @@ public class MesoMarketHandler : FieldPacketHandler {
         long amount = packet.ReadLong();
         long price = packet.ReadLong();
 
-        if (amount != Constant.MesoMarketBasePrice) {
+        if (amount != session.ServerTableMetadata.ConstantsTable.MesoMarketBasePrice) {
             session.Send(MesoMarketPacket.Error(s_mesoMarket_error_invalidSaleMoney));
             return;
         }
@@ -103,7 +103,7 @@ public class MesoMarketHandler : FieldPacketHandler {
         }
 
         session.Player.Value.Account.MesoMarketListed++;
-        session.Currency.Meso -= Constant.MesoMarketBasePrice;
+        session.Currency.Meso -= session.ServerTableMetadata.ConstantsTable.MesoMarketBasePrice;
         session.Send(MesoMarketPacket.Create(listing));
         session.Send(MesoMarketPacket.Quota(session.Player.Value.Account.MesoMarketListed, session.Player.Value.Account.MesoMarketPurchased));
     }
@@ -196,7 +196,7 @@ public class MesoMarketHandler : FieldPacketHandler {
     }
 
     private void SendPurchaseMail(GameSession session, GameStorage.Request db, MesoListing listing) {
-        var buyerMail = new Mail {
+        var buyerMail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = session.CharacterId,
             Type = MailType.MesoMarket,
             ContentArgs = [
@@ -210,7 +210,7 @@ public class MesoMarketHandler : FieldPacketHandler {
         buyerMail.SetContent(StringCode.s_mesoMarket_mail_to_buyer_content);
 
         int meretFee = (int) (listing.Price * Constant.MesoMarketTaxRate);
-        var sellerMail = new Mail {
+        var sellerMail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = listing.CharacterId,
             Type = MailType.MesoMarket,
             ContentArgs = [

@@ -1,6 +1,7 @@
 ﻿using Maple2.Model.Metadata;
 using Maple2.PacketLib.Tools;
 using Maple2.Tools;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Maple2.Model.Game.Dungeon;
 
@@ -10,6 +11,7 @@ public class DungeonMission : IByteSerializable {
     public short Score { get; private set; }
     public short Counter { get; private set; }
 
+    [SetsRequiredMembers]
     public DungeonMission(DungeonMissionMetadata metadata) {
         Metadata = metadata;
     }

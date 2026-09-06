@@ -9,6 +9,8 @@ namespace Maple2.Database.Model;
 internal class DungeonRecord {
     public int DungeonId { get; set; }
     public long OwnerId { get; set; }
+    public bool AccountWide { get; set; }
+    public long? CharacterOwnerId { get; set; }
     public DateTime ClearTime { get; init; }
     public int TotalClears { get; init; }
     public byte CurrentSubClears { get; set; }
@@ -26,6 +28,7 @@ internal class DungeonRecord {
     public static implicit operator DungeonRecord?(Maple2.Model.Game.Dungeon.DungeonRecord? other) {
         return other == null ? null : new DungeonRecord {
             DungeonId = other.DungeonId,
+            AccountWide = other.AccountWide,
             CurrentSubClears = other.UnionSubClears,
             CurrentClears = other.UnionClears,
             DailyResetTime = other.UnionSubCooldownTimestamp.FromEpochSeconds(),
@@ -43,7 +46,7 @@ internal class DungeonRecord {
 
     [return: NotNullIfNotNull(nameof(other))]
     public static implicit operator Maple2.Model.Game.Dungeon.DungeonRecord?(DungeonRecord? other) {
-        return other == null ? null : new Maple2.Model.Game.Dungeon.DungeonRecord(other.DungeonId) {
+        return other == null ? null : new Maple2.Model.Game.Dungeon.DungeonRecord(other.DungeonId, other.AccountWide) {
             UnionSubClears = other.CurrentSubClears,
             UnionClears = other.CurrentClears,
             UnionSubCooldownTimestamp = other.DailyResetTime.ToEpochSeconds(),
@@ -61,10 +64,11 @@ internal class DungeonRecord {
 
     public static void Configure(EntityTypeBuilder<DungeonRecord> builder) {
         builder.ToTable("dungeon-record");
-        builder.HasKey(record => new { record.OwnerId, record.DungeonId });
+        // Account and character IDs come from separate identity sequences, so scope is part of the key.
+        builder.HasKey(record => new { record.OwnerId, record.AccountWide, record.DungeonId });
         builder.HasOne<Character>()
             .WithMany()
-            .HasForeignKey(record => record.OwnerId);
-
+            .HasForeignKey(record => record.CharacterOwnerId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

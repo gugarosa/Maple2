@@ -62,32 +62,18 @@ public class EnchantScrollHandler : FieldPacketHandler {
             return;
         }
 
-        int minEnchant = Math.Min(item.Enchant?.Enchants ?? 0, metadata.Enchants.Min());
         int maxEnchant = metadata.Enchants.Max();
-        Dictionary<BasicAttribute, BasicOption> minOptions = [];
-        Dictionary<BasicAttribute, BasicOption> maxOptions = [];
-        for (int i = minEnchant; i < maxEnchant; i++) {
-            // add to dictionaries
-            int targetEnchant = i - 1;
-            ItemEnchant result = ItemEnchantManager.GetEnchant(session, item, i + 1);
-            foreach ((BasicAttribute attribute, BasicOption option) in result.BasicOptions) {
-                if (minOptions.TryGetValue(attribute, out BasicOption currentOption)) {
-                    minOptions[attribute] = currentOption + option;
-                } else {
-                    minOptions[attribute] = option;
-                }
-            }
-
-            result = ItemEnchantManager.GetEnchant(session, item, i - 1);
-            foreach ((BasicAttribute attribute, BasicOption option) in result.BasicOptions) {
-                if (maxOptions.TryGetValue(attribute, out BasicOption currentOption)) {
-                    maxOptions[attribute] = currentOption + option;
-                } else {
-                    maxOptions[attribute] = option;
-                }
-            }
+        int minEnchant = metadata.Type == EnchantScrollType.Random
+            ? Math.Max(item.Enchant?.Enchants ?? 0, metadata.Enchants.Min())
+            : maxEnchant;
+        EnchantOptionTable table = session.ServerTableMetadata.EnchantOptionTable;
+        if (!ItemEnchantManager.TryGetCumulativeEnchant(table, item, minEnchant, out ItemEnchant? minResult) ||
+            !ItemEnchantManager.TryGetCumulativeEnchant(table, item, maxEnchant, out ItemEnchant? maxResult)) {
+            session.Send(EnchantScrollPacket.Error(s_enchantscroll_invalid_item));
+            return;
         }
-        session.Send(EnchantScrollPacket.Preview(item, metadata.Type, minOptions, maxOptions));
+
+        session.Send(EnchantScrollPacket.Preview(item, metadata.Type, minResult.BasicOptions, maxResult.BasicOptions));
     }
 
     private void HandleEnchant(GameSession session, IByteReader packet) {
@@ -112,18 +98,27 @@ public class EnchantScrollHandler : FieldPacketHandler {
                 return;
             }
 
+            int enchantLevel = metadata.Enchants.Random();
+            ItemEnchant? computed = null;
+            if (enchantLevel > (item.Enchant?.Enchants ?? 0) &&
+                !ItemEnchantManager.TryGetCumulativeEnchant(session.ServerTableMetadata.EnchantOptionTable,
+                    item, enchantLevel, out computed)) {
+                session.Send(EnchantScrollPacket.Error(s_enchantscroll_invalid_item));
+                return;
+            }
+
             if (!session.Item.Inventory.Consume(scrollUid, 1)) {
                 session.Send(EnchantScrollPacket.Error(s_enchantscroll_invalid_scroll));
                 return;
             }
 
-            // Update item enchant stats
-            int enchantLevel = metadata.Enchants.Random();
-            // Ensure that you cannot randomize an enchant lower than current item.
             item.Enchant ??= new ItemEnchant();
-            if (enchantLevel > item.Enchant.Enchants) {
-                item.Enchant = ItemEnchantManager.GetEnchant(session, item, enchantLevel);
-                item.Enchant.Enchants = enchantLevel;
+            if (computed != null) {
+                item.Enchant.Enchants = computed.Enchants;
+                item.Enchant.BasicOptions.Clear();
+                foreach ((BasicAttribute attribute, BasicOption option) in computed.BasicOptions) {
+                    item.Enchant.BasicOptions[attribute] = option;
+                }
             }
 
             session.Send(EnchantScrollPacket.Enchant(item));

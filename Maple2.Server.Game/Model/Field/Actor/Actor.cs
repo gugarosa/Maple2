@@ -1,4 +1,4 @@
-﻿﻿using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
 using Maple2.Model.Enum;
@@ -168,6 +168,7 @@ public abstract class Actor<T> : IActor<T>, IDisposable {
         }
 
         foreach ((DamageType damageType, long amount) in targetRecord.Damage) {
+            DamageTracking.Observe(caster, this, damageType, amount);
             switch (damageType) {
                 case DamageType.Critical:
                     caster.Buffs.TriggerEvent(caster, caster, this, EventConditionType.OnOwnerAttackHit, skillId: damage.SkillId);

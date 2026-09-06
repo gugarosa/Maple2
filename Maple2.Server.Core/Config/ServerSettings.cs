@@ -1,4 +1,4 @@
-using Maple2.Model.Enum;
+﻿using Maple2.Model.Enum;
 
 namespace Maple2.Server.Core.Config;
 
@@ -31,10 +31,10 @@ public sealed class ServerSettings {
     }
     public sealed class MobSection {
         // Combat tuning
-        public float DamageDealtRate { get; set; } = 1.0f; 
-        public float DamageTakenRate { get; set; } = 1.0f; 
-        public float EnemyHpScale { get; set; } = 1.0f; 
-        public int EnemyLevelOffset { get; set; } = 0; 
+        public float DamageDealtRate { get; set; } = 1.0f;
+        public float DamageTakenRate { get; set; } = 1.0f;
+        public float EnemyHpScale { get; set; } = 1.0f;
+        public int EnemyLevelOffset { get; set; } = 0;
 
         // Despawn tuning (seconds). 0 or negative disables capping
         public float DeathDespawnCapSeconds { get; set; } = 0.0f;

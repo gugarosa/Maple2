@@ -111,8 +111,10 @@ public class FieldSkill : FieldEntity<SkillMetadata> {
         if (Value.Data.Skills.Length > 0) {
             foreach (SkillMetadataMotion motion in Value.Data.Motions) {
                 foreach (SkillMetadataAttack attack in motion.Attacks) {
-                    Prism[] skillPrisms = Points.Select(point => attack.Range.GetPrism(point, UseDirection ? Rotation.Z : 0)).ToArray();
-                    IActor[] skillTargets = Field.GetTargets(Caster, skillPrisms, attack.Range.ApplyTarget, attack.TargetCount).ToArray();
+                    Prism[] skillPrisms = Points
+                        .Select(point => attack.Range.GetPrism(point, UseDirection ? Rotation.Z : 0, attack.Range.ApplyTarget))
+                        .ToArray();
+                    IActor[] skillTargets = Field.GetTargets(Caster, skillPrisms, attack.Range, attack.TargetCount).ToArray();
                     if (skillTargets.Length > 0) {
                         Caster.ApplyEffects(Value.Data.Skills, Caster, Caster, skillId: Value.Id, targets: skillTargets);
                     }

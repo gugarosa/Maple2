@@ -23,6 +23,7 @@ public class TradeManager : IDisposable {
     private readonly Trader sender;
     private readonly Trader receiver;
     private TradeState state;
+    private ConstantsTable Constants => sender.Session.ServerTableMetadata.ConstantsTable;
 
     private readonly object mutex = new();
 
@@ -37,7 +38,7 @@ public class TradeManager : IDisposable {
         // End the trade if not accepted before |TradeRequestDuration|.
         string receiverName = receiver.Player.Value.Character.Name;
         Task.Factory.StartNew(() => {
-            Thread.Sleep(TimeSpan.FromSeconds(Constant.TradeRequestDuration));
+            Thread.Sleep(TimeSpan.FromSeconds(Constants.TradeRequestDuration));
             lock (mutex) {
                 if (state is not (TradeState.Requested or TradeState.Acknowledged)) {
                     return;
@@ -172,7 +173,7 @@ public class TradeManager : IDisposable {
             return;
         }
 
-        if (amount > Constant.TradeMaxMeso) {
+        if (amount > Constants.TradeMaxMeso) {
             caller.Send(TradePacket.Error(s_trade_error_invalid_meso));
             return;
         }
@@ -251,7 +252,7 @@ public class TradeManager : IDisposable {
         }
 
         lock (sender.Session.Item) {
-            long fee = success ? (long) (Constant.TradeFeePercent / 100f * sender.Mesos) : 0;
+            long fee = success ? (long) (Constants.TradeFeePercent / 100f * sender.Mesos) : 0;
             sender.Session.Currency.Meso += sender.Mesos - fee;
             foreach (Item item in sender.Items) {
                 if (item.Transfer?.Flag.HasFlag(TransferFlag.LimitTrade) == true) {
@@ -264,7 +265,7 @@ public class TradeManager : IDisposable {
             sender.Clear();
         }
         lock (receiver.Session.Item) {
-            long fee = success ? (long) (Constant.TradeFeePercent / 100f * receiver.Mesos) : 0;
+            long fee = success ? (long) (Constants.TradeFeePercent / 100f * receiver.Mesos) : 0;
             receiver.Session.Currency.Meso += receiver.Mesos - fee;
             foreach (Item item in receiver.Items) {
                 if (item.Transfer?.Flag.HasFlag(TransferFlag.LimitTrade) == true) {

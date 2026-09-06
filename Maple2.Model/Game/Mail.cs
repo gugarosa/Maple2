@@ -1,6 +1,5 @@
 ﻿using System.Text;
 using Maple2.Model.Enum;
-using Maple2.Model.Metadata;
 using Maple2.PacketLib.Tools;
 using Maple2.Tools;
 using Maple2.Tools.Extensions;
@@ -39,7 +38,13 @@ public class Mail : IByteSerializable {
         TitleArgs = new List<(string Key, string Value)>();
         ContentArgs = new List<(string Key, string Value)>();
         Items = new List<Item>();
-        ExpiryTime = DateTimeOffset.UtcNow.AddDays(Constant.MailExpiryDays).ToUnixTimeSeconds();
+    }
+
+    public Mail(int mailExpiryDays) : this() {
+        if (mailExpiryDays <= 0) {
+            throw new ArgumentOutOfRangeException(nameof(mailExpiryDays));
+        }
+        ExpiryTime = DateTimeOffset.UtcNow.AddDays(mailExpiryDays).ToUnixTimeSeconds();
     }
 
     public void Update(Mail other) {

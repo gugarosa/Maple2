@@ -76,7 +76,7 @@ public class MailHandler : FieldPacketHandler {
             return;
         }
 
-        var mail = new Mail {
+        var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             SenderId = session.CharacterId,
             ReceiverId = receiverId,
             Type = MailType.Player,

@@ -24,6 +24,8 @@ public class DungeonManager {
     private readonly GameSession session;
 
     public IDictionary<int, DungeonRecord> Records { get; set; }
+    private IDictionary<int, DungeonRecord> CharacterRecords { get; set; }
+    private IDictionary<int, DungeonRecord> AccountRecords { get; set; }
     private IDictionary<int, DungeonEnterLimit> EnterLimits => session.Player.Value.Character.DungeonEnterLimits;
     private IDictionary<int, DungeonRankReward> RankRewards => session.Player.Value.Unlock.DungeonRankRewards;
 
@@ -41,24 +43,67 @@ public class DungeonManager {
     public DungeonManager(GameSession session) {
         this.session = session;
         Records = new Dictionary<int, DungeonRecord>();
+        CharacterRecords = new Dictionary<int, DungeonRecord>();
+        AccountRecords = new Dictionary<int, DungeonRecord>();
         Init();
     }
 
     private void Init() {
         using GameStorage.Request db = session.GameStorage.Context();
-        Records = db.GetDungeonRecords(session.CharacterId);
+        CharacterRecords = db.GetDungeonRecords(session.CharacterId, accountWide: false);
+        AccountRecords = db.GetDungeonRecords(session.AccountId, accountWide: true);
 
-        foreach (DungeonRoomMetadata metadata in session.TableMetadata.DungeonRoomTable.Entries.Values) {
-            if (!Records.TryGetValue(metadata.Id, out DungeonRecord? record)) {
-                record = new DungeonRecord(metadata.Id);
-                record = db.CreateDungeonRecord(record, session.CharacterId);
+        long timestamp = DateTimeOffset.Now.ToUnixTimeSeconds();
+        if (DungeonRankRewardSelector.RemoveExpired(RankRewards, timestamp)) {
+            DateTime? lastModified = db.SaveDungeonRankRewards(session.CharacterId, RankRewards);
+            if (lastModified == null) {
+                logger.Error("Failed to reset expired dungeon rank rewards for character {CharacterId}", session.CharacterId);
+            } else {
+                session.Player.Value.Unlock.LastModified = lastModified.Value;
+            }
+        }
+
+        DungeonRoomMetadata[] metadataEntries = session.TableMetadata.DungeonRoomTable.Entries.Values.ToArray();
+        (int DungeonId, bool AccountWide)[] requiredRecords = metadataEntries
+            .SelectMany(metadata => metadata.Reward.UnionRewardId > 0
+                ? new[] {
+                    (DungeonId: metadata.Id, AccountWide: metadata.Reward.AccountWide),
+                    (DungeonId: metadata.Reward.UnionRewardId, AccountWide: metadata.Reward.AccountWide),
+                }
+                : new[] { (DungeonId: metadata.Id, AccountWide: metadata.Reward.AccountWide) })
+            .Distinct()
+            .ToArray();
+        int[] mixedScopeIds = requiredRecords.GroupBy(record => record.DungeonId)
+            .Where(group => group.Select(record => record.AccountWide).Distinct().Count() > 1)
+            .Select(group => group.Key)
+            .ToArray();
+        if (mixedScopeIds.Length > 0) {
+            throw new InvalidOperationException(
+                $"Dungeon reward record IDs cannot mix account and character scopes: {string.Join(", ", mixedScopeIds)}");
+        }
+
+        foreach ((int dungeonId, bool accountWide) in requiredRecords) {
+            IDictionary<int, DungeonRecord> records = accountWide ? AccountRecords : CharacterRecords;
+            long ownerId = accountWide ? session.AccountId : session.CharacterId;
+            if (!records.TryGetValue(dungeonId, out DungeonRecord? record)) {
+                record = new DungeonRecord(dungeonId, accountWide);
+                record = db.CreateDungeonRecord(record, ownerId, accountWide);
                 if (record == null) {
-                    logger.Error("Failed to create dungeon record for dungeonId {dungeonId}", metadata.Id);
+                    logger.Error("Failed to create dungeon record for dungeonId {DungeonId}", dungeonId);
+                    if (accountWide) {
+                        throw new InvalidOperationException($"Failed to load account-wide dungeon record {dungeonId}");
+                    }
                     continue;
                 }
-                Records.Add(metadata.Id, record);
+                records.Add(dungeonId, record);
             }
+            if (accountWide) {
+                CharacterRecords.Remove(dungeonId);
+            }
+        }
 
+        foreach (DungeonRoomMetadata metadata in metadataEntries) {
+            Records[metadata.Id] = GetRecord(metadata.Id, metadata.Reward.AccountWide);
             DungeonEnterLimit limit = GetEnterLimit(metadata);
             EnterLimits[metadata.Id] = limit;
         }
@@ -71,23 +116,35 @@ public class DungeonManager {
     }
 
     public void ResetDailyClears() {
-        foreach (DungeonRecord record in Records.Values) {
+        foreach (DungeonRecord record in CharacterRecords.Values.Concat(AccountRecords.Values)) {
             record.UnionSubClears = 0;
             record.ExtraSubClears = 0;
         }
         using GameStorage.Request db = session.GameStorage.Context();
-        db.SaveDungeonRecords(session.CharacterId, Records.Values.ToArray());
+        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
+        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
         session.Send(DungeonRoomPacket.Load(Records));
     }
 
     public void ResetWeeklyClears() {
-        foreach (DungeonRecord record in Records.Values) {
+        foreach (DungeonRecord record in CharacterRecords.Values.Concat(AccountRecords.Values)) {
             record.UnionClears = 0;
             record.ExtraClears = 0;
         }
+        DungeonRankRewardSelector.RemoveExpired(RankRewards, DateTimeOffset.Now.ToUnixTimeSeconds());
+
         using GameStorage.Request db = session.GameStorage.Context();
-        db.SaveDungeonRecords(session.CharacterId, Records.Values.ToArray());
+        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
+        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
+        DateTime? lastModified = db.SaveDungeonRankRewards(session.CharacterId, RankRewards);
+        if (lastModified == null) {
+            logger.Error("Failed to reset dungeon rank rewards for character {CharacterId}", session.CharacterId);
+        } else {
+            session.Player.Value.Unlock.LastModified = lastModified.Value;
+        }
+
         session.Send(DungeonRoomPacket.Load(Records));
+        session.Send(DungeonRoomPacket.RankRewards(RankRewards));
     }
 
     public void LoadField() {
@@ -100,6 +157,15 @@ public class DungeonManager {
         } else if (UserRecord != null && UserRecord.Missions.Count > 0) {
             session.Send(DungeonMissionPacket.Load(UserRecord.Missions));
         }
+    }
+
+    public bool CanEnterRound(int round) {
+        if (Metadata == null || Metadata.GroupType != DungeonGroupType.colosseum || Metadata.RoundId <= 0 ||
+            !session.TableMetadata.DungeonRoundTable.Entries.TryGetValue(Metadata.RoundId, out DungeonRoundTable.Entry? roundMetadata)) {
+            return false;
+        }
+
+        return DungeonRoundRewardSelector.MeetsGearScore(roundMetadata, round, session.Stats.Values.GearScore);
     }
 
     public void UpdateDungeonEnterLimit() {
@@ -247,9 +313,7 @@ public class DungeonManager {
 
         foreach (int missionId in Metadata.UserMissions) {
             if (session.TableMetadata.DungeonMissionTable.Missions.TryGetValue(missionId, out DungeonMissionMetadata? missionMetadata)) {
-                var mission = new DungeonMission {
-                    Metadata = missionMetadata,
-                };
+                var mission = new DungeonMission(missionMetadata);
                 mission.Initialize();
                 UserRecord.Missions[missionId] = mission;
             }
@@ -453,6 +517,7 @@ public class DungeonManager {
         }
 
         CalculateRankScore();
+        GiveRankRewards(clearTimestamp);
         CalculateRewards(clearTimestamp);
 
         session.ConditionUpdate(ConditionType.dungeon_reward, codeLong: Metadata.Id);
@@ -487,6 +552,74 @@ public class DungeonManager {
         }
     }
 
+    private void GiveRankRewards(long clearTimestamp) {
+        if (Lobby == null || Metadata == null || UserRecord == null || !UserRecord.IsDungeonSuccess) {
+            return;
+        }
+
+        int rewardId = Metadata.Reward.SeasonRankRewardId;
+        if (rewardId <= 0) {
+            return;
+        }
+        if (!session.TableMetadata.DungeonRankRewardTable.Entries.TryGetValue(rewardId, out DungeonRankRewardTable.Entry? metadata)) {
+            logger.Error("Dungeon rank reward metadata {RewardId} was not found for dungeon {DungeonId}", rewardId, Metadata.Id);
+            return;
+        }
+
+        RankRewards.TryGetValue(rewardId, out DungeonRankReward? claimed);
+        IReadOnlyList<DungeonRankRewardTable.Entry.Item> pending =
+            DungeonRankRewardSelector.GetUnclaimedRewards(metadata, UserRecord.Rank, claimed, clearTimestamp);
+        if (pending.Count == 0) {
+            return;
+        }
+
+        var mails = new List<(int Rank, Mail Mail)>(pending.Count);
+        foreach (DungeonRankRewardTable.Entry.Item reward in pending) {
+            if (reward.ItemId <= 0 || reward.SystemMailId <= 0) {
+                logger.Error("Invalid dungeon rank reward {RewardId} rank {Rank}", rewardId, reward.Rank);
+                return;
+            }
+
+            Item? item = Lobby.ItemDrop.CreateItem(reward.ItemId);
+            if (item == null) {
+                logger.Error("Failed to create dungeon rank reward item {ItemId} for reward {RewardId} rank {Rank}",
+                    reward.ItemId, rewardId, reward.Rank);
+                return;
+            }
+
+            var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
+                Type = MailType.System,
+                ReceiverId = session.CharacterId,
+                Content = reward.SystemMailId.ToString(),
+            };
+            mail.Items.Add(item);
+            mails.Add((reward.Rank, mail));
+        }
+
+        var progress = new DungeonRankReward(rewardId) {
+            RankClaimed = (int) UserRecord.Rank,
+            UpdatedTimestamp = clearTimestamp,
+        };
+
+        using GameStorage.Request db = session.GameStorage.Context();
+        (DungeonRankReward Reward, DateTime LastModified)? result = db.ClaimDungeonRankRewards(
+            session.CharacterId,
+            progress,
+            DungeonRankRewardSelector.GetWeekStartTimestamp(clearTimestamp),
+            mails);
+        if (result == null) {
+            logger.Error("Failed to deliver dungeon rank rewards {RewardId} through rank {Rank} for character {CharacterId}",
+                rewardId, UserRecord.Rank, session.CharacterId);
+            return;
+        }
+
+        RankRewards[rewardId] = result.Value.Reward;
+        session.Player.Value.Unlock.LastModified = result.Value.LastModified;
+        UserRecord.BonusFlag |= DungeonBonusFlag.MissionRank;
+        session.Send(DungeonRoomPacket.RankRewards(RankRewards));
+        session.Mail.Notify(true);
+    }
+
     private void CalculateRewards(long clearTimeStamp) {
         if (Lobby == null || Metadata == null || UserRecord == null) {
             return;
@@ -494,13 +627,45 @@ public class DungeonManager {
         DungeonRecord record = GetRecord(Metadata.Id);
         List<int> rewardIds = [];
 
-        if (Metadata.Reward.UnionRewardId > 0) {
+        if (Metadata.GroupType == DungeonGroupType.colosseum) {
+            if (!session.TableMetadata.DungeonRoundTable.Entries.TryGetValue(Metadata.RoundId, out DungeonRoundTable.Entry? roundMetadata)) {
+                logger.Error("Dungeon round metadata {RoundId} was not found for dungeon {DungeonId}", Metadata.RoundId, Metadata.Id);
+                return;
+            }
+
+            int claimedRound = GetWeeklyClearCount(record);
+            DungeonRoundTable.Round? roundReward =
+                DungeonRoundRewardSelector.GetReward(roundMetadata, UserRecord.Round, claimedRound);
+            if (roundReward == null) {
+                return;
+            }
+            if (Metadata.Reward.Count > 0 && roundReward.Number > Metadata.Reward.Count) {
+                logger.Error("Dungeon {DungeonId} completed round {Round}, above reward count {RewardCount}",
+                    Metadata.Id, roundReward.Number, Metadata.Reward.Count);
+                return;
+            }
+            if (!session.TableMetadata.RewardContentTable.BaseEntries.ContainsKey(roundReward.RewardId)) {
+                logger.Error("Reward content {RewardId} was not found for dungeon {DungeonId} round {Round}",
+                    roundReward.RewardId, Metadata.Id, roundReward.Number);
+                return;
+            }
+
+            UpdateUnionRecord(record, Metadata, clearTimeStamp);
+            UpdateDungeonRecord(record, Metadata, clearTimeStamp);
+            UserRecord.Flag |= DungeonBonusFlag.Clear;
+            rewardIds.Add(roundReward.RewardId);
+        } else if (Metadata.Reward.UnionRewardId > 0) {
             if (!session.TableMetadata.DungeonRoomTable.Entries.TryGetValue(Metadata.Reward.UnionRewardId, out DungeonRoomMetadata? unionMetadata)) {
                 return;
             }
-            DungeonRecord unionRecord = GetRecord(Metadata.Reward.UnionRewardId);
+            DungeonRecord unionRecord = GetRecord(Metadata.Reward.UnionRewardId, record.AccountWide);
             // Ensure player can get rewards
-            if (GetDailyClearCount(unionRecord) < unionMetadata.Reward.SubRewardCount && GetWeeklyClearCount(unionRecord) < unionMetadata.Reward.Count) {
+            if (DungeonRewardPolicy.CanReceive(
+                    unionMetadata.CooldownType,
+                    unionMetadata.Reward.Count,
+                    unionMetadata.Reward.SubRewardCount,
+                    GetWeeklyClearCount(unionRecord),
+                    GetDailyClearCount(unionRecord))) {
                 UpdateUnionRecord(unionRecord, unionMetadata, clearTimeStamp);
                 UserRecord.Flag |= DungeonBonusFlag.Clear;
             }
@@ -513,7 +678,12 @@ public class DungeonManager {
             UpdateDungeonRecord(record, Metadata, clearTimeStamp);
 
         } else {
-            if (GetDailyClearCount(record) < Metadata.Reward.SubRewardCount && GetWeeklyClearCount(record) < Metadata.Reward.Count) {
+            if (DungeonRewardPolicy.CanReceive(
+                    Metadata.CooldownType,
+                    Metadata.Reward.Count,
+                    Metadata.Reward.SubRewardCount,
+                    GetWeeklyClearCount(record),
+                    GetDailyClearCount(record))) {
                 UpdateUnionRecord(record, Metadata, clearTimeStamp);
                 UpdateDungeonRecord(record, Metadata, clearTimeStamp);
                 UserRecord.Flag |= DungeonBonusFlag.Clear;
@@ -634,7 +804,7 @@ public class DungeonManager {
         }
 
         if (metadata.Reward.UnionRewardId > 0) {
-            DungeonRecord unionRecord = GetRecord(metadata.Reward.UnionRewardId);
+            DungeonRecord unionRecord = GetRecord(metadata.Reward.UnionRewardId, record.AccountWide);
             if (DateTime.Now.ToEpochSeconds() > unionRecord.UnionSubCooldownTimestamp) {
                 return 0;
             }
@@ -654,7 +824,7 @@ public class DungeonManager {
         }
 
         if (metadata.Reward.UnionRewardId > 0) {
-            DungeonRecord unionRecord = GetRecord(metadata.Reward.UnionRewardId);
+            DungeonRecord unionRecord = GetRecord(metadata.Reward.UnionRewardId, record.AccountWide);
 
             if (DateTime.Now.ToEpochSeconds() > unionRecord.UnionCooldownTimestamp) {
                 return 0;
@@ -715,8 +885,21 @@ public class DungeonManager {
     }
 
     public DungeonRecord GetRecord(int dungeonId) {
-        if (!Records.TryGetValue(dungeonId, out DungeonRecord? record)) {
-            Records[dungeonId] = record = new DungeonRecord(dungeonId);
+        bool accountWide = session.TableMetadata.DungeonRoomTable.Entries.TryGetValue(dungeonId, out DungeonRoomMetadata? metadata) &&
+                           metadata.Reward.AccountWide;
+        return GetRecord(dungeonId, accountWide);
+    }
+
+    private DungeonRecord GetRecord(int dungeonId, bool accountWide) {
+        IDictionary<int, DungeonRecord> records = accountWide ? AccountRecords : CharacterRecords;
+        if (!records.TryGetValue(dungeonId, out DungeonRecord? record)) {
+            records[dungeonId] = record = new DungeonRecord(dungeonId, accountWide);
+        }
+
+        if (!Records.ContainsKey(dungeonId) ||
+            session.TableMetadata.DungeonRoomTable.Entries.TryGetValue(dungeonId, out DungeonRoomMetadata? metadata) &&
+            metadata.Reward.AccountWide == accountWide) {
+            Records[dungeonId] = record;
         }
         return record;
     }
@@ -752,6 +935,7 @@ public class DungeonManager {
     }
 
     public void Save(GameStorage.Request db) {
-        db.SaveDungeonRecords(session.CharacterId, Records.Values.ToArray());
+        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
+        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
     }
 }

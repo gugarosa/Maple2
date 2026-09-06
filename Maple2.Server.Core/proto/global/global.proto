@@ -2,8 +2,6 @@
 
 package maple2.server.global.service;
 
-import "google/protobuf/empty.proto";
-
 // The global service definition.
 service Global {
   rpc Login(LoginRequest) returns (LoginResponse);

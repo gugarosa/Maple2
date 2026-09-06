@@ -11,6 +11,7 @@ namespace Maple2.Server.Game.Manager;
 
 public class SkillManager {
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     public readonly SkillBook SkillBook;
     public readonly SkillInfo SkillInfo;
@@ -121,11 +122,11 @@ public class SkillManager {
         if (SkillBook.MaxSkillTabs >= Constant.MaxSkillTabCount) {
             return false;
         }
-        if (session.Currency.Meret < Constant.SkillBookTreeAddTabFeeMeret) {
+        if (session.Currency.Meret < Constants.SkillBookTreeAddTabFeeMerat) {
             return false;
         }
 
-        session.Currency.Meret -= Constant.SkillBookTreeAddTabFeeMeret;
+        session.Currency.Meret -= Constants.SkillBookTreeAddTabFeeMerat;
         SkillBook.MaxSkillTabs++;
         session.Send(SkillBookPacket.Expand(SkillBook));
 

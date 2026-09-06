@@ -2,7 +2,6 @@
 
 package maple2.server.login.service;
 
-import "google/protobuf/empty.proto";
 import "common.proto";
 
 service Login {

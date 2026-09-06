@@ -67,21 +67,9 @@ public class FieldMobSpawn : FieldEntity<MapMetadataSpawn> {
     }
 
     private List<Vector3> GetRandomSpawns(int count) {
-        List<Vector3> spawnsPicked = new();
-        var spawnsRemaining = new Vector3[validSpawns.Count];
-
-        validSpawns.CopyTo(spawnsRemaining);
-
-        int selectSpawns = Math.Min(count, validSpawns.Count);
-
-        for (int i = 0; i < selectSpawns; ++i) {
-            int picked = Random.Shared.Next(spawnsRemaining.Length - i);
-
-            spawnsPicked.Add(spawnsRemaining[picked]);
-            spawnsRemaining[picked] = spawnsRemaining[selectSpawns - i - 1]; // remove picked from list by replacing with last in list
-        }
-
-        return spawnsPicked;
+        Vector3[] available = validSpawns.Distinct().ToArray();
+        Random.Shared.Shuffle(available);
+        return available.Take(count).ToList();
     }
 
     private void InitializeSpawns() {

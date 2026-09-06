@@ -42,7 +42,7 @@ public abstract class Server<T> : BackgroundService, IHealthCheck where T : Sess
     protected abstract void AddSession(T session);
 
     protected override async Task ExecuteAsync(CancellationToken cancellationToken) {
-        var listener = new TcpListener(IPAddress.Any, Port);
+        using var listener = new TcpListener(IPAddress.Any, Port);
         listener.Start();
         state = ServerState.Running;
 
@@ -72,7 +72,7 @@ public abstract class Server<T> : BackgroundService, IHealthCheck where T : Sess
                 break;
         }
 
-        return Task.CompletedTask;
+        return base.StopAsync(cancellationToken);
     }
 
     public virtual Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext healthContext, CancellationToken cancellationToken = new()) {

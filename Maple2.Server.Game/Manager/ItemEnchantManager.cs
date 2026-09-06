@@ -6,6 +6,7 @@ using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
 using Maple2.Server.Game.Util;
 using Serilog;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Maple2.Server.Game.Manager;
 
@@ -358,6 +359,31 @@ public class ItemEnchantManager {
         }
         itemEnchant.Enchants = enchantLevel;
         return itemEnchant;
+    }
+
+    public static bool TryGetCumulativeEnchant(EnchantOptionTable table, Item item, int target,
+        [NotNullWhen(true)] out ItemEnchant? enchant) {
+        enchant = null;
+        if (target is < 0 or > 15) {
+            Log.Error("Invalid enchant level {Level} for item {ItemId}", target, item.Id);
+            return false;
+        }
+
+        var cumulative = new ItemEnchant(target);
+        for (int level = 1; level <= target; level++) {
+            ItemEnchant increment = GetEnchant(table, item, level);
+            if (increment.Enchants != level) {
+                Log.Error("Missing enchant metadata for item {ItemId}, rarity {Rarity}, enchant level {Level}",
+                    item.Id, item.Rarity, level);
+                return false;
+            }
+            foreach ((BasicAttribute attribute, BasicOption option) in increment.BasicOptions) {
+                cumulative.BasicOptions[attribute] = cumulative.BasicOptions.GetValueOrDefault(attribute) + option;
+            }
+        }
+
+        enchant = cumulative;
+        return true;
     }
 
     // Prevent user from using more charges than needed

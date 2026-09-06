@@ -1,4 +1,4 @@
-﻿﻿using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Reflection;
 using Autofac;
@@ -71,16 +71,16 @@ while (true) {
         if (response != null && response.GamePort != 0 && response.GrpcPort != 0) {
             break; // Success with valid ports
         }
-        
+
         attempt++;
-        int baseDelayMs = (int)Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
+        int baseDelayMs = (int) Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
         int jitterMs = Random.Shared.Next(250, 1000);
         int delayMs = baseDelayMs + jitterMs;
         Log.Warning("World returned invalid ports. Retry {Attempt} in {DelayMs}ms", attempt, delayMs);
         await Task.Delay(delayMs);
     } catch (RpcException) {
         attempt++;
-        int baseDelayMs = (int)Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
+        int baseDelayMs = (int) Math.Min(30000, 1000 * Math.Pow(2, Math.Min(attempt, 6)));
         int jitterMs = Random.Shared.Next(250, 1000);
         int delayMs = baseDelayMs + jitterMs;
         Log.Warning("World not ready yet. Retry {Attempt} in {DelayMs}ms", attempt, delayMs);

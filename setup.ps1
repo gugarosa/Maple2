@@ -1,44 +1,34 @@
 Add-Type -AssemblyName System.Windows.Forms
 
-function Invoke-Dotnet {
-    [CmdletBinding()]
-    Param (
-        [Parameter(Mandatory = $true)]
-        [System.String]
-        $Command,
-
-        [Parameter(Mandatory = $true)]
-        [System.String]
-        $Arguments
-    )
-
-    $DotnetArgs = @()
-    $DotnetArgs = $DotnetArgs + $Command
-    $DotnetArgs = $DotnetArgs + ($Arguments -split "\s+")
-
-    & dotnet $DotnetArgs | Tee-Object -Variable Output
-
-    # Should throw if the last command failed.
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning -Message ($Output -join "; ")
-        throw "There was an issue running the specified dotnet command."
-    }
-}
-
+Set-Location -LiteralPath $PSScriptRoot
 
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host "======= Maple2 Setup Script ========" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 
-$dotnetVersion = (Get-Command dotnet -ErrorAction SilentlyContinue).FileVersionInfo.ProductVersion
-
-if ($dotnetVersion -lt "8.0") {
-	Write-Host "Please install .Net 8.0 and run this script again." -ForegroundColor Red
-	Start-Process "https://dotnet.microsoft.com/en-us/download/dotnet/8.0"
-    exit
+$dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($null -eq $dotnetCommand) {
+    throw ".NET SDK 8.0 or newer is required, but the dotnet command was not found."
 }
 
-dotnet tool install --global dotnet-ef
+$dotnetVersionOutput = & dotnet --version 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $dotnetVersionOutput) {
+    throw "Unable to determine the installed .NET SDK version."
+}
+$dotnetVersionText = ($dotnetVersionOutput | Select-Object -First 1).Trim()
+
+[version]$dotnetVersion = $null
+if (-not [version]::TryParse(($dotnetVersionText -split '-', 2)[0], [ref]$dotnetVersion)) {
+    throw "Unable to parse .NET SDK version '$dotnetVersionText'."
+}
+if ($dotnetVersion -lt [version]"8.0") {
+    throw ".NET SDK 8.0 or newer is required; found $dotnetVersionText."
+}
+
+dotnet tool restore
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to restore the repository's pinned .NET tools."
+}
 
 # Create a copy of .env.example and rename it to .env
 if (Test-Path .env) {

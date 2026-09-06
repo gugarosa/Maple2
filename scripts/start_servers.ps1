@@ -10,7 +10,8 @@
   just the game channel containers without touching infrastructure services.
 
 .PARAMETER NonInstancedChannels
-  Channel numbers for non-instanced game servers. Default: 1 (game-ch1).
+  Channel numbers whose game-chN services are defined in compose.yml.
+  Default: 1 (game-ch1).
 
 .PARAMETER NoInstanced
   Skip the instanced-content channel (game-ch0).
@@ -31,8 +32,8 @@
   pwsh ./scripts/start_servers.ps1 -GameOnly
 
 .EXAMPLE
-  # Start channels 1 and 2, no instanced channel
-  pwsh ./scripts/start_servers.ps1 -NonInstancedChannels 1,2 -NoInstanced
+  # Start only the configured normal channel
+  pwsh ./scripts/start_servers.ps1 -NoInstanced
 
 .EXAMPLE
   # Restart game channels without rebuilding

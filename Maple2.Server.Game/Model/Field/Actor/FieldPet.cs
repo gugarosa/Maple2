@@ -23,6 +23,7 @@ public sealed class FieldPet : FieldNpc {
     public short TamingRank; // (0-70=green, 70-95=yellow, 95-100=red)
     public int TamingPoint;
     private long tamingTick;
+    private ConstantsTable Constants => Field.ServerTableMetadata.ConstantsTable;
 
     public FieldPet(FieldManager field, int objectId, DtCrowdAgent agent, Npc npc, Item pet, PetMetadata petMetadata, string aiPath, FieldPlayer? owner = null) : base(field, objectId, agent, npc, aiPath) {
         this.owner = owner;
@@ -64,7 +65,7 @@ public sealed class FieldPet : FieldNpc {
         }
 
         var targetRecord = new DamageRecordTarget(this);
-        int damageAmount = TamingPoint - Math.Min(TamingPoint + attack.Pet.TamingPoint, Constant.TamingPetMaxPoint);
+        int damageAmount = TamingPoint - Math.Min(TamingPoint + attack.Pet.TamingPoint, Constants.TamingPetMaxPoint);
         TamingPoint -= damageAmount;
         targetRecord.AddDamage(damageAmount == 0 ? DamageType.Miss : DamageType.Normal, damageAmount);
 
@@ -73,7 +74,7 @@ public sealed class FieldPet : FieldNpc {
                 IsDead = true;
                 OnDeath();
                 DropItem(caster);
-            } else if (TamingPoint >= Constant.TamingPetMaxPoint) { // trap has chance to fail
+            } else if (TamingPoint >= Constants.TamingPetMaxPoint) { // trap has chance to fail
                 IsDead = true;
                 OnDeath();
                 DropItem(caster);

@@ -148,7 +148,7 @@ public class FunctionCubeHandler : FieldPacketHandler {
 
         // drop the item
         session.Field.DropItem(fieldCube.Position, fieldCube.Rotation, rewardItem, owner: session.Player, characterId: session.CharacterId);
-        nurturing.Feed();
+        nurturing.Feed(session.ServerTableMetadata.ConstantsTable.NurturingEatGrowth);
         db.UpdateNurturing(session.AccountId, fieldCube.InteractCube);
 
         session.Field.Broadcast(FunctionCubePacket.UpdateFunctionCube(fieldCube.InteractCube));
@@ -163,12 +163,13 @@ public class FunctionCubeHandler : FieldPacketHandler {
             return;
         }
 
-        if (db.CountNurturingForAccount(cube.InteractCube.Metadata.Id, session.AccountId) >= Constant.NurturingPlayMaxCount) {
+        ConstantsTable constants = session.ServerTableMetadata.ConstantsTable;
+        if (db.CountNurturingForAccount(cube.InteractCube.Metadata.Id, session.AccountId) >= constants.NurturingPlayMaxCount) {
             session.Send(NoticePacket.Message("You have already played with the maximum number of pets today. TODO: Find correct string id")); // TODO: Find correct string id
             return;
         }
 
-        if (!nurturing.Play(session.AccountId)) {
+        if (!nurturing.Play(session.AccountId, constants.NurturingPlayGrowth, constants.NurturingPlayMaxCount)) {
             return;
         }
 
@@ -216,7 +217,7 @@ public class FunctionCubeHandler : FieldPacketHandler {
             return null;
         }
 
-        var mail = new Mail {
+        var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = ownerId,
             Type = MailType.System,
             Content = contentId,

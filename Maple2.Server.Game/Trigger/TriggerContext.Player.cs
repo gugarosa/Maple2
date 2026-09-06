@@ -268,33 +268,39 @@ public partial class TriggerContext {
 
 
         foreach (FieldPlayer player in PlayersInBox(boxIds)) {
+            if (!MatchesJob(player.Value.Character.Job.Code(), jobCode)) {
+                continue;
+            }
+
             foreach (int questId in questIds) {
                 if (!player.Session.Quest.TryGetQuest(questId, out Quest? quest)) {
                     continue;
                 }
 
-                switch (questStates[0]) {
-                    case 1: // Started
-                        if (quest.State == QuestState.Started) {
-                            return !negate;
-                        }
-                        break;
-                    case 2: // Started and Can Complete
-                        if (quest.State == QuestState.Started && player.Session.Quest.CanComplete(quest)) {
-                            return !negate;
-                        }
-                        break;
-                    case 3: // Completed
-                        if (quest.State == QuestState.Completed) {
-                            return !negate;
-                        }
-                        break;
+                bool canComplete = quest.State == QuestState.Started && player.Session.Quest.CanComplete(quest);
+                if (MatchesQuestState(quest.State, canComplete, questStates)) {
+                    return ApplyNegate(true, negate);
                 }
             }
         }
 
-        return negate;
+        return ApplyNegate(false, negate);
     }
+
+    internal static bool MatchesQuestState(QuestState state, bool canComplete, IEnumerable<int> questStates) {
+        return questStates.Any(questState => questState switch {
+            1 => state == QuestState.Started && !canComplete,
+            2 => state == QuestState.Started && canComplete,
+            3 => state == QuestState.Completed,
+            _ => false,
+        });
+    }
+
+    internal static bool MatchesJob(JobCode playerJob, int requiredJobCode) {
+        return requiredJobCode == 0 || playerJob == (JobCode) requiredJobCode;
+    }
+
+    internal static bool ApplyNegate(bool detected, bool negate) => detected != negate;
 
     public bool UserDetected(int[] boxIds, JobCode jobCode, bool negate) {
         DebugLog("[UserDetected] boxIds:{BoxIds}, jobCode:{JobCode}", string.Join(", ", boxIds), (JobCode) jobCode);

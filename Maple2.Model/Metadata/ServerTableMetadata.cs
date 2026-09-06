@@ -47,5 +47,7 @@ public class ServerTableMetadata {
 [JsonDerivedType(typeof(CombineSpawnTable), typeDiscriminator: "combineSpawn")]
 [JsonDerivedType(typeof(EnchantOptionTable), typeDiscriminator: "enchantOption")]
 [JsonDerivedType(typeof(UnlimitedEnchantOptionTable), typeDiscriminator: "unlimitedEnchantOption")]
-[JsonDerivedType(typeof(ServerConstantsTable), typeDiscriminator: "serverConstants")]
+[JsonDerivedType(typeof(RoomRandomTable), typeDiscriminator: "roomRandom")]
+[JsonDerivedType(typeof(ItemOptionWeightTable), typeDiscriminator: "itemOptionWeights")]
+[JsonDerivedType(typeof(ConstantsTable), typeDiscriminator: "constants")]
 public abstract record ServerTable;
