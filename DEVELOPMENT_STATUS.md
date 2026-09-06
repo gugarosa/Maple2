@@ -17,6 +17,8 @@ The following checks completed against isolated real client metadata and an isol
 - Full ingestion completed all metadata and processed 1,183 maps and 235,082 map entities.
 - SQL verification confirmed merged client/server constants, client pet slots, premium potion `90000409` `useItem`, 20 Toxic Garden weapons, 11 Henesys bombs, and Frey recovery metadata.
 - The Docker World, Login, Web, `game-ch0`, and `game-ch1` stack starts successfully. Both Game health endpoints report `Healthy`, and Login plus both Game client ports return 25-byte handshakes.
+- The refreshed service images shut down with exit code 0. MySQL has a one-minute
+  stop grace period so volume flushing is not cut short by Docker's default timeout.
 - The account-wide dungeon migration completed an upgrade, rollback, and re-upgrade
   against a separate disposable MySQL schema.
 

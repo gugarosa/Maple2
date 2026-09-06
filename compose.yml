@@ -26,6 +26,7 @@ services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
+    stop_grace_period: 1m
     container_name: maple2-db
     env_file:
       - .env
