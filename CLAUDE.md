@@ -14,6 +14,9 @@ This is a MapleStory2 server emulator written in C# targeting .NET 8. It impleme
 
 Local execution requires the .NET 8 SDK plus the `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 8.x shared runtimes. Verify with `dotnet --list-runtimes`; do not assume a newer SDK or ASP.NET runtime can run net8.0 applications.
 
+`global.json` keeps builds and formatting on a stable .NET 8 SDK. Do not bypass
+that selection merely because a newer SDK is installed.
+
 ## Build and Development Commands
 
 ### Initial Setup

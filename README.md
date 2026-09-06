@@ -17,6 +17,10 @@ You will need:
 
 Check local runtime availability with `dotnet --list-runtimes`. The repository targets .NET 8; a newer SDK alone is not a substitute for the required 8.x shared runtimes.
 
+`global.json` selects a stable .NET 8 SDK so local builds and GitHub Actions use
+the same formatter/toolchain generation. Install the current .NET 8 SDK, even if
+a newer major SDK is already installed.
+
 ## Quick Start (Docker)
 
 ### 1. Clone and configure
