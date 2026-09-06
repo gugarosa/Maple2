@@ -1,5 +1,8 @@
 **/.dockerignore
 **/.env
+**/.mcp.json
+**/CLAUDE.local.md
+**/.claude/settings.local.json
 **/.git
 **/.gitignore
 **/.project
@@ -19,8 +22,11 @@
 **/node_modules
 **/npm-debug.log
 **/obj
+**/*.log
 **/secrets.dev.yaml
 **/values.dev.yaml
-LICENSE
 README.md
 Maple2.File.Ingest/Resources
+Maple2.Server.Web/Data/*
+!Maple2.Server.Web/Data/system
+PacketStructures

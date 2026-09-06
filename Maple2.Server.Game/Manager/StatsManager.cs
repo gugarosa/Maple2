@@ -1,4 +1,4 @@
-﻿﻿using Maple2.Model;
+﻿using Maple2.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
@@ -50,7 +50,7 @@ public class StatsManager {
             int baseLevel = npc.Value.Metadata.Basic.Level;
             int offset = ConfigProvider.Settings.Mob.EnemyLevelOffset;
             if (baseLevel > 0 && offset != 0) {
-                double factor = Math.Max(1.0, (double)Math.Max(1, baseLevel + offset) / baseLevel);
+                double factor = Math.Max(1.0, (double) Math.Max(1, baseLevel + offset) / baseLevel);
                 ScaleBasic(BasicAttribute.Health, factor);
                 ScaleBasic(BasicAttribute.PhysicalAtk, factor);
                 ScaleBasic(BasicAttribute.MagicalAtk, factor);
@@ -94,8 +94,8 @@ public class StatsManager {
         return (1, 1);
 
         double BonusAttackCoefficient(FieldPlayer player) {
-            int leftHandRarity = player.Session.Item.Equips.Get(EquipSlot.RH)?.Rarity ?? 0;
-            int rightHandRarity = player.Session.Item.Equips.Get(EquipSlot.LH)?.Rarity ?? 0;
+            int rightHandRarity = player.Session.Item.Equips.Get(EquipSlot.RH)?.Rarity ?? 0;
+            int leftHandRarity = player.Session.Item.Equips.Get(EquipSlot.LH)?.Rarity ?? 0;
             return BonusAttack.Coefficient(rightHandRarity, leftHandRarity, player.Value.Character.Job.Code());
         }
     }
@@ -153,14 +153,16 @@ public class StatsManager {
         if (levelStats.TryGetValue(character.Level, out IReadOnlyDictionary<BasicAttribute, long>? metadata)) {
             Values.Reset(metadata, character.Job.Code());
         } else {
-            Log.Logger.Error("Failed to refresh stats for {Job} level {Level}.", character.Job.Code(), character.Level);
-            Values.Reset(character.Job.Code(), character.Level);
+            throw new InvalidOperationException($"Missing stat metadata for {character.Job.Code()} level {character.Level}.");
         }
 
         AddEquips(player);
         AddBuffs(player);
         Values.Total();
         StatConversion(player);
+        if (player.IsDead) {
+            Values[BasicAttribute.Health].Current = 0;
+        }
         Actor.Field.Broadcast(StatsPacket.Init(player));
         Actor.Field.Broadcast(StatsPacket.Update(player), player.Session);
 

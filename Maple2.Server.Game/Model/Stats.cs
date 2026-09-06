@@ -17,19 +17,7 @@ public class Stats {
     public Stats(IReadOnlyDictionary<BasicAttribute, long> statsDictionary, JobCode jobCode) {
         basicValues = new Dictionary<BasicAttribute, Stat>();
         specialValues = new Dictionary<SpecialAttribute, Stat>();
-
-        foreach (BasicAttribute attribute in statsDictionary.Keys) {
-            if (attribute is BasicAttribute.PhysicalAtk or BasicAttribute.MagicalAtk) {
-                continue;
-            }
-            this[attribute].AddBase(statsDictionary[attribute]);
-        }
-
-        // TODO: Remove when UserStat has rmsp
-        this[BasicAttribute.MountSpeed].AddBase(100);
-
-        this[BasicAttribute.PhysicalAtk].AddBase(AttackStat.PhysicalAtk(jobCode, this[BasicAttribute.Strength].Base, this[BasicAttribute.Dexterity].Base, this[BasicAttribute.Luck].Base));
-        this[BasicAttribute.MagicalAtk].AddBase(AttackStat.MagicalAtk(jobCode, this[BasicAttribute.Intelligence].Base));
+        Reset(statsDictionary, jobCode);
     }
 
     public Stats(NpcMetadataStat npcStats) {
@@ -66,48 +54,6 @@ public class Stats {
 
         this[BasicAttribute.PhysicalAtk].AddBase(AttackStat.PhysicalAtk(jobCode, this[BasicAttribute.Strength].Base, this[BasicAttribute.Dexterity].Base, this[BasicAttribute.Luck].Base));
         this[BasicAttribute.MagicalAtk].AddBase(AttackStat.MagicalAtk(jobCode, this[BasicAttribute.Intelligence].Base));
-    }
-
-    [Obsolete("Use Reset(UserStatMetadata, JobCode) instead.")]
-    public void Reset(JobCode jobCode, short level) {
-        ClearStats();
-
-        this[BasicAttribute.Strength].AddBase(BaseStat.Strength(jobCode, level));
-        this[BasicAttribute.Dexterity].AddBase(BaseStat.Dexterity(jobCode, level));
-        this[BasicAttribute.Intelligence].AddBase(BaseStat.Intelligence(jobCode, level));
-        this[BasicAttribute.Luck].AddBase(BaseStat.Luck(jobCode, level));
-        this[BasicAttribute.Health].AddBase(BaseStat.Health(jobCode, level));
-        this[BasicAttribute.HpRegen] = new Stat(10);
-        this[BasicAttribute.HpRegenInterval] = new Stat(3000);
-        this[BasicAttribute.Spirit] = new Stat(100);
-        this[BasicAttribute.SpRegen] = new Stat(10);
-        this[BasicAttribute.SpRegenInterval] = new Stat(1000);
-        this[BasicAttribute.Stamina] = new Stat(120);
-        this[BasicAttribute.StaminaRegen] = new Stat(10);
-        this[BasicAttribute.StaminaRegenInterval] = new Stat(500);
-        this[BasicAttribute.AttackSpeed] = new Stat(100);
-        this[BasicAttribute.MovementSpeed] = new Stat(100);
-        this[BasicAttribute.Accuracy].AddBase(BaseStat.Accuracy(jobCode, level));
-        this[BasicAttribute.Evasion].AddBase(BaseStat.Evasion(jobCode, level));
-        this[BasicAttribute.CriticalRate].AddBase(BaseStat.CriticalRate(jobCode, level));
-        this[BasicAttribute.CriticalDamage].AddBase(BaseStat.CriticalDamage(jobCode, level));
-        this[BasicAttribute.CriticalEvasion].AddBase(BaseStat.CriticalEvasion(jobCode, level));
-        this[BasicAttribute.Defense].AddBase(BaseStat.Defense(jobCode, level));
-        this[BasicAttribute.JumpHeight] = new Stat(100);
-        this[BasicAttribute.PhysicalRes].AddBase(BaseStat.PhysicalRes(jobCode, level));
-        this[BasicAttribute.MagicalRes].AddBase(BaseStat.MagicalRes(jobCode, level));
-        this[BasicAttribute.MountSpeed] = new Stat(100);
-
-        this[BasicAttribute.PhysicalAtk].AddBase(
-            AttackStat.PhysicalAtk(jobCode, this[BasicAttribute.Strength].Base, this[BasicAttribute.Dexterity].Base, this[BasicAttribute.Luck].Base));
-        this[BasicAttribute.MagicalAtk].AddBase(AttackStat.MagicalAtk(jobCode, this[BasicAttribute.Intelligence].Base));
-
-#if DEBUG
-        this[BasicAttribute.AttackSpeed].AddTotal(40);
-        this[BasicAttribute.MovementSpeed].AddTotal(40);
-        this[BasicAttribute.JumpHeight].AddTotal(40);
-        this[BasicAttribute.MountSpeed].AddTotal(60);
-#endif
     }
 
     /// <summary>

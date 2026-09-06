@@ -1,4 +1,4 @@
-﻿﻿using System.Numerics;
+﻿using System.Numerics;
 using Maple2.Model.Common;
 using Maple2.PacketLib.Tools;
 using Maple2.Tools;

@@ -15,6 +15,7 @@ namespace Maple2.Server.Game.Manager;
 
 public sealed class BlackMarketManager {
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     private readonly ILogger logger = Log.Logger.ForContext<BlackMarketManager>();
 
@@ -63,7 +64,7 @@ public sealed class BlackMarketManager {
             AccountId = session.AccountId,
             CharacterId = session.CharacterId,
             Deposit = depositFee,
-            ExpiryTime = DateTime.Now.AddDays(Constant.BlackMarketSellEndDay).ToEpochSeconds(),
+            ExpiryTime = DateTime.Now.AddDays(Constants.BlackMarketSellEndDay).ToEpochSeconds(),
             Price = price,
             Quantity = quantity,
         };
@@ -116,7 +117,7 @@ public sealed class BlackMarketManager {
 
         long deposit = listing.ExpiryTime < DateTime.Now.ToEpochSeconds() ? listing.Deposit : 0;
 
-        var mail = new Mail {
+        var mail = new Mail(Constants.MailExpiryDays) {
             ReceiverId = session.CharacterId,
             Type = MailType.BlackMarketListingCancel,
             TitleArgs = [
@@ -243,7 +244,7 @@ public sealed class BlackMarketManager {
     }
 
     private Mail? CreateBuyerMail(BlackMarketListing listing, int quantity) {
-        var receivingMail = new Mail {
+        var receivingMail = new Mail(Constants.MailExpiryDays) {
             ReceiverId = session.CharacterId,
             Type = MailType.BlackMarketSale,
             TitleArgs = [
@@ -298,7 +299,7 @@ public sealed class BlackMarketManager {
             contentArgs.Add(("money", $"{savings}"));
         }
 
-        var mail = new Mail {
+        var mail = new Mail(Constants.MailExpiryDays) {
             ReceiverId = listing.CharacterId,
             Type = MailType.BlackMarketSale,
             TitleArgs = [
@@ -325,7 +326,7 @@ public sealed class BlackMarketManager {
     }
 
     private void CreateRefundErrorMail(Item item, long refund) {
-        var mail = new Mail {
+        var mail = new Mail(Constants.MailExpiryDays) {
             ReceiverId = session.CharacterId,
             Type = MailType.BlackMarketFail,
             TitleArgs = [

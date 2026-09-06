@@ -215,15 +215,17 @@ public partial class FieldManager {
     }
 
     public FieldPortal SpawnPortal(QuestSummonPortal metadata, FieldNpc npc, FieldPlayer owner) {
-        var portal = new Portal(NextLocalId(), metadata.MapId, metadata.PortalId, PortalType.Quest, PortalActionType.Interact, npc.Position.Offset(Constant.QuestPortalDistanceFromNpc, npc.Rotation), npc.Rotation,
-            new Vector3(Constant.QuestPortalDistanceFromNpc, Constant.QuestPortalDimensionY, Constant.QuestPortalDimensionZ), Constant.QuestPortalDistanceFromNpc,
+        var portal = new Portal(NextLocalId(), metadata.MapId, metadata.PortalId, PortalType.Quest, PortalActionType.Interact,
+            npc.Position.Offset(Constants.QuestPortalDistanceFromNpc, npc.Rotation), npc.Rotation,
+            new Vector3(Constants.QuestPortalDistanceFromNpc, Constants.QuestPortalDimensionY,
+                Constants.QuestPortalDimensionZ), Constants.QuestPortalDistanceFromNpc,
             0, true, false, true);
         var fieldPortal = new FieldQuestPortal(owner, this, NextLocalId(), portal) {
             Position = portal.Position,
             Rotation = portal.Rotation,
-            EndTick = (FieldTick + (long) TimeSpan.FromSeconds(Constant.QuestPortalKeepTime).TotalMilliseconds).Truncate32(),
+            EndTick = (FieldTick + (long) TimeSpan.FromSeconds(Constants.QuestPortalKeepTime).TotalMilliseconds).Truncate32(),
             StartTick = FieldTickInt,
-            Model = Constant.QuestPortalKeepNif,
+            Model = Constants.QuestPortalKeepNif,
         };
         fieldPortals[fieldPortal.ObjectId] = fieldPortal;
 
@@ -720,7 +722,7 @@ public partial class FieldManager {
     private void AddCubeSkill(SkillMetadata metadata, in Vector3 position, in Vector3 rotation = default) {
         Vector3 adjustedPosition = position;
         adjustedPosition.Z += FieldAccelerationStructure.BLOCK_SIZE;
-        var fieldSkill = new FieldSkill(this, NextLocalId(), FieldActor, metadata, (int) Constant.GlobalCubeSkillIntervalTime.TotalMilliseconds, adjustedPosition) {
+        var fieldSkill = new FieldSkill(this, NextLocalId(), FieldActor, metadata, (int) Constants.GlobalCubeSkillIntervalTime.TotalMilliseconds, adjustedPosition) {
             Position = adjustedPosition,
             Rotation = rotation,
             Source = SkillSource.Cube,
@@ -753,30 +755,120 @@ public partial class FieldManager {
         Broadcast(FieldPropertyPacket.Background(background));
     }
 
-    private void SetBonusMapPortal(IList<MapMetadata> bonusMaps, Ms2RegionSpawn spawn) {
-        // Spawn a hat within a random range of 5 min to 8 hours
-        var delay = Random.Shared.Next(1, 97) * TimeSpan.FromMinutes(5);
-        MapMetadata bonusMapMetadata = bonusMaps[Random.Shared.Next(bonusMaps.Count)];
-        IField? bonusMap = FieldFactory.Create(bonusMapMetadata.Id);
-        bonusMap?.Init();
-        logger.Debug("Creating bonus map {MapId} at {Position} in {Delay} ms", bonusMapMetadata.Id, spawn.Position, delay);
-        if (bonusMap == null) {
+    private void TryCreateBonusMapPortal(IReadOnlyList<Ms2RegionSpawn> spawns) {
+        if (spawns.Count == 0) {
             return;
         }
-        bonusMap.SetRoomTimer(RoomTimerType.Clock, 90000);
-        var portal = new Portal(NextLocalId(), bonusMapMetadata.Id, -1, PortalType.Event, PortalActionType.Interact, spawn.Position, spawn.Rotation,
+
+        HashSet<int> bonusMapIds = MapMetadata.GetMapsByType(Metadata.Property.Continent, MapType.PocketRealm)
+            .Select(map => map.Id)
+            .ToHashSet();
+        if (!TryResolveBonusRoomGroup(ServerTableMetadata.RoomRandomTable, bonusMapIds,
+                out RandomRoomEntry? group, out List<(RoomEntry Room, int Weight)> candidates, out string diagnostic)) {
+            logger.Error("Cannot create bonus map portal in map {MapId}: {Diagnostic}", MapId, diagnostic);
+            return;
+        }
+        if (!PassesBonusRoomProbability(group.Probability, Random.Shared.Next(10000))) {
+            return;
+        }
+        int totalWeight = candidates.Sum(candidate => candidate.Weight);
+        if (totalWeight <= 0) {
+            logger.Error("Cannot create bonus map portal in map {MapId}: random room group {GroupId} has non-positive total weight", MapId, group.Id);
+            return;
+        }
+        if (!TrySelectWeightedRoom(candidates, Random.Shared.Next(totalWeight), out RoomEntry? room)) {
+            logger.Error("Cannot create bonus map portal in map {MapId}: random room group {GroupId} has no weighted candidates", MapId, group.Id);
+            return;
+        }
+
+        int[] mapIds = room.MapIds.Where(bonusMapIds.Contains).ToArray();
+        if (mapIds.Length == 0) {
+            logger.Error("Cannot create bonus map portal in map {MapId}: room {RoomId} has no maps for continent {Continent}",
+                MapId, room.Id, Metadata.Property.Continent);
+            return;
+        }
+
+        int bonusMapId = mapIds[Random.Shared.Next(mapIds.Length)];
+        Ms2RegionSpawn spawn = spawns[Random.Shared.Next(spawns.Count)];
+        FieldManager? bonusMap = FieldFactory.Create(bonusMapId);
+        if (bonusMap == null) {
+            logger.Error("Failed to create bonus map {BonusMapId} from room {RoomId}", bonusMapId, room.Id);
+            return;
+        }
+
+        if (room.MaxUserCount > 0) {
+            bonusMap.admission = new FieldAdmission(room.MaxUserCount);
+        }
+        bonusMap.Init();
+        bonusMap.SetRoomTimer(RoomTimerType.Clock, room.DurationTick);
+        var portal = new Portal(NextLocalId(), bonusMapId, -1, PortalType.Event, PortalActionType.Interact, spawn.Position, spawn.Rotation,
             new Vector3(200, 200, 250), 0, 0, true, false, true);
         FieldPortal fieldPortal = SpawnPortal(portal, bonusMap.RoomId);
-        fieldPortal.Model = Metadata.Property.Continent switch {
-            Continent.VictoriaIsland => "Eff_event_portal_A01",
-            Continent.KarkarIsland => "Eff_kr_sandswirl_01",
-            Continent.ShadowWorld => "Eff_uw_potral_A01",
-            Continent.Kritias => "Eff_ks_magichole_portal_A01",
-            _ => "Eff_event_portal_A01",
-        };
-        fieldPortal.EndTick = (FieldTick + (long) TimeSpan.FromSeconds(30).TotalMilliseconds).Truncate32();
+        fieldPortal.Model = room.AssetName;
+        fieldPortal.StartTick = FieldTickInt;
+        fieldPortal.EndTick = (FieldTick + Constants.RoomEnterPortalDurationTick).Truncate32();
+        fieldPortal.MaxUserCount = room.MaxUserCount;
+        fieldPortal.AutoClose = room.AutoClose;
+        logger.Debug("Creating bonus map {BonusMapId} from room {RoomId} at {Position} for {Duration}ms",
+            bonusMapId, room.Id, spawn.Position, room.DurationTick);
         Broadcast(PortalPacket.Add(fieldPortal));
-        Scheduler.Schedule(() => SetBonusMapPortal(bonusMaps, spawn), delay);
+    }
+
+    internal static bool TryResolveBonusRoomGroup(
+        RoomRandomTable table,
+        IReadOnlySet<int> mapIds,
+        [NotNullWhen(true)] out RandomRoomEntry? group,
+        out List<(RoomEntry Room, int Weight)> candidates,
+        out string diagnostic) {
+        group = null;
+        candidates = [];
+        diagnostic = "";
+        foreach (RandomRoomEntry entry in table.RandomEntries.Values) {
+            var matchingRooms = new List<(RoomEntry Room, int Weight)>();
+            foreach ((int roomId, int weight) in entry.RoomWeights) {
+                if (table.Rooms.TryGetValue(roomId, out RoomEntry? room) && room.MapIds.Any(mapIds.Contains)) {
+                    matchingRooms.Add((room, weight));
+                }
+            }
+            if (matchingRooms.Count == 0) {
+                continue;
+            }
+            if (group != null) {
+                diagnostic = $"multiple random room groups match maps: {group.Id}, {entry.Id}";
+                group = null;
+                candidates = [];
+                return false;
+            }
+            group = entry;
+            candidates = matchingRooms;
+        }
+
+        if (group != null && candidates.Count > 0) {
+            return true;
+        }
+        diagnostic = mapIds.Count == 0 ? "no Pocket Realm maps exist for this continent" : "no random room group references this continent's Pocket Realm maps";
+        return false;
+    }
+
+    internal static bool PassesBonusRoomProbability(int probability, int roll) {
+        return probability > roll;
+    }
+
+    internal static bool TrySelectWeightedRoom(IReadOnlyList<(RoomEntry Room, int Weight)> candidates, int roll, [NotNullWhen(true)] out RoomEntry? room) {
+        room = null;
+        int totalWeight = candidates.Sum(candidate => candidate.Weight);
+        if (candidates.Count == 0 || totalWeight <= 0 || roll < 0 || roll >= totalWeight) {
+            return false;
+        }
+
+        foreach ((RoomEntry candidate, int weight) in candidates) {
+            roll -= weight;
+            if (roll < 0) {
+                room = candidate;
+                return true;
+            }
+        }
+        return false;
     }
 
     public void SetRoomTimer(RoomTimerType type, int duration) {
@@ -996,6 +1088,9 @@ public partial class FieldManager {
 
     #region Events
     public void OnAddPlayer(FieldPlayer added) {
+        if (!TryReserveAdmission(added.Session)) {
+            throw new InvalidOperationException($"No admission available for character {added.Session.CharacterId} in room {RoomId}.");
+        }
         Players[added.ObjectId] = added;
         // LOAD:
         foreach (FieldLiftable liftable in fieldLiftables.Values.Where(liftable => liftable.FinishTick > 0)) {

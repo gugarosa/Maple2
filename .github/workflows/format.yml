@@ -6,16 +6,23 @@ on:
   pull_request:
     branches: ["master"]
 
+permissions:
+  contents: read
+
 jobs:
   format:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9
+          dotnet-version: 8.0.x
       - name: Run dotnet format
-        run: dotnet format whitespace --verify-no-changes --exclude 'Maple2.Server.World/Migrations/*.cs'
+        run: dotnet format whitespace --verify-no-changes --exclude 'Maple2.Server.World\Migrations'

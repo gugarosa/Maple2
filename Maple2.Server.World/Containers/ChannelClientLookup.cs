@@ -134,7 +134,7 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
                 }
                 if (existing.Status is ChannelStatus.Inactive) {
                     existing.Status = ChannelStatus.Pending;
-                    return ((ushort)newGamePort, newGrpcChannelPort, channelId);
+                    return ((ushort) newGamePort, newGrpcChannelPort, channelId);
                 }
             }
 
@@ -156,12 +156,12 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
             GrpcChannel grpcChannel = GrpcChannel.ForAddress(grpcUri);
             var client = new ChannelClient(grpcChannel);
             var healthClient = new Health.HealthClient(grpcChannel);
-            var activeChannel = new Channel(ChannelStatus.Pending, channelId, instancedContent, gameEndpoint, client, healthClient, (ushort)newGamePort, newGrpcChannelPort);
+            var activeChannel = new Channel(ChannelStatus.Pending, channelId, instancedContent, gameEndpoint, client, healthClient, (ushort) newGamePort, newGrpcChannelPort);
 
             if (channels.TryAdd(channelId, activeChannel)) {
                 var cancel = new CancellationTokenSource();
                 Task.Factory.StartNew(() => MonitorChannel(activeChannel, cancel), cancellationToken: cancel.Token);
-                return ((ushort)newGamePort, newGrpcChannelPort, channelId);
+                return ((ushort) newGamePort, newGrpcChannelPort, channelId);
             }
 
             // If instanced content, id=0 is unique; no alternative available

@@ -10,6 +10,8 @@ using Maple2.Tools;
 using Maple2.Tools.Extensions;
 using Serilog;
 
+using Maple2.Server.Game.Manager;
+
 namespace Maple2.Server.Game.Model;
 
 public class Buff : IUpdatable, IByteSerializable {
@@ -226,6 +228,9 @@ public class Buff : IUpdatable, IByteSerializable {
         if (record.HpAmount != 0) {
             Owner.Stats.Values[BasicAttribute.Health].Add(record.HpAmount);
             targetUpdated.Add(BasicAttribute.Health);
+            if (record.HpAmount < 0) {
+                DamageTracking.Observe(Caster, Owner, record.Type, -(long) record.HpAmount);
+            }
         }
         if (record.SpAmount != 0) {
             Owner.Stats.Values[BasicAttribute.Spirit].Add(record.SpAmount);

@@ -56,7 +56,7 @@ public sealed class MarriageManager {
             return;
         }
 
-        var mail = new Mail {
+        var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = Marriage.Partner2.CharacterId,
             SenderId = Marriage.Partner2.CharacterId,
             Type = MailType.System,
@@ -76,7 +76,7 @@ public sealed class MarriageManager {
             }
         }
 
-        var partnerMail = new Mail {
+        var partnerMail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = Marriage.Partner1.CharacterId,
             SenderId = Marriage.Partner1.CharacterId,
             Type = MailType.System,
@@ -337,7 +337,7 @@ public sealed class MarriageManager {
     }
 
     private void MailReservationGifts(FieldPlayer partner, WeddingPackage.HallData metadata) {
-        var mail = new Mail {
+        var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = partner.Value.Character.Id,
             SenderId = partner.Value.Character.Id,
             Content = 40000008.ToString(), // Specific ID in string/systemmailcontent[locale].xml
@@ -429,7 +429,7 @@ public sealed class MarriageManager {
             return WeddingError.s_wedding_result_err_system;
         }
 
-        var mail = new Mail {
+        var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
             ReceiverId = Partner.CharacterId,
             SenderId = Partner.CharacterId,
             Type = MailType.System,

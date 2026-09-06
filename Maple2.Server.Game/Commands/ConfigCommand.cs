@@ -1,4 +1,4 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.IO;
 using Maple2.Server.Core.Config;
@@ -100,7 +100,7 @@ public class ConfigCommand : GameCommand {
     }
 
     private class MobCommand : Command {
-        public MobCommand() : base("mob", "Set mob-related tuning (preferred over legacy difficulty).") {
+        public MobCommand() : base("mob", "Set mob damage, health, level and despawn tuning.") {
             var key = new Argument<string>("key", () => "dealt", "Key: dealt|taken|enemyhp|enemylvl|despawncap|bossdespawncap");
             var value = new Argument<float>("value", description: "New value (float for all; enemylvl rounded to int)");
             AddArgument(key);

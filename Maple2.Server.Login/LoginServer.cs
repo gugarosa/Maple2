@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,14 +18,14 @@ namespace Maple2.Server.Login;
 public class LoginServer : Server<LoginSession> {
     private readonly object mutex = new();
     private readonly HashSet<LoginSession> connectingSessions;
-    private readonly Dictionary<long, LoginSession> sessions;
+    private readonly ConcurrentDictionary<long, LoginSession> sessions;
     private readonly IList<SystemBanner> bannerCache;
     private readonly GameStorage gameStorage;
 
     public LoginServer(PacketRouter<LoginSession> router, IComponentContext context, GameStorage gameStorage, ServerTableMetadataStorage serverTableMetadataStorage)
             : base(Target.LoginPort, router, context, serverTableMetadataStorage) {
         connectingSessions = [];
-        sessions = new Dictionary<long, LoginSession>();
+        sessions = new ConcurrentDictionary<long, LoginSession>();
 
         this.gameStorage = gameStorage;
         using GameStorage.Request db = this.gameStorage.Context();
@@ -41,14 +42,12 @@ public class LoginServer : Server<LoginSession> {
     public override void OnDisconnected(LoginSession session) {
         lock (mutex) {
             connectingSessions.Remove(session);
-            sessions.Remove(session.AccountId);
         }
+        sessions.TryRemove(KeyValuePair.Create(session.AccountId, session));
     }
 
     public bool GetSession(long accountId, [NotNullWhen(true)] out LoginSession? session) {
-        lock (mutex) {
-            return sessions.TryGetValue(accountId, out session);
-        }
+        return sessions.TryGetValue(accountId, out session);
     }
 
     protected override void AddSession(LoginSession session) {
@@ -64,19 +63,16 @@ public class LoginServer : Server<LoginSession> {
 
     public IEnumerable<GameEvent> GetEvents() => eventCache.Values.Where(gameEvent => gameEvent.IsActive());
 
-    public override Task StopAsync(CancellationToken cancellationToken) {
+    public override async Task StopAsync(CancellationToken cancellationToken) {
+        await base.StopAsync(cancellationToken);
+        LoginSession[] connecting;
         lock (mutex) {
-            foreach (LoginSession session in connectingSessions) {
-                session.Send(NoticePacket.Disconnect(new InterfaceText("LoginServer Maintenance")));
-                session.Dispose();
-            }
-            foreach (LoginSession session in sessions.Values) {
-                session.Send(NoticePacket.Disconnect(new InterfaceText("LoginServer Maintenance")));
-                session.Dispose();
-            }
+            connecting = connectingSessions.ToArray();
         }
-
-        return base.StopAsync(cancellationToken);
+        foreach (LoginSession session in connecting.Concat(sessions.Values).Distinct()) {
+            session.Send(NoticePacket.Disconnect(new InterfaceText("LoginServer Maintenance")));
+            session.Disconnect();
+        }
     }
 
     public List<LoginSession> GetSessions() => sessions.Values.ToList();

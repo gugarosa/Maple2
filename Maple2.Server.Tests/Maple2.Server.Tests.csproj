@@ -18,6 +18,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\Maple2.File.Ingest\Maple2.File.Ingest.csproj" />
       <ProjectReference Include="..\Maple2.Server.Game\Maple2.Server.Game.csproj" />
     </ItemGroup>
 

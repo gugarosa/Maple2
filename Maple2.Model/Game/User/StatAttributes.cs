@@ -13,9 +13,9 @@ public class StatAttributes : IByteSerializable {
     public int TotalPoints => Sources.Count;
     public int UsedPoints => Allocation.Count;
 
-    public StatAttributes() {
+    public StatAttributes(ConstantsTable constants) {
         Sources = new PointSources();
-        Allocation = new PointAllocation();
+        Allocation = new PointAllocation(constants);
     }
 
     public void WriteTo(IByteWriter writer) {
@@ -52,6 +52,7 @@ public class StatAttributes : IByteSerializable {
 
     public class PointAllocation : IByteSerializable {
         private readonly Dictionary<BasicAttribute, int> points;
+        private readonly ConstantsTable constants;
 
         public BasicAttribute[] Attributes => points.Keys.ToArray();
         public int Count => points.Values.Sum();
@@ -59,7 +60,7 @@ public class StatAttributes : IByteSerializable {
         public int this[BasicAttribute type] {
             get => points.GetValueOrDefault(type);
             set {
-                if (value < 0 || value > StatLimit(type)) {
+                if (value < 0 || value > StatLimit(type, constants)) {
                     return;
                 }
                 if (value == 0) {
@@ -71,18 +72,19 @@ public class StatAttributes : IByteSerializable {
             }
         }
 
-        public PointAllocation() {
+        public PointAllocation(ConstantsTable constants) {
             points = new Dictionary<BasicAttribute, int>();
+            this.constants = constants;
         }
 
-        public static int StatLimit(BasicAttribute type) {
+        public static int StatLimit(BasicAttribute type, ConstantsTable constants) {
             return type switch {
-                BasicAttribute.Strength => Constant.StatPointLimit_str,
-                BasicAttribute.Dexterity => Constant.StatPointLimit_dex,
-                BasicAttribute.Intelligence => Constant.StatPointLimit_int,
-                BasicAttribute.Luck => Constant.StatPointLimit_luk,
-                BasicAttribute.Health => Constant.StatPointLimit_hp,
-                BasicAttribute.CriticalRate => Constant.StatPointLimit_cap,
+                BasicAttribute.Strength => constants.StatPointLimit_str,
+                BasicAttribute.Dexterity => constants.StatPointLimit_dex,
+                BasicAttribute.Intelligence => constants.StatPointLimit_int,
+                BasicAttribute.Luck => constants.StatPointLimit_luk,
+                BasicAttribute.Health => constants.StatPointLimit_hp,
+                BasicAttribute.CriticalRate => constants.StatPointLimit_cap,
                 _ => 0,
             };
         }

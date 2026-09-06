@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Maple2.Database.Storage;
 using Maple2.Model.Enum;
@@ -16,10 +17,12 @@ public sealed class ItemStatsCalculator {
     #region Autofac Autowired
     // ReSharper disable MemberCanBePrivate.Global
     public required TableMetadataStorage TableMetadata { private get; init; }
+    public required ServerTableMetadataStorage ServerTableMetadata { private get; init; }
     // ReSharper restore All
     #endregion
 
     private const float OFFENSE_LINE_MAX_THRESHOLD = 0.5f; // 50% threshold for offense lines
+    private static readonly ConcurrentDictionary<(int OptionId, string Attribute), byte> missingValueWeightWarnings = new();
     private static readonly IList<BasicAttribute> offenseBasicAttributes = [
         BasicAttribute.Strength,
         BasicAttribute.Dexterity,
@@ -113,7 +116,7 @@ public sealed class ItemStatsCalculator {
 
 
         if (TableMetadata.ItemOptionRandomTable.Options.TryGetValue(item.Metadata.Option.RandomId, item.Rarity, out ItemOption? itemOption)) {
-            ItemStats.Option option = GetRandomOption(item.Id, itemOption, item.Type, ItemStats.Type.Random);
+            ItemStats.Option option = GetRandomOption(item.Id, item.Metadata.Option.RandomId, itemOption, item.Type, ItemStats.Type.Random);
             RandomizeValues(item, itemOption, ref option, rollMax);
             stats[ItemStats.Type.Random] = option;
         }
@@ -158,26 +161,16 @@ public sealed class ItemStatsCalculator {
         if (!TableMetadata.ItemOptionRandomTable.Options.TryGetValue(item.Metadata.Option.RandomId, item.Rarity, out ItemOption? itemOption)) {
             return false;
         }
-        ItemStats.Option randomOption = GetRandomOption(item.Id, itemOption, item.Type, ItemStats.Type.Random, option.Count, presets);
+        ItemStats.Option randomOption = GetRandomOption(item.Id, item.Metadata.Option.RandomId, itemOption, item.Type, ItemStats.Type.Random, option.Count, presets);
+        if (randomOption.Count != option.Count) {
+            return false;
+        }
 
         if (!RandomizeValues(item, itemOption, ref randomOption)) {
             return false;
         }
 
-        // Restore locked values.
-        foreach (LockOption lockOption in presets) {
-            if (lockOption.TryGet(out BasicAttribute basic, out bool lockBasicValue)) {
-                if (lockBasicValue) {
-                    Debug.Assert(randomOption.Basic.ContainsKey(basic), "Missing basic attribute after using lock.");
-                    randomOption.Basic[basic] = option.Basic[basic];
-                }
-            } else if (lockOption.TryGet(out SpecialAttribute special, out bool lockSpecialValue)) {
-                if (lockSpecialValue) {
-                    Debug.Assert(randomOption.Special.ContainsKey(special), "Missing special attribute after using lock.");
-                    randomOption.Special[special] = option.Special[special];
-                }
-            }
-        }
+        RestoreLockedOptions(option, randomOption, presets);
 
         // Update item with result.
         item.Stats[ItemStats.Type.Random] = randomOption;
@@ -206,20 +199,7 @@ public sealed class ItemStatsCalculator {
             return false;
         }
 
-        // Restore locked values.
-        foreach (LockOption lockOption in presets) {
-            if (lockOption.TryGet(out BasicAttribute basic, out bool lockBasicValue)) {
-                if (lockBasicValue) {
-                    Debug.Assert(option.Basic.ContainsKey(basic), "Missing basic attribute after using lock.");
-                    fixedOption.Basic[basic] = option.Basic[basic];
-                }
-            } else if (lockOption.TryGet(out SpecialAttribute special, out bool lockSpecialValue)) {
-                if (lockSpecialValue) {
-                    Debug.Assert(option.Special.ContainsKey(special), "Missing special attribute after using lock.");
-                    fixedOption.Special[special] = option.Special[special];
-                }
-            }
-        }
+        RestoreLockedOptions(option, fixedOption, presets);
 
         // Update item with result.
         item.Stats[ItemStats.Type.Random] = fixedOption;
@@ -238,8 +218,15 @@ public sealed class ItemStatsCalculator {
         if (table == null) {
             return false;
         }
+        ServerTableMetadata.ItemOptionWeightTable.Options.TryGetValue(
+            item.Metadata.Option.RandomId, out ItemOptionWeight[]? optionWeights);
 
         foreach (BasicAttribute attribute in option.Basic.Keys) {
+            ItemOptionWeight? optionWeight = optionWeights?.FirstOrDefault(entry => entry.BasicAttribute == attribute);
+            WarnMissingValueWeight(item.Metadata.Option.RandomId, $"Basic.{attribute}", optionWeight);
+            if (ApplyWeightedValue(option, attribute, null, optionWeight, rollMax)) {
+                continue;
+            }
             if (table.Values.TryGetValue(attribute, out ItemEquipVariationTable.Set<int>[]? values)) {
                 int value = GetValue(attribute, tableValues: values, rollMax: rollMax);
                 option.Basic[attribute] = new BasicOption((int) (value * option.MultiplyFactor));
@@ -249,6 +236,11 @@ public sealed class ItemStatsCalculator {
             }
         }
         foreach (SpecialAttribute attribute in option.Special.Keys) {
+            ItemOptionWeight? optionWeight = optionWeights?.FirstOrDefault(entry => entry.SpecialAttribute == attribute);
+            WarnMissingValueWeight(item.Metadata.Option.RandomId, $"Special.{attribute}", optionWeight);
+            if (ApplyWeightedValue(option, null, attribute, optionWeight, rollMax)) {
+                continue;
+            }
             if (table.SpecialValues.TryGetValue(attribute, out ItemEquipVariationTable.Set<int>[]? values)) {
                 int value = GetValue(specialAttribute: attribute, tableValues: values, rollMax: rollMax);
                 option.Special[attribute] = new SpecialOption(0f, value * option.MultiplyFactor);
@@ -398,6 +390,14 @@ public sealed class ItemStatsCalculator {
         }
     }
 
+    private static void WarnMissingValueWeight(int optionId, string attribute, ItemOptionWeight? optionWeight) {
+        if (optionWeight == null && missingValueWeightWarnings.TryAdd((optionId, attribute), 0)) {
+            Log.Logger.Warning(
+                "No server variation weights for item option {OptionId}, attribute {Attribute}; using client-defined value ranges.",
+                optionId, attribute);
+        }
+    }
+
     // Used to calculate the default constant attributes for a given item.
     private bool GetConstantOption(Item item, int job, ItemOptionPickTable.Option? pick, [NotNullWhen(true)] out ItemStats.Option? option) {
         option = null;
@@ -455,8 +455,10 @@ public sealed class ItemStatsCalculator {
     }
 
     // Used to calculate the default random attributes for a given item.
-    private ItemStats.Option GetRandomOption(int itemId, ItemOption itemOption, in ItemType itemType, ItemStats.Type statsType, int count = -1, params LockOption[] presets) {
-        return RandomItemOption(itemId, itemOption, itemType, statsType, count, presets);
+    private ItemStats.Option GetRandomOption(int itemId, int optionId, ItemOption itemOption, in ItemType itemType, ItemStats.Type statsType, int count = -1, params LockOption[] presets) {
+        ServerTableMetadata.ItemOptionWeightTable.Options.TryGetValue(optionId, out ItemOptionWeight[]? optionWeights);
+        return RandomItemOption(itemId, itemOption, itemType, statsType,
+            ServerTableMetadata.ItemOptionWeightTable, optionWeights, count, null, presets);
     }
 
     private ItemEquipVariationTable? GetVariationTable(in ItemType type) {
@@ -548,29 +550,46 @@ public sealed class ItemStatsCalculator {
         return new ItemStats.Option(statResult, specialResult);
     }
 
-    private static ItemStats.Option RandomItemOption(int itemId, ItemOption option, in ItemType itemType, ItemStats.Type statsType, int count = -1, params LockOption[] presets) {
+    internal static ItemStats.Option RandomItemOption(
+        int itemId,
+        ItemOption option,
+        in ItemType itemType,
+        ItemStats.Type statsType,
+        ItemOptionWeightTable? weightTable = null,
+        ItemOptionWeight[]? optionWeights = null,
+        int count = -1,
+        Random? random = null,
+        params LockOption[] presets) {
+        random ??= Random.Shared;
         var statResult = new Dictionary<BasicAttribute, BasicOption>();
         var specialResult = new Dictionary<SpecialAttribute, SpecialOption>();
 
-        int total = count < 0 ? Random.Shared.Next(option.NumPick.Min, option.NumPick.Max + 1) : count;
+        int total = count < 0 ? random.Next(option.NumPick.Min, option.NumPick.Max + 1) : count;
         if (total == 0) {
             return new ItemStats.Option(statResult, specialResult, multiplyFactor: option.MultiplyFactor);
         }
-        // Ensures that there are enough options to choose.
-        total = Math.Min(total, option.Entries.Length);
-
-        // Create a mutable list of entries
-        List<ItemOption.Entry> availableEntries = option.Entries.ToList();
+        List<ItemOption.Entry> availableEntries = option.Entries
+            .GroupBy(entry => (entry.BasicAttribute, entry.SpecialAttribute))
+            .Select(group => {
+                ItemOptionWeight? optionWeight = optionWeights?.FirstOrDefault(candidate =>
+                    candidate.BasicAttribute == group.Key.BasicAttribute &&
+                    candidate.SpecialAttribute == group.Key.SpecialAttribute);
+                return optionWeight == null
+                    ? group.First()
+                    : group.FirstOrDefault(entry => (entry.Rates != null) == optionWeight.IsRate, group.First());
+            })
+            .ToList();
+        total = Math.Min(total, availableEntries.Count);
 
         // Compute locked options first.
         foreach (LockOption preset in presets) {
             if (preset.TryGet(out BasicAttribute basic, out bool _)) {
-                ItemOption.Entry entry = option.Entries.FirstOrDefault(e => e.BasicAttribute == basic);
+                ItemOption.Entry entry = availableEntries.FirstOrDefault(e => e.BasicAttribute == basic);
                 // Ignore any invalid presets, they will get populated with valid data below.
                 AddResult(entry, statResult, specialResult);
                 availableEntries.Remove(entry);
             } else if (preset.TryGet(out SpecialAttribute special, out bool _)) {
-                ItemOption.Entry entry = option.Entries.FirstOrDefault(e => e.SpecialAttribute == special);
+                ItemOption.Entry entry = availableEntries.FirstOrDefault(e => e.SpecialAttribute == special);
                 // Ignore any invalid presets, they will get populated with valid data below.
                 AddResult(entry, statResult, specialResult);
                 availableEntries.Remove(entry);
@@ -578,7 +597,34 @@ public sealed class ItemStatsCalculator {
         }
 
         while (statResult.Count + specialResult.Count < total && availableEntries.Count > 0) {
-            ItemOption.Entry entry = availableEntries.Random();
+            ItemOption.Entry entry;
+            if (weightTable == null && optionWeights == null) {
+                entry = availableEntries[random.Next(availableEntries.Count)];
+            } else {
+                var weightedEntries = new WeightedSet<ItemOption.Entry>(random);
+                var clientOnlyEntries = new List<ItemOption.Entry>();
+                foreach (ItemOption.Entry availableEntry in availableEntries) {
+                    if (!TryGetOptionWeight(availableEntry, itemType, weightTable, optionWeights, out int weight)) {
+                        clientOnlyEntries.Add(availableEntry);
+                    } else if (weight > 0) {
+                        weightedEntries.Add(availableEntry, weight);
+                    }
+                }
+
+                if (weightedEntries.Count > 0) {
+                    entry = weightedEntries.Get();
+                } else if (clientOnlyEntries.Count > 0) {
+                    Log.Logger.Warning(
+                        "No server weights for remaining item options. Selecting uniformly from client-defined candidates. ItemId: {Item}",
+                        itemId);
+                    entry = clientOnlyEntries[random.Next(clientOnlyEntries.Count)];
+                } else {
+                    Log.Logger.Error(
+                        "Unable to select {Remaining} item-option lines because every remaining candidate has zero weight. ItemId: {Item}",
+                        total - statResult.Count - specialResult.Count, itemId);
+                    break;
+                }
+            }
             if (statsType == ItemStats.Type.Random &&
                 !IsValidStat(itemType, total, statResult, specialResult, entry)) {
                 availableEntries.Remove(entry);
@@ -607,10 +653,10 @@ public sealed class ItemStatsCalculator {
                 if (statDict.ContainsKey(attribute)) return true; // Cannot add duplicate values, retry.
 
                 if (entry.Values != null) {
-                    statDict.Add(attribute, new BasicOption(Random.Shared.Next(entry.Values.Value.Min, entry.Values.Value.Max + 1)));
+                    statDict.Add(attribute, new BasicOption(random.Next(entry.Values.Value.Min, entry.Values.Value.Max + 1)));
                 } else if (entry.Rates != null) {
                     float delta = entry.Rates.Value.Max - entry.Rates.Value.Min;
-                    statDict.Add(attribute, new BasicOption(Random.Shared.NextSingle() * delta + entry.Rates.Value.Min));
+                    statDict.Add(attribute, new BasicOption(random.NextSingle() * delta + entry.Rates.Value.Min));
                 }
                 return true;
             }
@@ -619,14 +665,99 @@ public sealed class ItemStatsCalculator {
                 if (specialDict.ContainsKey(attribute)) return true; // Cannot add duplicate values, retry.
 
                 if (entry.Values != null) {
-                    specialDict.Add(attribute, new SpecialOption(0f, Random.Shared.Next(entry.Values.Value.Min, entry.Values.Value.Max + 1)));
+                    specialDict.Add(attribute, new SpecialOption(0f, random.Next(entry.Values.Value.Min, entry.Values.Value.Max + 1)));
                 } else if (entry.Rates != null) {
                     float delta = entry.Rates.Value.Max - entry.Rates.Value.Min;
-                    specialDict.Add(attribute, new SpecialOption(Random.Shared.NextSingle() * delta + entry.Rates.Value.Min));
+                    specialDict.Add(attribute, new SpecialOption(random.NextSingle() * delta + entry.Rates.Value.Min));
                 }
                 return true;
             }
             return false;
+        }
+    }
+
+    private static bool TryGetOptionWeight(
+        ItemOption.Entry entry,
+        in ItemType itemType,
+        ItemOptionWeightTable? weightTable,
+        ItemOptionWeight[]? optionWeights,
+        out int weight) {
+        ItemOptionWeight? optionWeight = optionWeights?.FirstOrDefault(candidate =>
+            candidate.BasicAttribute == entry.BasicAttribute &&
+            candidate.SpecialAttribute == entry.SpecialAttribute);
+        if (optionWeight != null) {
+            weight = optionWeight.Weight;
+            return true;
+        }
+        if (weightTable == null) {
+            weight = 0;
+            return false;
+        }
+        if (entry.BasicAttribute is { } basicAttribute &&
+            weightTable.BasicProbabilities.TryGetValue(basicAttribute, out ItemOptionProbabilityMetadata? basicProbability)) {
+            weight = basicProbability.GetWeight(itemType);
+            return true;
+        }
+        if (entry.SpecialAttribute is { } specialAttribute &&
+            weightTable.SpecialProbabilities.TryGetValue(specialAttribute, out ItemOptionProbabilityMetadata? specialProbability)) {
+            weight = specialProbability.GetWeight(itemType);
+            return true;
+        }
+        weight = 0;
+        return false;
+    }
+
+    internal static int GetWeightedValue(ItemOptionWeightedValue[] values, bool rollMax = false, Random? random = null) {
+        if (values.Length == 0) {
+            throw new ArgumentException("At least one weighted value is required.", nameof(values));
+        }
+        if (rollMax) {
+            return values.Max(entry => entry.Value);
+        }
+
+        var weightedValues = new WeightedSet<int>(random);
+        foreach (ItemOptionWeightedValue entry in values) {
+            weightedValues.Add(entry.Value, entry.Weight);
+        }
+        return weightedValues.Get();
+    }
+
+    internal static bool ApplyWeightedValue(
+        ItemStats.Option option,
+        BasicAttribute? basicAttribute,
+        SpecialAttribute? specialAttribute,
+        ItemOptionWeight? optionWeight,
+        bool rollMax = false,
+        Random? random = null) {
+        if (optionWeight == null || optionWeight.Values.Length == 0) {
+            return false;
+        }
+
+        int value = GetWeightedValue(optionWeight.Values, rollMax, random);
+        if (basicAttribute != null) {
+            option.Basic[basicAttribute.Value] = optionWeight.IsRate
+                ? new BasicOption((value / 1000f) * option.MultiplyFactor)
+                : new BasicOption((int) (value * option.MultiplyFactor));
+            return true;
+        }
+        if (specialAttribute != null) {
+            option.Special[specialAttribute.Value] = optionWeight.IsRate
+                ? new SpecialOption((value / 1000f) * option.MultiplyFactor)
+                : new SpecialOption(0f, value * option.MultiplyFactor);
+            return true;
+        }
+        return false;
+    }
+
+    internal static void RestoreLockedOptions(ItemStats.Option source, ItemStats.Option target, params LockOption[] presets) {
+        foreach (LockOption lockOption in presets) {
+            if (lockOption.TryGet(out BasicAttribute basic, out bool lockBasicValue) && lockBasicValue) {
+                Debug.Assert(target.Basic.ContainsKey(basic), "Missing basic attribute after using lock.");
+                target.Basic[basic] = source.Basic[basic];
+            } else if (lockOption.TryGet(out SpecialAttribute special, out bool lockSpecialValue) && lockSpecialValue) {
+                Debug.Assert(target.Special.ContainsKey(special), "Missing special attribute after using lock.");
+                target.Special[special] = source.Special[special];
+            }
         }
     }
 

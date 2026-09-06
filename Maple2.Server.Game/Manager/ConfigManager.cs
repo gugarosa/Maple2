@@ -17,6 +17,7 @@ public class ConfigManager {
     private const int TOTAL_HOT_BARS = 3;
 
     private readonly GameSession session;
+    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     private readonly IDictionary<int, KeyBind> keyBinds;
     private short activeHotBar;
@@ -94,7 +95,7 @@ public class ConfigManager {
         skillPoints = load.SkillPoint ?? new SkillPoint();
         ExplorationProgress = load.ExplorationProgress;
 
-        statAttributes = new StatAttributes();
+        statAttributes = new StatAttributes(Constants);
         if (load.StatPoints != null) {
             foreach ((AttributePointSource source, int amount) in load.StatPoints) {
                 if (source == AttributePointSource.Prestige) {
@@ -241,10 +242,12 @@ public class ConfigManager {
     }
 
     public void RefreshPremiumClubBuffs() {
-        if (session.Player.Value.Account.PremiumTime > DateTime.Now.ToEpochSeconds() && session.Field is not null) {
-            foreach ((int buffId, PremiumClubTable.Buff buff) in session.TableMetadata.PremiumClubTable.Buffs) {
-                session.Player.Buffs.AddBuff(session.Player, session.Player, buff.Id, buff.Level, session.Field.FieldTick);
-            }
+        if (session.Player.Value.Account.PremiumTime <= DateTime.Now.ToEpochSeconds() ||
+            session.Field is not { } field) {
+            return;
+        }
+        foreach ((int buffId, PremiumClubTable.Buff buff) in session.TableMetadata.PremiumClubTable.Buffs) {
+            session.Player.Buffs.AddBuff(session.Player, session.Player, buff.Id, buff.Level, field.FieldTick);
         }
     }
 
@@ -325,7 +328,7 @@ public class ConfigManager {
     /// <param name="endTick">The tick when the penalty ends, or 0 to reset</param>
     public void UpdateDeathPenalty(long endTick) {
         // Skip penalty for low level players
-        if (session.Player.Value.Character.Level < Constant.UserRevivalPaneltyMinLevel) {
+        if (session.Player.Value.Character.Level < Constants.UserRevivalPaneltyMinLevel) {
             return;
         }
 
@@ -422,7 +425,7 @@ public class ConfigManager {
     #region StatPoints
     public void AllocateStatPoint(BasicAttribute type) {
         // Invalid stat type.
-        if (StatAttributes.PointAllocation.StatLimit(type) <= 0) {
+        if (StatAttributes.PointAllocation.StatLimit(type, Constants) <= 0) {
             return;
         }
 
@@ -432,7 +435,7 @@ public class ConfigManager {
         }
 
         // Reached limit for allocation.
-        if (session.Config.statAttributes.Allocation[type] >= StatAttributes.PointAllocation.StatLimit(type)) {
+        if (session.Config.statAttributes.Allocation[type] >= StatAttributes.PointAllocation.StatLimit(type, Constants)) {
             session.Send(NoticePacket.Message("s_char_info_limit_stat_point"));
             return;
         }
@@ -497,6 +500,9 @@ public class ConfigManager {
         if (!Enum.IsDefined<LapenshardSlot>(slot)) {
             return false;
         }
+        if (session.Field is not { } field) {
+            return false;
+        }
 
         Item? lapenshard = session.Item.Inventory.Get(itemUid);
         if (lapenshard == null) {
@@ -542,7 +548,7 @@ public class ConfigManager {
 
         // Apply lapenshard buff to player
         foreach (ItemMetadataAdditionalEffect buff in lapenshard.Metadata.AdditionalEffects) {
-            session.Player.Buffs.AddBuff(session.Player, session.Player, buff.Id, buff.Level, session.Field.FieldTick);
+            session.Player.Buffs.AddBuff(session.Player, session.Player, buff.Id, buff.Level, field.FieldTick);
         }
 
         return true;

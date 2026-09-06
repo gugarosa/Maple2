@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
-using System.Xml;
 using Maple2.Database.Extensions;
 using Maple2.File.Ingest.Utils;
 using Maple2.File.IO;
@@ -122,11 +121,10 @@ public class TableMapper : TypeMapper<TableMetadata> {
         //Dungeon
         yield return new TableMetadata { Name = TableNames.DUNGEON_ROOM, Table = ParseDungeonRoom() };
         yield return new TableMetadata { Name = TableNames.DUNGEON_RANK_REWARD, Table = ParseDungeonRankReward() };
+        yield return new TableMetadata { Name = TableNames.DUNGEON_ROUND_DATA, Table = ParseDungeonRoundData() };
         yield return new TableMetadata { Name = TableNames.DUNGEON_CONFIG, Table = ParseDungeonConfigTable() };
         yield return new TableMetadata { Name = TableNames.DUNGEON_MISSION, Table = ParseDungeonMissionTable() };
 
-        // Constants
-        yield return new TableMetadata { Name = TableNames.CONSTANTS, Table = ParseConstants() };
     }
 
     private ChatStickerTable ParseChatSticker() {
@@ -1660,6 +1658,21 @@ public class TableMapper : TypeMapper<TableMetadata> {
         return new DungeonRankRewardTable(results);
     }
 
+    private DungeonRoundTable ParseDungeonRoundData() {
+        var results = new Dictionary<int, DungeonRoundTable.Entry>();
+        foreach ((int id, DungeonRoundGroup group) in parser.ParseDungeonRoundData()) {
+            DungeonRoundTable.Round[] rounds = group.v
+                .Select((entry, index) => new DungeonRoundTable.Round(
+                    Number: index + 1,
+                    RewardId: entry.rewardID,
+                    GearScore: entry.gearScore))
+                .ToArray();
+            results.Add(id, new DungeonRoundTable.Entry(id, rounds));
+        }
+
+        return new DungeonRoundTable(results);
+    }
+
     private DungeonConfigTable ParseDungeonConfigTable() {
         var missionRankResults = new Dictionary<int, DungeonMissionRankMetadata>();
         foreach (DungeonConfig config in parser.ParseDungeonConfig()) {
@@ -1842,46 +1855,4 @@ public class TableMapper : TypeMapper<TableMetadata> {
         return new AutoActionTable(results);
     }
 
-    private ConstantsTable ParseConstants() {
-        var results = new Dictionary<string, string>();
-        var entry = xmlReader.GetEntry("table/constants.xml");
-        if (entry == null) {
-            return new ConstantsTable(results);
-        }
-
-        // Determine locale filter for locale-specific constants
-        string locale = language switch {
-            "en" => "NA",
-            "ko" => "KR",
-            "zh-CHS" or "zh-CHT" => "CN",
-            "ja" => "JP",
-            "de" => "DE",
-            _ => "NA",
-        };
-
-        XmlDocument doc = xmlReader.GetXmlDocument(entry);
-        XmlNodeList? nodes = doc.SelectNodes("ms2/v");
-        if (nodes == null) {
-            return new ConstantsTable(results);
-        }
-
-        foreach (XmlNode node in nodes) {
-            string? key = node.Attributes?["key"]?.Value;
-            string? value = node.Attributes?["value"]?.Value;
-            if (key == null || value == null) {
-                continue;
-            }
-
-            // If node has locale attribute, only accept matching locale
-            string? nodeLocale = node.Attributes?["locale"]?.Value;
-            if (nodeLocale != null && !string.Equals(nodeLocale, locale, StringComparison.OrdinalIgnoreCase)) {
-                continue;
-            }
-
-            // Locale-specific values override generic ones
-            results[key] = value;
-        }
-
-        return new ConstantsTable(results);
-    }
 }

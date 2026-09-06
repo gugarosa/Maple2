@@ -553,11 +553,17 @@ namespace Maple2.Server.World.Migrations
                     b.Property<long>("OwnerId")
                         .HasColumnType("bigint");
 
+                    b.Property<bool>("AccountWide")
+                        .HasColumnType("tinyint(1)");
+
                     b.Property<int>("DungeonId")
                         .HasColumnType("int");
 
                     b.Property<DateTime>("ClearTime")
                         .HasColumnType("datetime(6)");
+
+                    b.Property<long?>("CharacterOwnerId")
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("CooldownTime")
                         .HasColumnType("datetime(6)");
@@ -592,7 +598,9 @@ namespace Maple2.Server.World.Migrations
                     b.Property<DateTime>("UnionCooldownTime")
                         .HasColumnType("datetime(6)");
 
-                    b.HasKey("OwnerId", "DungeonId");
+                    b.HasKey("OwnerId", "AccountWide", "DungeonId");
+
+                    b.HasIndex("CharacterOwnerId");
 
                     b.ToTable("dungeon-record", (string)null);
                 });
@@ -1802,9 +1810,8 @@ namespace Maple2.Server.World.Migrations
                 {
                     b.HasOne("Maple2.Database.Model.Character", null)
                         .WithMany()
-                        .HasForeignKey("OwnerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("CharacterOwnerId")
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("Maple2.Database.Model.GameEventUserValue", b =>

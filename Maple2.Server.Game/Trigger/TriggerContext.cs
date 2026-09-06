@@ -149,15 +149,8 @@ public partial class TriggerContext : ITriggerContext {
 
     public bool DungeonRound(int round) {
         DebugLog("[GetDungeonRoundsRequired]");
-        if (Field is not DungeonFieldManager dungeonField) {
-            return false;
-        }
-        foreach (FieldPlayer player in Field.Players.Values) {
-            if (player.Session.Dungeon.UserRecord is { } record) {
-                return record.Round >= round;
-            }
-        }
-        return false;
+        return !Field.Players.IsEmpty &&
+               Field.Players.Values.All(player => player.Session.Dungeon.CanEnterRound(round));
     }
 
     public bool CheckUser(bool negate) {

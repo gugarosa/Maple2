@@ -15,6 +15,7 @@ namespace Maple2.Server.Game.Model;
 
 public class FieldPlayer : Actor<Player> {
     public readonly GameSession Session;
+    private ConstantsTable Constants => Session.ServerTableMetadata.ConstantsTable;
     public Vector3 LastGroundPosition;
 
     public override StatsManager Stats => Session.Stats;
@@ -169,7 +170,7 @@ public class FieldPlayer : Actor<Player> {
             return;
         }
 
-        if (InBattle && tickCount - battleTick > Constant.UserBattleDurationTick) {
+        if (InBattle && tickCount - battleTick > Constants.UserBattleDurationTick) {
             InBattle = false;
         }
 
@@ -411,7 +412,7 @@ public class FieldPlayer : Actor<Player> {
 
         // Apply death penalty if field requires it
         if (Field.Metadata.Property.DeathPenalty) {
-            Session.Config.UpdateDeathPenalty(Field.FieldTick + Constant.UserRevivalPaneltyTick);
+            Session.Config.UpdateDeathPenalty(Field.FieldTick + Constants.UserRevivalPaneltyTick);
         }
 
         // Update revival condition
@@ -500,7 +501,7 @@ public class FieldPlayer : Actor<Player> {
         Stat stat = Stats.Values[BasicAttribute.Health];
         stat.Add(-amount);
         if (!IsDead) {
-            lastRegenTime[BasicAttribute.Health] = Field.FieldTick + Constant.RecoveryHPWaitTick;
+            lastRegenTime[BasicAttribute.Health] = Field.FieldTick + Constants.RecoveryHPWaitTick;
         }
         Session.Send(StatsPacket.Update(this, BasicAttribute.Health));
 
@@ -573,7 +574,7 @@ public class FieldPlayer : Actor<Player> {
 
         Stats.Values[BasicAttribute.Stamina].Add(-amount);
         if (!IsDead) {
-            lastRegenTime[BasicAttribute.Stamina] = Field.FieldTick + Constant.RecoveryEPWaitTick;
+            lastRegenTime[BasicAttribute.Stamina] = Field.FieldTick + Constants.RecoveryEPWaitTick;
         }
         Field.Broadcast(StatsPacket.Update(this, BasicAttribute.Stamina));
     }

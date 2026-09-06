@@ -112,6 +112,9 @@ internal class CharacterUnlock {
         foreach ((int rewardId, bool isClaimed) in other.MasteryRewardsClaimed) {
             unlock.MasteryRewardsClaimed[rewardId] = isClaimed;
         }
+        foreach ((int rewardId, DungeonRankReward reward) in other.DungeonRankRewards) {
+            unlock.DungeonRankRewards[rewardId] = reward;
+        }
         foreach ((int petId, short rarity) in other.Pets) {
             unlock.Pets[petId] = rarity;
         }

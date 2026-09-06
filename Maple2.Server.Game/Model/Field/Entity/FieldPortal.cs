@@ -14,6 +14,8 @@ public class FieldPortal : FieldEntity<Portal> {
     public string OwnerName = "";
     public string Password = "";
     public int RoomId;
+    public int MaxUserCount;
+    public bool AutoClose;
 
     public FieldPortal(FieldManager field, int objectId, Portal value) : base(field, objectId, value) {
         Visible = value.Visible;

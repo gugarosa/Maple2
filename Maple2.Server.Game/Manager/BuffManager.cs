@@ -468,8 +468,9 @@ public class BuffManager : IUpdatable {
         }
 
         if (Actor.Field.Metadata.Property.Region == MapRegion.ShadowWorld) {
-            AddBuff(Actor, Actor, Constant.shadowWorldBuffHpUp, 1, Actor.Field.FieldTick);
-            AddBuff(Actor, Actor, Constant.shadowWorldBuffMoveProtect, 1, Actor.Field.FieldTick);
+            ConstantsTable constants = Actor.Field.ServerTableMetadata.ConstantsTable;
+            AddBuff(Actor, Actor, constants.shadowWorldBuffHpUp, 1, Actor.Field.FieldTick);
+            AddBuff(Actor, Actor, constants.shadowWorldBuffMoveProtect, 1, Actor.Field.FieldTick);
         }
     }
 

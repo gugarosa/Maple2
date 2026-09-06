@@ -1,6 +1,5 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using Maple2.Database.Context;
 using Maple2.Database.Extensions;
 using Maple2.Database.Model.Metadata;
@@ -25,6 +24,11 @@ Console.OutputEncoding = System.Text.Encoding.UTF8;
 bool runNavmesh = false;
 bool dropData = false;
 
+if (args.Any(arg => arg is "-h" or "--help")) {
+    PrintUsage();
+    return;
+}
+
 foreach (string arg in args) {
     switch (arg) {
         case "--run-navmesh":
@@ -33,6 +37,11 @@ foreach (string arg in args) {
         case "--drop-data":
             dropData = true;
             break;
+        default:
+            Console.Error.WriteLine($"Unknown option: {arg}");
+            PrintUsage();
+            Environment.ExitCode = 2;
+            return;
     }
 }
 
@@ -81,69 +90,11 @@ if (server == null || port == null || database == null || user == null || passwo
 
 string worldServerDir = Path.Combine(Paths.SOLUTION_DIR, "Maple2.Server.World");
 
-bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-bool isLinux = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
-bool isMac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-
-// check if dotnet ef is installed
-Process processCheck;
-if (isWindows) {
-    processCheck = Process.Start("CMD.exe", "/C dotnet ef");
-} else if (isLinux || isMac) {
-    processCheck = Process.Start("bash", "-c \"dotnet ef\"");
-} else {
-    throw new PlatformNotSupportedException("Unsupported OS platform");
-}
-processCheck.WaitForExit();
-
-if (processCheck.ExitCode != 0) {
-
-    Process installEf;
-    if (isWindows) {
-        installEf = Process.Start("CMD.exe", "/C dotnet tool install --global dotnet-ef");
-    } else if (isLinux || isMac) {
-        installEf = Process.Start("bash", "-c \"dotnet tool install --global dotnet-ef\"");
-    } else {
-        throw new PlatformNotSupportedException("Unsupported OS platform");
-    }
-    installEf.WaitForExit();
-    if (installEf.ExitCode != 0) {
-        throw new Exception("Failed to install dotnet-ef. Please install it manually by running 'dotnet tool install --global dotnet-ef'");
-    }
-
-    if (isWindows) {
-        string dotnetToolsPath = Environment.GetEnvironmentVariable("USERPROFILE") + "/.dotnet/tools";
-        string currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
-        Environment.SetEnvironmentVariable("PATH", currentPath + ";" + dotnetToolsPath);
-        Console.WriteLine($"Updated PATH to include {dotnetToolsPath}");
-    } else if (isLinux || isMac) {
-        string dotnetToolsPath = Environment.GetEnvironmentVariable("HOME") + "/.dotnet/tools";
-        string currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
-        Environment.SetEnvironmentVariable("PATH", currentPath + ":" + dotnetToolsPath);
-        Console.WriteLine($"Updated PATH to include {dotnetToolsPath}");
-    } else {
-        throw new PlatformNotSupportedException("Unsupported OS platform");
-    }
-}
-
-string cmdCommand = "cd " + worldServerDir + " && dotnet restore && dotnet ef database update";
+RunDotnet(Paths.SOLUTION_DIR, "tool", "restore");
+RunDotnet(worldServerDir, "restore");
 
 Console.WriteLine("Migrating game database...");
-
-Process process;
-if (isWindows) {
-    process = Process.Start("CMD.exe", "/C " + cmdCommand);
-} else if (isLinux || isMac) {
-    process = Process.Start("bash", "-c \"" + cmdCommand + "\"");
-} else {
-    throw new PlatformNotSupportedException("Unsupported OS platform");
-}
-
-process.WaitForExit();
-
-if (process.ExitCode != 0) {
-    throw new Exception("Failed to migrate game database.");
-}
+RunDotnet(worldServerDir, "ef", "database", "update");
 
 Console.WriteLine("Game Migration complete!");
 
@@ -198,7 +149,7 @@ UpdateDatabase(metadataContext, new TriggerMapper(xmlReader));
 UpdateDatabase(metadataContext, new ItemMapper(xmlReader, language, false));
 UpdateDatabase(metadataContext, new NpcMapper(xmlReader, language));
 
-UpdateDatabase(metadataContext, new ServerTableMapper(serverReader));
+UpdateDatabase(metadataContext, new ServerTableMapper(serverReader, xmlReader));
 UpdateDatabase(metadataContext, new AiMapper(serverReader));
 
 UpdateDatabase(metadataContext, new AdditionalEffectMapper(xmlReader));
@@ -238,6 +189,30 @@ if (runNavmesh) {
 }
 
 Console.WriteLine("Done!".ColorGreen());
+
+void PrintUsage() {
+    Console.WriteLine("Usage: dotnet run -- [--run-navmesh] [--drop-data]");
+    Console.WriteLine("  --run-navmesh  Generate navmeshes after metadata ingestion.");
+    Console.WriteLine("  --drop-data     Recreate the metadata database before ingestion.");
+}
+
+void RunDotnet(string workingDirectory, params string[] arguments) {
+    var startInfo = new ProcessStartInfo("dotnet") {
+        WorkingDirectory = workingDirectory,
+        UseShellExecute = false,
+    };
+    foreach (string argument in arguments) {
+        startInfo.ArgumentList.Add(argument);
+    }
+
+    using Process process = Process.Start(startInfo) ??
+                            throw new InvalidOperationException("Failed to start the dotnet command.");
+    process.WaitForExit();
+    if (process.ExitCode != 0) {
+        throw new InvalidOperationException(
+            $"dotnet {string.Join(' ', arguments)} failed with exit code {process.ExitCode}.");
+    }
+}
 
 void UpdateDatabase<T>(DbContext context, TypeMapper<T> mapper) where T : class {
     string? tableName = context.GetTableName<T>();

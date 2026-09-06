@@ -151,10 +151,11 @@ public class MeretMarketHandler : FieldPacketHandler {
             Look = item.Template,
             Blueprint = item.Blueprint ?? new ItemBlueprint(),
             Status = UgcMarketListingStatus.Active,
-            PromotionEndTime = promote ? DateTime.Now.AddHours(Constant.UGCShopAdHour).ToEpochSeconds() : 0,
-            ListingEndTime = DateTime.Now.AddDays(Constant.UGCShopSaleDay).ToEpochSeconds(),
+            PromotionEndTime = promote ? DateTime.Now.AddHours(session.ServerTableMetadata.ConstantsTable.UGCShopAdHour).ToEpochSeconds() : 0,
+            ListingEndTime = DateTime.Now.AddDays(session.ServerTableMetadata.ConstantsTable.UGCShopSaleDay).ToEpochSeconds(),
             CreationTime = DateTime.Now.ToEpochSeconds(),
-            Price = Math.Clamp(price, Constant.UGCShopSellMinPrice, Constant.UGCShopSellMaxPrice),
+            Price = Math.Clamp(price, session.ServerTableMetadata.ConstantsTable.UGCShopSellMinPrice,
+                session.ServerTableMetadata.ConstantsTable.UGCShopSellMaxPrice),
             TabId = tabId,
         };
 
@@ -198,8 +199,8 @@ public class MeretMarketHandler : FieldPacketHandler {
         }
 
         item.Price = price;
-        item.PromotionEndTime = promote ? DateTime.Now.AddHours(Constant.UGCShopAdHour).ToEpochSeconds() : 0;
-        item.ListingEndTime = DateTime.Now.AddDays(Constant.UGCShopSaleDay).ToEpochSeconds();
+        item.PromotionEndTime = promote ? DateTime.Now.AddHours(session.ServerTableMetadata.ConstantsTable.UGCShopAdHour).ToEpochSeconds() : 0;
+        item.ListingEndTime = DateTime.Now.AddDays(session.ServerTableMetadata.ConstantsTable.UGCShopSaleDay).ToEpochSeconds();
         item.Status = UgcMarketListingStatus.Active;
         item.Description = description;
         item.Tags = tags;
@@ -283,13 +284,6 @@ public class MeretMarketHandler : FieldPacketHandler {
             return;
         }
 
-        //PlayerInfo? giftedPlayer = GetGiftedPlayerInfo(session, playerName);
-        //if (gift && giftedPlayer == null) {
-        // The meret market packet to send to player if the player doesn't exist is FailPurchase (31) but it somehow doesn't
-        // send the correct message to the player.
-        //    return;
-        //}
-
         Item? item = ugcItemId > 0 ? PurchaseUgcItem(session, ugcItemId) : PurchasePremiumItem(session, premiumMarketId, childMarketItemId);
         if (item == null) {
             return;
@@ -301,17 +295,6 @@ public class MeretMarketHandler : FieldPacketHandler {
 
 
         session.Send(MeretMarketPacket.Purchase(totalQuantity, itemIndex, price, premiumMarketId, ugcItemId));
-        return;
-
-        PlayerInfo? GetGiftedPlayerInfo(GameSession session, string name) {
-            if (string.IsNullOrWhiteSpace(name)) {
-                return null;
-            }
-            using GameStorage.Request db = session.GameStorage.Context();
-            long characterId = db.GetCharacterId(name);
-            session.PlayerInfo.GetOrFetch(characterId, out PlayerInfo? receiverInfo);
-            return receiverInfo;
-        }
     }
 
     private Item? PurchasePremiumItem(GameSession session, int premiumMarketId, int childMarketItemId) {

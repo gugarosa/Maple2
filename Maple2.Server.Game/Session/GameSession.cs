@@ -44,6 +44,7 @@ public sealed partial class GameSession : Core.Network.Session {
 
     public readonly CommandRouter CommandHandler;
     public readonly EventQueue Scheduler;
+    public DamageTracking? DamageTracking { get; set; }
 
     public int ServerTick;
     public int ClientTick;
@@ -376,25 +377,32 @@ public sealed partial class GameSession : Core.Network.Session {
         return true;
     }
 
-    private void LeaveField() {
-        Array.Clear(ItemLockStaging);
-        Array.Clear(DismantleStaging);
-        DismantleOpened = false;
-        Trade?.Dispose();
-        Storage?.Dispose();
-        Pet?.Dispose();
-        Instrument = null;
-        GuideObject = null;
-        HeldCube = null;
-        HeldLiftup = null;
-        NpcScript = null;
-        MiniGameRecord = null;
+    private void LeaveField(FieldManager? nextField = null) {
+        FieldManager? previousField = Field;
+        try {
+            Array.Clear(ItemLockStaging);
+            Array.Clear(DismantleStaging);
+            DismantleOpened = false;
+            Trade?.Dispose();
+            Storage?.Dispose();
+            Pet?.Dispose();
+            Instrument = null;
+            GuideObject = null;
+            HeldCube = null;
+            HeldLiftup = null;
+            NpcScript = null;
+            MiniGameRecord = null;
 
-        Buffs?.LeaveField();
+            Buffs?.LeaveField();
 
-        if (Field != null) {
-            Scheduler.Stop();
-            Field.RemovePlayer(Player.ObjectId, out _);
+            if (previousField != null) {
+                Scheduler.Stop();
+                previousField.RemovePlayer(Player.ObjectId, out _);
+            }
+        } finally {
+            if (previousField != nextField) {
+                previousField?.ReleaseAdmission(this);
+            }
         }
     }
 
@@ -429,21 +437,40 @@ public sealed partial class GameSession : Core.Network.Session {
             }
         }
 
-        State = SessionState.ChangeMap;
-        LeaveField();
+        if (!newField.TryReserveAdmission(this)) {
+            Logger.Warning("Room {RoomId} cannot admit character {CharacterId}", newField.RoomId, CharacterId);
+            newField = null;
+            return false;
+        }
 
-        Field = newField;
-        Player.Dispose();
-        Player = Field.SpawnPlayer(this, Player, portalId, position, rotation);
-        Config.Skill.UpdatePassiveBuffs();
-        Player.Buffs.LoadFieldBuffs();
-        Player.CheckRegen();
+        FieldManager destination = newField;
+        bool prepared = false;
+        try {
+            State = SessionState.ChangeMap;
+            LeaveField(destination);
 
-        return true;
+            Field = destination;
+            Player.Dispose();
+            Player = Field.SpawnPlayer(this, Player, portalId, position, rotation);
+            Config.Skill.UpdatePassiveBuffs();
+            Player.Buffs.LoadFieldBuffs();
+            Player.CheckRegen();
+            prepared = true;
+            return true;
+        } finally {
+            if (!prepared) {
+                destination.ReleaseAdmission(this);
+            }
+        }
     }
 
     public bool EnterField() {
         if (Field == null) return false;
+        if (!Field.TryReserveAdmission(this)) {
+            Logger.Warning("Room {RoomId} cannot complete entry for character {CharacterId}", Field.RoomId, CharacterId);
+            Send(FieldEnterPacket.Error(MigrationError.s_move_err_default));
+            return false;
+        }
 
         if (!Player.Value.Unlock.Maps.Contains(Player.Value.Character.MapId)) {
             if (Field.Metadata.Property.ExploreType > 0) {

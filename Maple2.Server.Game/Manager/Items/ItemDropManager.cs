@@ -1,4 +1,4 @@
-﻿﻿using Maple2.Model;
+﻿using Maple2.Model;
 using Maple2.Model.Common;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
@@ -279,7 +279,11 @@ public class ItemDropManager {
             }
 
             if (selectedItem.EnchantLevel > 0) {
-                createdItem.Enchant = ItemEnchantManager.GetEnchant(field.ServerTableMetadata.EnchantOptionTable, createdItem, selectedItem.EnchantLevel);
+                if (!ItemEnchantManager.TryGetCumulativeEnchant(field.ServerTableMetadata.EnchantOptionTable,
+                    createdItem, selectedItem.EnchantLevel, out ItemEnchant? enchant)) {
+                    continue;
+                }
+                createdItem.Enchant = enchant;
             }
 
             // TODO: SockDataId, DisableBreak, Announce

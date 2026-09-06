@@ -350,17 +350,18 @@ public class BeautyHandler : FieldPacketHandler {
         session.ConditionUpdate(ConditionType.beauty_random, codeLong: newHair.Id);
     }
     private void HandleWarp(GameSession session, IByteReader packet) {
+        ConstantsTable constants = session.ServerTableMetadata.ConstantsTable;
         short type = packet.ReadShort();
         int mapId = type switch {
-            1 => Constant.BeautyHairShopGotoFieldID,
-            3 => Constant.BeautyFaceShopGotoFieldID,
-            5 => Constant.BeautyColorShopGotoFieldID,
+            1 => constants.BeautyHairShopGotoFieldID,
+            3 => constants.BeautyFaceShopGotoFieldID,
+            5 => constants.BeautyColorShopGotoFieldID,
             _ => 0,
         };
         int portalId = type switch {
-            1 => Constant.BeautyHairShopGotoPortalID,
-            3 => Constant.BeautyFaceShopGotoPortalID,
-            5 => Constant.BeautyColorShopGotoPortalID,
+            1 => constants.BeautyHairShopGotoPortalID,
+            3 => constants.BeautyFaceShopGotoPortalID,
+            5 => constants.BeautyColorShopGotoPortalID,
             _ => 0,
         };
 

@@ -24,5 +24,7 @@ public static class ServerTableNames {
     public const string COMBINE_SPAWN = "combineSpawn*.xml";
     public const string ENCHANT_OPTION = "enchantOption.xml";
     public const string UNLIMITED_ENCHANT_OPTION = "unlimitedEnchantOption.xml";
+    public const string ROOM_RANDOM = "room_random.xml";
+    public const string ITEM_OPTION_WEIGHTS = "itemOptionWeights";
     public const string CONSTANTS = "constants.xml";
 }

@@ -27,7 +27,7 @@ public class DungeonFieldManager : FieldManager {
         PartyId = partyId;
     }
 
-    public void ChangeState(DungeonState state) {
+    public void ChangeState(DungeonState state, bool showResult = true) {
         DungeonRoomRecord.State = state;
         DungeonRoomRecord.EndTick = FieldTick;
 
@@ -49,12 +49,14 @@ public class DungeonFieldManager : FieldManager {
                     continue;
                 }
 
-                compiledResults.Add(characterId, new DungeonUserResult(characterId, kvp.Key, kvp.Value + 1));
+                compiledResults.Add(characterId, new DungeonUserResult(characterId, kvp.Key, kvp.Value));
                 break;
             }
         }
 
-        Broadcast(DungeonRoomPacket.DungeonResult(DungeonRoomRecord.State, compiledResults));
+        if (showResult) {
+            Broadcast(DungeonRoomPacket.DungeonResult(DungeonRoomRecord.State, compiledResults));
+        }
 
         if (DungeonRoomRecord.State == DungeonState.Clear) {
             long clearTimestamp = DateTime.Now.ToEpochSeconds();

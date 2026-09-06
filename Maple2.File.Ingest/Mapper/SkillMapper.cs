@@ -16,6 +16,11 @@ public class SkillMapper : TypeMapper<StoredSkillMetadata> {
         parser = new SkillParser(xmlReader, language);
     }
 
+    internal static bool UsesItem(int skillId, short level, bool configured) {
+        // The premium white potion (20000443) omits useItem in its level-1 skill XML.
+        return configured || skillId == 90000409 && level == 1;
+    }
+
     protected override IEnumerable<StoredSkillMetadata> Map() {
         List<long> magicPaths = [];
         List<long> cubeMagicPaths = [];
@@ -33,7 +38,7 @@ public class SkillMapper : TypeMapper<StoredSkillMetadata> {
                     AutoTargeting: level.autoTargeting?.Convert(),
                     Consume: new SkillMetadataConsume(
                         Meso: level.consume.money,
-                        UseItem: level.consume.useItem,
+                        UseItem: UsesItem(id, level.value, level.consume.useItem),
                         HpRate: level.consume.hpRate,
                         Stat: level.consume.stat.ToDictionary()),
                     Detect: new SkillMetadataDetect(

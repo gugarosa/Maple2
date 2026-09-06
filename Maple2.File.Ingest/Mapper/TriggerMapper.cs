@@ -46,6 +46,7 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
             }
 
             string normalizedXml = NormalizeTriggerXmlNames(xmlDoc);
+            normalizedXml = ApplyKnownProgressionFixes(folderName, triggerName, normalizedXml);
 
             var trigger = new TriggerMetadata(folderName, triggerName, normalizedXml);
 
@@ -68,6 +69,100 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
 #pragma warning restore CS0162
             yield return trigger;
         }
+    }
+
+    internal static string ApplyKnownProgressionFixes(string folderName, string triggerName, string xml) {
+        // Frey otherwise disappears permanently if 60100005 completes before 60100010 is accepted.
+        if (!folderName.Equals("63000042_cs", StringComparison.OrdinalIgnoreCase) ||
+            !triggerName.Equals("wakeup02", StringComparison.OrdinalIgnoreCase)) {
+            return xml;
+        }
+
+        var document = new XmlDocument();
+        document.LoadXml(xml);
+        XmlElement? root = document.DocumentElement;
+        XmlNode? idle = document.SelectSingleNode("//state[@name='idle']");
+        XmlNodeList? recoveryStates = document.SelectNodes("//state[starts-with(@name, 'FreyRecovery')]");
+        bool recoveryPatchComplete = recoveryStates?.Count == 3 &&
+            idle?.SelectSingleNode("condition[@quest_ids='60100005' and @quest_states='3']/transition[@state='FreyRecoveryCheck']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoveryCheck']/condition[@quest_states='1']/transition[@state='warp']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoveryCheck']/condition[@quest_states='2']/transition[@state='ready']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoveryCheck']/condition[@quest_states='3']/transition[@state='FreyRecoveryDone']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoveryCheck']/condition[@negate='true']/transition[@state='FreyRecoverySpawn']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoverySpawn']/onEnter/action[@name='spawn_monster' and @spawn_ids='103']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoverySpawn']/condition[@quest_states='1']/transition[@state='warp']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoverySpawn']/condition[@quest_states='2']/transition[@state='ready']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoverySpawn']/condition[@quest_states='3']/transition[@state='FreyRecoveryDone']") != null &&
+            document.SelectSingleNode("//state[@name='FreyRecoveryDone']") != null;
+        if (recoveryPatchComplete) {
+            return xml;
+        }
+        if (root?.Name != "ms2" || idle == null || recoveryStates?.Count > 0 ||
+            document.SelectSingleNode("//state[@name='ready']") == null ||
+            document.SelectSingleNode("//state[@name='warp']") == null ||
+            document.SelectSingleNode("//state[@name='fadein']/onEnter/action[@name='spawn_monster' and @spawn_ids='103']") == null ||
+            idle.SelectSingleNode("condition[@name='quest_user_detected' and @quest_ids='60100005-60100010' and @quest_states='2-2']") == null) {
+            throw new InvalidDataException("Targeted Frey recovery trigger 63000042_cs/wakeup02 has an unexpected structure.");
+        }
+
+        XmlElement recoveryCondition = document.CreateElement("condition");
+        recoveryCondition.SetAttribute("name", "quest_user_detected");
+        recoveryCondition.SetAttribute("box_ids", "9900");
+        recoveryCondition.SetAttribute("quest_ids", "60100005");
+        recoveryCondition.SetAttribute("quest_states", "3");
+        XmlElement recoveryTransition = document.CreateElement("transition");
+        recoveryTransition.SetAttribute("state", "FreyRecoveryCheck");
+        recoveryCondition.AppendChild(recoveryTransition);
+        idle.AppendChild(recoveryCondition);
+
+        XmlElement checkState = document.CreateElement("state");
+        checkState.SetAttribute("name", "FreyRecoveryCheck");
+
+        AppendQuestTransition(document, checkState, "60100010", "1", "warp");
+        AppendQuestTransition(document, checkState, "60100010", "2", "ready");
+        AppendQuestTransition(document, checkState, "60100010", "3", "FreyRecoveryDone");
+
+        XmlElement missingNextQuest = document.CreateElement("condition");
+        missingNextQuest.SetAttribute("name", "quest_user_detected");
+        missingNextQuest.SetAttribute("box_ids", "9900");
+        missingNextQuest.SetAttribute("quest_ids", "60100010");
+        missingNextQuest.SetAttribute("quest_states", "1,2,3");
+        missingNextQuest.SetAttribute("negate", "true");
+        XmlElement spawnTransition = document.CreateElement("transition");
+        spawnTransition.SetAttribute("state", "FreyRecoverySpawn");
+        missingNextQuest.AppendChild(spawnTransition);
+        checkState.AppendChild(missingNextQuest);
+        root.AppendChild(checkState);
+
+        XmlElement spawnState = document.CreateElement("state");
+        spawnState.SetAttribute("name", "FreyRecoverySpawn");
+        XmlElement onEnter = document.CreateElement("onEnter");
+        XmlElement spawnFrey = document.CreateElement("action");
+        spawnFrey.SetAttribute("name", "spawn_monster");
+        spawnFrey.SetAttribute("spawn_ids", "103");
+        onEnter.AppendChild(spawnFrey);
+        spawnState.AppendChild(onEnter);
+        AppendQuestTransition(document, spawnState, "60100010", "1", "warp");
+        AppendQuestTransition(document, spawnState, "60100010", "2", "ready");
+        AppendQuestTransition(document, spawnState, "60100010", "3", "FreyRecoveryDone");
+        root.AppendChild(spawnState);
+
+        XmlElement doneState = document.CreateElement("state");
+        doneState.SetAttribute("name", "FreyRecoveryDone");
+        root.AppendChild(doneState);
+        return document.OuterXml;
+    }
+
+    private static void AppendQuestTransition(XmlDocument document, XmlElement state, string questId, string questState, string nextState) {
+        XmlElement condition = document.CreateElement("condition");
+        condition.SetAttribute("name", "quest_user_detected");
+        condition.SetAttribute("box_ids", "9900");
+        condition.SetAttribute("quest_ids", questId);
+        condition.SetAttribute("quest_states", questState);
+        XmlElement transition = document.CreateElement("transition");
+        transition.SetAttribute("state", nextState);
+        condition.AppendChild(transition);
+        state.AppendChild(condition);
     }
 
     private List<string> ExtractImportPaths(XmlDocument xml) {

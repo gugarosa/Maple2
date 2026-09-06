@@ -13,12 +13,7 @@ public partial class TriggerContext {
             return;
         }
 
-        if (uiType == "None") {
-            // Do not send dungeon clear UI
-            return;
-        }
-
-        dungeonField.ChangeState(Maple2.Model.Enum.DungeonState.Clear);
+        dungeonField.ChangeState(Maple2.Model.Enum.DungeonState.Clear, showResult: uiType != "None");
     }
 
     public void DungeonClearRound(int round) {

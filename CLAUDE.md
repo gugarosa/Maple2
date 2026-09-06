@@ -6,10 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **DO NOT commit changes automatically.** Only commit when explicitly requested by the user.
 - Present changes and let the user decide whether to commit them.
+- Push, merge, and deploy only when explicitly requested. Authorization for one repository or task does not apply to another.
 
 ## Project Overview
 
-This is a MapleStory2 server emulator written in C# targeting .NET 8.0+. It implements a distributed microservices architecture with multiple specialized servers handling different aspects of the game.
+This is a MapleStory2 server emulator written in C# targeting .NET 8. It implements a distributed microservices architecture with multiple specialized servers handling different aspects of the game. Read [DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md) before describing feature coverage or known limitations.
+
+Local execution requires the .NET 8 SDK plus the `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 8.x shared runtimes. Verify with `dotnet --list-runtimes`; do not assume a newer SDK or ASP.NET runtime can run net8.0 applications.
 
 ## Build and Development Commands
 
@@ -19,8 +22,8 @@ This is a MapleStory2 server emulator written in C# targeting .NET 8.0+. It impl
 # Windows - Run the interactive setup script
 .\setup.bat
 # This will:
-# - Check for .NET 8.0+
-# - Install dotnet-ef tool
+# - Check for a .NET SDK version that can build net8.0
+# - Restore the repository-local EF Core 7.0.20 tool
 # - Create .env from .env.example
 # - Prompt for MapleStory2 client path
 # - Download customized server files
@@ -80,30 +83,32 @@ dotnet test Maple2.Server.Tests/Maple2.Server.Tests.csproj
 
 ```bash
 # Format whitespace (excluding migrations)
-dotnet format whitespace --exclude 'Maple2.Server.World/Migrations/*.cs'
+dotnet format whitespace --exclude 'Maple2.Server.World\Migrations'
 
 # Verify no changes needed
-dotnet format whitespace --verify-no-changes --exclude 'Maple2.Server.World/Migrations/*.cs'
+dotnet format whitespace --verify-no-changes --exclude 'Maple2.Server.World\Migrations'
 ```
 
 ### Docker
 
 ```bash
-# Start all services with Docker Compose
-docker compose up
+# Explicitly ingest metadata (never runs during normal compose startup)
+docker compose --profile ingest run --build --rm file-ingest
 
-# Start specific service
-docker compose up game-ch1
+# Start the custom topology in readiness order
+pwsh ./scripts/start_servers.ps1
 
-# Rebuild images
-docker compose build
+# Rebuild/restart only game channels
+pwsh ./scripts/start_servers.ps1 -GameOnly
 ```
+
+The Docker topology is intentionally `game-ch0` for instanced content and `game-ch1` for normal content. Do not replace it with upstream channel layouts. World, Login, and Game services mount `config.yaml` read-only.
 
 ### Database Migrations
 
 ```bash
-# Install EF Core tools (done by setup.bat)
-dotnet tool install --global dotnet-ef
+# Restore .config/dotnet-tools.json (pins EF Core 7.0.20)
+dotnet tool restore
 
 # Create new migration
 dotnet ef migrations add <MigrationName> --project Maple2.Server.World
@@ -111,6 +116,8 @@ dotnet ef migrations add <MigrationName> --project Maple2.Server.World
 # Apply migrations
 dotnet ef database update --project Maple2.Server.World
 ```
+
+Do not install, update, or downgrade global `dotnet-ef` for this repository.
 
 ## Architecture
 
@@ -120,7 +127,7 @@ The project uses a distributed architecture with these server components:
 
 - **Maple2.Server.World** - Central coordinator managing global state (guilds, parties, clubs, player info). Acts as service registry via gRPC.
 - **Maple2.Server.Login** - Handles authentication, character selection, and server list.
-- **Maple2.Server.Game** - Game channel servers running actual gameplay. Multiple instances per world (channels 0, 1, 2, etc.).
+- **Maple2.Server.Game** - Game channel servers running actual gameplay. The current Compose topology defines instanced `game-ch0` and normal `game-ch1`; additional channels require matching Compose services and port mappings.
 - **Maple2.Server.Web** - Web-based services and APIs.
 
 Communication:
@@ -340,14 +347,13 @@ The saved packet files in `./PacketStructures/` can be manually edited for testi
 3. The resolver picks up where it left off, allowing you to test different values quickly
 4. This enables rapid iteration and prototyping of packet structures
 
-**Future potential:** This resolver could be integrated with AI agents via MCP to assist with automated packet structure discovery.
-
 ## Configuration
 
 Configuration is managed through:
 
 - **.env file** - Primary configuration (database, server IPs, game data path)
 - **appsettings.json** - Per-server ASP.NET Core settings
+- **config.yaml** - Runtime EXP, loot, meso, mob, and despawn tuning; mounted read-only in Docker
 
 Key .env variables:
 
@@ -357,6 +363,13 @@ Key .env variables:
 - `GRPC_WORLD_IP`, `GRPC_WORLD_PORT` - World server gRPC endpoint
 - `LANGUAGE` - Primary language (EN, KR, CN, JP, DE, PR)
 
+### Metadata and constants
+
+- The canonical typed `ConstantsTable` merges feature/locale-filtered client `Xml.m2d` `table/constants.xml` values with `Server.m2d` overrides before validation and storage.
+- `Constant` is intended for code-owned emulator invariants and defaults. The remaining NPC sight defaults and `ContentRewards` dictionary are documented cleanup candidates in `DEVELOPMENT_STATUS.md`; do not add more parsed server data there.
+- Metadata parser/model changes require an explicit re-ingest. Stop application services, keep MySQL running, run `docker compose --profile ingest run --build --rm file-ingest`, then restart. Never delete the MySQL volume for a metadata refresh.
+- Item-option value distributions are incomplete in source data. Preserve the working client-defined range path for IDs without server distributions and keep the limitation documented.
+
 ## Important Implementation Notes
 
 ### Spawn System
@@ -365,11 +378,10 @@ Key .env variables:
 - FieldManager spawns NPCs at initialization
 - Supports respawning with timers
 - Trigger-based spawning for events
-- Recent work on spawn points without IDs (see commit 6906d4b2)
 
 ### Trigger and Portal Initialization
 
-Order matters - triggers and portals must be initialized in correct sequence in FieldManager (see commit 303470ba)
+Order matters: triggers and portals must be initialized in the correct sequence in FieldManager.
 
 ### Thread Safety
 

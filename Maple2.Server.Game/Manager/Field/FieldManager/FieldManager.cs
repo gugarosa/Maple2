@@ -55,6 +55,7 @@ public partial class FieldManager : IField {
     public TriggerCache TriggerCache { get; init; } = null!;
     public Factory FieldFactory { get; init; } = null!;
     public IGraphicsContext DebugGraphicsContext { get; init; } = null!;
+    private ConstantsTable Constants => ServerTableMetadata.ConstantsTable;
     // ReSharper restore All
     #endregion
 
@@ -71,6 +72,7 @@ public partial class FieldManager : IField {
     private readonly Thread thread;
     private readonly List<(FieldPacketHandler handler, GameSession session, ByteReader reader)> queuedPackets;
     private bool initialized;
+    private FieldAdmission? admission;
     public bool Disposed { get; private set; }
 
     private readonly ILogger logger = Log.Logger.ForContext<FieldManager>();
@@ -85,6 +87,16 @@ public partial class FieldManager : IField {
     public InstanceFieldMetadata FieldInstance { get; private set; }
     public readonly AiManager Ai;
     public IFieldRenderer? DebugRenderer { get; private set; }
+
+    internal bool TryReserveAdmission(GameSession session) {
+        return !Disposed && (admission?.TryReserve(session.CharacterId, session) ?? true);
+    }
+
+    internal void ReleaseAdmission(GameSession session) {
+        admission?.Release(session.CharacterId, session);
+    }
+
+    private bool IsAdmissionFull => admission?.IsFull == true;
 
     public FieldManager(MapMetadata metadata, UgcMapMetadata ugcMetadata, MapEntityMetadata entities, NpcMetadataStorage npcMetadata, long ownerId = 0) {
         Metadata = metadata;
@@ -195,9 +207,14 @@ public partial class FieldManager : IField {
             trigger.Update(FieldTick);
         }
 
-        IList<MapMetadata> bonusMaps = MapMetadata.GetMapsByType(Metadata.Property.Continent, MapType.PocketRealm);
+        var bonusMapSpawns = new List<Ms2RegionSpawn>();
         foreach (MapMetadataSpawn spawn in Metadata.Spawns) {
             if (!Entities.RegionSpawns.TryGetValue(spawn.Id, out Ms2RegionSpawn? regionSpawn)) {
+                continue;
+            }
+
+            if (spawn.Tags.Contains("보너스맵")) { // Bonus Map
+                bonusMapSpawns.Add(regionSpawn);
                 continue;
             }
 
@@ -212,14 +229,10 @@ public partial class FieldManager : IField {
 
             if (npcIds.Count > 0 && spawn.Population > 0) {
                 AddMobSpawn(spawn, regionSpawn, npcIds);
-                continue;
             }
-
-            if (spawn.Tags.Contains("보너스맵")) { // Bonus Map
-                // Spawn a hat within a random range of 5 min to 8 hours
-                TimeSpan delay = Random.Shared.Next(1, 97) * TimeSpan.FromMinutes(5);
-                Scheduler.Schedule(() => SetBonusMapPortal(bonusMaps, regionSpawn), delay);
-            }
+        }
+        if (bonusMapSpawns.Count > 0) {
+            Scheduler.Schedule(() => TryCreateBonusMapPortal(bonusMapSpawns), TimeSpan.Zero);
         }
 
         foreach (Ms2RegionSkill regionSkill in Entities.RegionSkills) {
@@ -365,7 +378,7 @@ public partial class FieldManager : IField {
             return;
         }
 
-        player.FallDamage(Constant.FallBoundingAddedDistance);
+        player.FallDamage(Constants.FallBoundingAddedDistance);
         player.MoveToPosition(player.LastGroundPosition.Align() + new Vector3(0, 0, 150f), default);
     }
 
@@ -530,11 +543,16 @@ public partial class FieldManager : IField {
             return false;
         }
 
-        /* TODO: Remove portal once capacity is reached for Event portals
-        if (fieldPortal.Value.Type == PortalType.Event) {
-            RemovePortal(fieldPortal.ObjectId);
+        FieldManager? eventDestination = null;
+        if (fieldPortal.Value.Type == PortalType.Event && fieldPortal.MaxUserCount > 0 && fieldPortal.RoomId != 0) {
+            eventDestination = FieldFactory.Get(fieldPortal.Value.TargetMapId, roomId: fieldPortal.RoomId);
+            if (eventDestination == null) {
+                if (fieldPortal.AutoClose) {
+                    RemovePortal(fieldPortal.ObjectId);
+                }
+                return false;
+            }
         }
-        */
 
         // MoveByPortal (same map)
         Portal srcPortal = fieldPortal;
@@ -624,7 +642,11 @@ public partial class FieldManager : IField {
 
         session.ConditionUpdate(ConditionType.map, codeLong: srcPortal.TargetMapId);
 
-        session.Send(session.PrepareField(srcPortal.TargetMapId, portalId: srcPortal.TargetPortalId, roomId: fieldPortal.RoomId)
+        bool prepared = session.PrepareField(srcPortal.TargetMapId, portalId: srcPortal.TargetPortalId, roomId: fieldPortal.RoomId);
+        if (fieldPortal.AutoClose && eventDestination?.IsAdmissionFull == true) {
+            RemovePortal(fieldPortal.ObjectId);
+        }
+        session.Send(prepared
             ? FieldEnterPacket.Request(session.Player)
             : FieldEnterPacket.Error(MigrationError.s_move_err_default));
         return true;

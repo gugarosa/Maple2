@@ -93,7 +93,7 @@ public sealed class GameEventManager {
                 }
 
                 using GameStorage.Request db = session.GameStorage.Context();
-                var mail = new Mail {
+                var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
                     Type = MailType.System,
                     ReceiverId = session.CharacterId,
                     SenderId = session.CharacterId,
