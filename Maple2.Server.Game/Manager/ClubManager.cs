@@ -2,6 +2,7 @@
 using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Game.Club;
+using Maple2.Model.Metadata;
 using Maple2.Server.Core.Sync;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
@@ -38,7 +39,6 @@ public class ClubManager : IDisposable {
     }
 
     public void Dispose() {
-        session.Dispose();
         tokenSource.Dispose();
 
         foreach (ClubMember member in Club.Members.Values) {
@@ -63,6 +63,11 @@ public class ClubManager : IDisposable {
             Clubs = { session.Player.Value.Character.ClubIds.Select(id => new ClubUpdate { Id = id }) },
         });
         session.Send(ClubPacket.Update(Club));
+        if (Club.BuffId > 0 &&
+            session.TableMetadata.ClubBuffTable.Entries.TryGetValue(Club.BuffId, out ClubBuffTable.Entry? buff)) {
+            session.Send(ClubPacket.ChangeBuff(Id, Club.BuffId, buff.EffectLevel));
+        }
+        session.ScheduleClubBuffRefresh();
     }
 
     private static Club? SetClub(GameSession session, ClubInfo info) {
@@ -89,6 +94,7 @@ public class ClubManager : IDisposable {
         var club = new Club(info.Id, info.Name, leader) {
             CreationTime = info.CreationTime,
             State = (ClubState) info.State,
+            BuffId = info.BuffId,
         };
 
         foreach (ClubMember member in clubMembers) {
@@ -128,7 +134,8 @@ public class ClubManager : IDisposable {
     }
 
     public void RemoveClub() {
-        session.Clubs.TryRemove(Id, out _);
+        session.Clubs.TryRemove(Id, out ClubManager? manager);
+        manager?.Dispose();
         session.Player.Value.Character.ClubIds.Remove(Id);
         session.PlayerInfo.SendUpdate(new PlayerUpdateRequest {
             AccountId = session.AccountId,
@@ -136,6 +143,7 @@ public class ClubManager : IDisposable {
             Async = true,
             Clubs = { session.Player.Value.Character.ClubIds.Select(id => new ClubUpdate { Id = id }) },
         });
+        session.ScheduleClubBuffRefresh();
     }
 
     public bool AddMember(string requestorName, ClubMember member) {
@@ -146,6 +154,7 @@ public class ClubManager : IDisposable {
         BeginListen(member);
         session.Send(ClubPacket.NotifyAcceptInvite(member, requestorName));
         session.ConditionUpdate(ConditionType.club_join, codeLong: Club.Id);
+        session.ScheduleClubBuffRefresh();
         return true;
     }
 
@@ -161,8 +170,14 @@ public class ClubManager : IDisposable {
             RemoveClub();
         } else {
             session.Send(ClubPacket.LeaveNotice(Id, member.Name));
+            session.ScheduleClubBuffRefresh();
         }
         return true;
+    }
+
+    public void ChangeBuff(int buffId) {
+        Club.BuffId = buffId;
+        session.ScheduleClubBuffRefresh();
     }
 
     #region PlayerInfo Events

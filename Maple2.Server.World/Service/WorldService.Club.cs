@@ -32,6 +32,8 @@ public partial class WorldService {
                 return Task.FromResult(LeaveClub(request.RequestorId, request.Leave));
             case ClubRequest.ClubOneofCase.Rename:
                 return Task.FromResult(Rename(request.RequestorId, request.Rename));
+            case ClubRequest.ClubOneofCase.SetBuff:
+                return Task.FromResult(SetBuff(request.RequestorId, request.SetBuff));
             default:
                 return Task.FromResult(new ClubResponse { Error = (int) ClubError.s_club_err_unknown });
         }
@@ -222,6 +224,18 @@ public partial class WorldService {
         return new ClubResponse();
     }
 
+    private ClubResponse SetBuff(long requesterId, ClubRequest.Types.SetBuff setBuff) {
+        if (!clubLookup.TryGet(setBuff.ClubId, out ClubManager? manager)) {
+            return new ClubResponse {
+                Error = (int) ClubError.s_club_err_null_club,
+            };
+        }
+
+        return new ClubResponse {
+            Error = (int) manager.SetBuff(requesterId, setBuff.BuffId, setBuff.BuffLevel),
+        };
+    }
+
     private static ClubInfo ToClubInfo(Club club) {
         return new ClubInfo {
             Id = club.Id,
@@ -230,6 +244,7 @@ public partial class WorldService {
             LeaderName = club.Leader.Info.Name,
             CreationTime = club.CreationTime,
             State = (int) club.State,
+            BuffId = club.BuffId,
             Members = {
                 club.Members.Select(member => new ClubInfo.Types.Member {
                     CharacterId = member.Value.Info.CharacterId,

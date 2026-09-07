@@ -144,6 +144,26 @@ public static class ClubPacket {
         return pWriter;
     }
 
+    public static ByteWriter ChangeBuffNotification(long clubId, int buffId, int buffLevel) {
+        var pWriter = Packet.Of(SendOp.Club);
+        pWriter.Write<Command>(Command.ChangeBuffNotification);
+        pWriter.WriteLong(clubId);
+        pWriter.WriteInt(buffId);
+        pWriter.WriteInt(buffLevel);
+
+        return pWriter;
+    }
+
+    public static ByteWriter ChangeBuff(long clubId, int buffId, int buffLevel) {
+        var pWriter = Packet.Of(SendOp.Club);
+        pWriter.Write<Command>(Command.ChangeBuff);
+        pWriter.WriteLong(clubId);
+        pWriter.WriteInt(buffId);
+        pWriter.WriteInt(buffLevel);
+
+        return pWriter;
+    }
+
     public static ByteWriter StagedClubInviteReply(long clubId, ClubResponse reply, string name) {
         var pWriter = Packet.Of(SendOp.Club);
         pWriter.Write<Command>(Command.StagedClubInviteReply);

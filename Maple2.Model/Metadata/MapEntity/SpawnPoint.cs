@@ -39,8 +39,9 @@ public record EventSpawnPointNPC(
     IList<SpawnPointNPCListEntry> NpcList,
     int RegenCheckTime,
     int LifeTime,
-    string SpawnAnimation
-) : SpawnPointNPC(EntityId, SpawnPointId, Position, Rotation, Visible, SpawnOnFieldCreate, SpawnRadius, NpcList, RegenCheckTime, String.Empty);
+    string SpawnAnimation,
+    string? PatrolData
+) : SpawnPointNPC(EntityId, SpawnPointId, Position, Rotation, Visible, SpawnOnFieldCreate, SpawnRadius, NpcList, RegenCheckTime, PatrolData);
 
 public record EventSpawnPointItem(
     int SpawnPointId,

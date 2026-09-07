@@ -50,6 +50,7 @@ public class TableMetadata {
 [JsonDerivedType(typeof(MasteryDifferentialFactorTable), typeDiscriminator: "masterydifferentialfactor")]
 [JsonDerivedType(typeof(FishingRodTable), typeDiscriminator: "fishingrod")]
 [JsonDerivedType(typeof(GuildTable), typeDiscriminator: "guild")]
+[JsonDerivedType(typeof(ClubBuffTable), typeDiscriminator: "clubbuff")]
 [JsonDerivedType(typeof(PremiumClubTable), typeDiscriminator: "vip")]
 [JsonDerivedType(typeof(IndividualItemDropTable), typeDiscriminator: "individualitemdrop")]
 [JsonDerivedType(typeof(ColorPaletteTable), typeDiscriminator: "colorpalette")]

@@ -56,7 +56,7 @@ public class TriggerCache : LRUCache<(string, string), Trigger.Helpers.Trigger> 
         return false;
     }
 
-    private Trigger.Helpers.Trigger ParseTrigger(string xBlock, string triggerName, XmlDocument doc) {
+    internal static Trigger.Helpers.Trigger ParseTrigger(string xBlock, string triggerName, XmlDocument doc) {
         XmlElement? root = doc.DocumentElement;
         if (root is null || root.Name != "ms2") {
             throw new ArgumentException("Trigger XML must have a root element named <ms2>.");
@@ -92,41 +92,11 @@ public class TriggerCache : LRUCache<(string, string), Trigger.Helpers.Trigger> 
             LinkedList<ICondition> conditions = [];
             XmlNodeList? conditionNodes = stateElement.SelectNodes("condition");
             if (conditionNodes != null) {
-                foreach (XmlNode conditionXmlNode in conditionNodes) {
-                    XmlNode conditionNode = conditionXmlNode;
-                    string? conditionName = conditionNode.Attributes?["name"]?.Value;
-                    if (conditionName is null) {
-                        Log.Error("Condition in trigger state '{StateName}' for trigger '{TriggerName}' in {MapXBlock} must have a 'name' attribute.", stateName, triggerName, xBlock);
-                        continue;
+                foreach (XmlNode conditionNode in conditionNodes) {
+                    ICondition? condition = ParseCondition(conditionNode, stateName, triggerName, xBlock);
+                    if (condition != null) {
+                        conditions.AddLast(condition);
                     }
-                    TriggerFunctionMapping.ConditionMap.TryGetValue(conditionName, out Func<XmlAttributeCollection?, ICondition>? conditionMap);
-                    if (conditionMap == null) {
-                        Log.Error("Unknown condition type '{ConditionType}' in trigger state '{StateName}' for trigger '{TriggerName}' in {MapXBlock}", conditionName, stateName, triggerName, xBlock);
-                        continue;
-                    }
-
-                    ICondition condition = conditionMap(conditionNode.Attributes);
-                    if (condition is GroupAnyOne or GroupAllOf) {
-                        XmlNode? groupNode = conditionNode.SelectSingleNode("group");
-                        if (groupNode is null) {
-                            Log.Error("Group condition in trigger state '{StateName}' for trigger '{TriggerName}' must have a <group> element in {MapXBlock}", stateName, triggerName, xBlock);
-                            continue;
-                        }
-
-                        conditionNode = groupNode;
-                    }
-
-                    XmlNode? transitionNode = conditionNode.SelectSingleNode("transition");
-                    if (transitionNode is { Attributes: not null }) {
-                        string? nextStateName = transitionNode.Attributes["state"]?.Value;
-                        if (nextStateName is not null) {
-                            condition.NextState = nextStateName;
-                        }
-                    }
-
-                    LinkedList<IAction> actions = ParseActions(conditionNode, stateName, triggerName, xBlock, "condition");
-                    condition.Actions = actions;
-                    conditions.AddLast(condition);
                 }
             }
 
@@ -144,7 +114,45 @@ public class TriggerCache : LRUCache<(string, string), Trigger.Helpers.Trigger> 
         return new Trigger.Helpers.Trigger(states);
     }
 
-    private LinkedList<IAction> ParseActions(XmlNode parentNode, string stateName, string triggerName, string xBlock, string context) {
+    private static ICondition? ParseCondition(XmlNode node, string stateName, string triggerName, string xBlock) {
+        string? name = node.Attributes?["name"]?.Value;
+        if (name == null) {
+            Log.Error("Condition in trigger state '{StateName}' for trigger '{TriggerName}' in {MapXBlock} must have a 'name' attribute.", stateName, triggerName, xBlock);
+            return null;
+        }
+        if (!TriggerFunctionMapping.ConditionMap.TryGetValue(name, out Func<XmlAttributeCollection?, ICondition>? create)) {
+            Log.Error("Unknown condition type '{ConditionType}' in trigger state '{StateName}' for trigger '{TriggerName}' in {MapXBlock}", name, stateName, triggerName, xBlock);
+            return null;
+        }
+
+        ICondition condition = create(node.Attributes);
+        if (condition is IGroupCondition group) {
+            XmlNode? predicates = node.SelectSingleNode("group");
+            if (predicates == null) {
+                Log.Error("Group condition in trigger state '{StateName}' for trigger '{TriggerName}' must have a <group> element in {MapXBlock}", stateName, triggerName, xBlock);
+                return null;
+            }
+            if (predicates.SelectSingleNode("action|transition") != null) {
+                Log.Error("Trigger group in state '{StateName}' for '{TriggerName}' in {MapXBlock} contains noncanonical effects; re-ingest trigger metadata.", stateName, triggerName, xBlock);
+                return null;
+            }
+
+            foreach (XmlNode child in predicates.SelectNodes("condition")!) {
+                ICondition? predicate = ParseCondition(child, stateName, triggerName, xBlock);
+                if (predicate == null) {
+                    // Dropping an unknown child would make an all_of group easier to satisfy.
+                    return null;
+                }
+                group.Conditions.AddLast(predicate);
+            }
+        }
+
+        condition.NextState = node.SelectSingleNode("transition")?.Attributes?["state"]?.Value;
+        condition.Actions = ParseActions(node, stateName, triggerName, xBlock, "condition");
+        return condition;
+    }
+
+    private static LinkedList<IAction> ParseActions(XmlNode parentNode, string stateName, string triggerName, string xBlock, string context) {
         LinkedList<IAction> actions = [];
         foreach (XmlNode actionNode in parentNode.SelectNodes("action")!) {
             string? actionName = actionNode.Attributes?["name"]?.Value;

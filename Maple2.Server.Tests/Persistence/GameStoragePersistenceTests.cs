@@ -17,7 +17,7 @@ namespace Maple2.Server.Tests.Persistence;
 
 [Explicit("Requires MAPLE2_RUN_DB_TESTS=1 and isolated validation metadata.")]
 [NonParallelizable]
-public class DungeonPersistenceTests {
+public class GameStoragePersistenceTests {
     private MetadataContext metadataContext = null!;
     private DbContextOptions gameOptions = null!;
     private GameStorage storage = null!;
@@ -160,6 +160,30 @@ public class DungeonPersistenceTests {
         }
     }
 
+    [Test]
+    public void ClubBuffSelectionSurvivesAFreshStorageRequest() {
+        (_, Character first, Character second) = CreatePlayers();
+        PlayerInfo[] members = [Info(first), Info(second)];
+        var provider = new PlayerInfos(members);
+        long clubId;
+        using (GameStorage.Request request = storage.Context()) {
+            var club = request.CreateClub(provider, "Club" + Guid.NewGuid().ToString("N")[..8], first.Id, members.ToList());
+            Assert.That(club, Is.Not.Null);
+            clubId = club!.Id;
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.SaveClubBuff(clubId, 3), Is.True);
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.GetClub(provider, clubId)?.BuffId, Is.EqualTo(3));
+        }
+
+        static PlayerInfo Info(Character character) => new(
+            new CharacterInfo(character.AccountId, character.Id, character.Name, "", "",
+                character.Gender, character.Job, character.Level),
+            "Test home", default, []);
+    }
+
     private (Account, Character, Character) CreatePlayers() {
         using GameStorage.Request request = storage.Context();
         Account account = request.CreateAccount(new Account {
@@ -194,5 +218,11 @@ public class DungeonPersistenceTests {
     private static string Required(string name) {
         return Environment.GetEnvironmentVariable(name)
             ?? throw new InvalidOperationException($"Missing persistence-test setting {name}.");
+    }
+
+    private sealed class PlayerInfos(IEnumerable<PlayerInfo> players) : IPlayerInfoProvider {
+        private readonly Dictionary<long, PlayerInfo> values = players.ToDictionary(player => player.CharacterId);
+
+        public PlayerInfo? GetPlayerInfo(long id) => values.GetValueOrDefault(id);
     }
 }

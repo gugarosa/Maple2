@@ -17,6 +17,7 @@ namespace Maple2.Server.World.Containers;
 public class ClubManager : IDisposable {
     public required GameStorage GameStorage { get; init; }
     public required ChannelClientLookup ChannelClients { get; init; }
+    public required TableMetadataStorage TableMetadata { get; init; }
 
     public readonly Club Club;
 
@@ -240,6 +241,35 @@ public class ClubManager : IDisposable {
             ClubId = Club.Id,
         });
 
+        return ClubError.none;
+    }
+
+    public ClubError SetBuff(long requestorId, int buffId, int buffLevel) {
+        if (!Club.Members.ContainsKey(requestorId)) {
+            return ClubError.s_club_err_not_join_member;
+        }
+        if (Club.LeaderId != requestorId) {
+            return ClubError.s_club_err_no_master;
+        }
+        if (Club.State != ClubState.Established ||
+            !TableMetadata.ClubBuffTable.IsValidSelection(buffId, buffLevel)) {
+            return ClubError.s_club_err_unknown;
+        }
+
+        using GameStorage.Request db = GameStorage.Context();
+        if (!db.SaveClubBuff(Club.Id, buffId)) {
+            return ClubError.s_club_err_unknown;
+        }
+
+        Club.BuffId = buffId;
+        Broadcast(new ClubRequest {
+            ClubId = Club.Id,
+            ChangeBuff = new ClubRequest.Types.ChangeBuff {
+                RequestorId = requestorId,
+                BuffId = buffId,
+                BuffLevel = buffLevel,
+            },
+        });
         return ClubError.none;
     }
 

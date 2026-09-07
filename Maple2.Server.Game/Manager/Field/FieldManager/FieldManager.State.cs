@@ -970,6 +970,11 @@ public partial class FieldManager {
             CommitPlot(fieldPlayer.Session);
             Broadcast(FieldPacket.RemovePlayer(objectId));
             Broadcast(ProxyObjectPacket.RemovePlayer(objectId));
+            Scheduler.Schedule(() => {
+                foreach (FieldPlayer player in Players.Values) {
+                    player.Session.RefreshClubBuffs();
+                }
+            });
 
             return true;
         }

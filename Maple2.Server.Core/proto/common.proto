@@ -258,6 +258,7 @@ message ClubInfo {
   int64 creation_time = 5;
   repeated Member members = 6;
   int32 state = 7;
+  int32 buff_id = 8;
 }
 
 message ClubInfoRequest {

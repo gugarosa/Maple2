@@ -32,10 +32,11 @@ public partial class Trigger {
     }
 
     public class NpcDamage(int spawnId, float damageRate, OperatorType operatorType) : ICondition {
+        internal float DamageRate { get; } = damageRate;
         public string Name => "npc_damage";
         public string? NextState { get; set; }
         public LinkedList<IAction> Actions { get; set; } = [];
-        public bool Evaluate(TriggerContext context) => context.NpcDamage(spawnId, damageRate, operatorType);
+        public bool Evaluate(TriggerContext context) => context.NpcDamage(spawnId, DamageRate, operatorType);
     }
 
     public class NpcExtraData(int spawnPointId, string extraDataKey, int extraDataValue, OperatorType operatorType) : ICondition {
@@ -305,10 +306,11 @@ public partial class Trigger {
     }
 
     public class WeddingHallState(string state, bool success) : ICondition {
+        internal string HallState { get; } = state;
         public string Name => "wedding_hall_state";
         public string? NextState { get; set; }
         public LinkedList<IAction> Actions { get; set; } = [];
-        public bool Evaluate(TriggerContext context) => context.WeddingHallState(state, success);
+        public bool Evaluate(TriggerContext context) => context.WeddingHallState(HallState, success);
     }
 
     public class WeddingMutualAgreeResult(string agreeType) : ICondition {

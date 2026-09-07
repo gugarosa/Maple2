@@ -9,14 +9,17 @@ namespace Maple2.Server.World.Containers;
 
 public class ClubLookup : IDisposable {
     private readonly GameStorage gameStorage;
+    private readonly TableMetadataStorage tableMetadata;
     private readonly ChannelClientLookup channelClients;
     private readonly PlayerInfoLookup playerLookup;
     private readonly PartyLookup partyLookup;
 
     private readonly ConcurrentDictionary<long, ClubManager> clubs;
 
-    public ClubLookup(ChannelClientLookup channelClients, PlayerInfoLookup playerLookup, GameStorage gameStorage, PartyLookup partyLookup) {
+    public ClubLookup(ChannelClientLookup channelClients, PlayerInfoLookup playerLookup, GameStorage gameStorage,
+                      PartyLookup partyLookup, TableMetadataStorage tableMetadata) {
         this.gameStorage = gameStorage;
+        this.tableMetadata = tableMetadata;
         this.channelClients = channelClients;
         this.playerLookup = playerLookup;
         this.partyLookup = partyLookup;
@@ -67,6 +70,7 @@ public class ClubLookup : IDisposable {
         var manager = new ClubManager(club) {
             GameStorage = gameStorage,
             ChannelClients = channelClients,
+            TableMetadata = tableMetadata,
         };
 
         return clubs.TryAdd(clubId, manager) ? manager : null;
@@ -92,6 +96,7 @@ public class ClubLookup : IDisposable {
         clubs.TryAdd(clubId, new ClubManager(club) {
             GameStorage = gameStorage,
             ChannelClients = channelClients,
+            TableMetadata = tableMetadata,
         });
 
         return ClubError.none;

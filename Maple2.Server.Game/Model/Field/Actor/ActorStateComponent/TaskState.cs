@@ -8,7 +8,6 @@ public class TaskState {
     private readonly PriorityQueue<NpcTask, NpcTaskPriority> taskQueue;
     private readonly NpcTask?[] runningTasks;
     private bool isPendingStart;
-    private NpcTask? pendingTask;
 
     public TaskState(FieldNpc actor) {
         Actor = actor;
@@ -42,7 +41,6 @@ public class TaskState {
         NpcTask npcTask = taskQueue.Peek();
         if (npcTask == task) {
             isPendingStart = true;
-            pendingTask = task;
 
             return NpcTaskStatus.Running;
         }
@@ -67,24 +65,21 @@ public class TaskState {
             return;
         }
         isPendingStart = true;
-        pendingTask = currentTask;
     }
 
     public void Update(long tickCount) {
-        if (isPendingStart) {
-            NpcTask? task;
-
-            while (taskQueue.TryPeek(out task, out _) && task.Status == NpcTaskStatus.Cancelled) {
-                taskQueue.Dequeue();
-            }
-
-            if (taskQueue.TryPeek(out task, out _) && task == pendingTask) {
-                task.Resume();
-            }
+        if (!isPendingStart) {
+            return;
         }
 
+        // Resume callbacks may finish a task and schedule its successor for the next tick.
         isPendingStart = false;
-        pendingTask = null;
+        while (taskQueue.TryPeek(out NpcTask? finished, out _) && finished.IsDone) {
+            taskQueue.Dequeue();
+        }
+        if (taskQueue.TryPeek(out NpcTask? task, out _)) {
+            task.Resume();
+        }
     }
 
     public abstract class NpcTask {

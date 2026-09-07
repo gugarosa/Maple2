@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Xml;
 using Maple2.Database.Extensions;
 using Maple2.File.Ingest.Utils;
 using Maple2.File.IO;
@@ -64,6 +65,11 @@ public class TableMapper : TypeMapper<TableMetadata> {
         yield return new TableMetadata { Name = TableNames.MASTERY, Table = ParseMasteryReward() };
         yield return new TableMetadata { Name = TableNames.MASTERYT_DIFFERENTIAL_FACTOR, Table = ParseMasteryDifferentialFactor() };
         yield return new TableMetadata { Name = TableNames.GUILD, Table = ParseGuildTable() };
+        yield return new TableMetadata {
+            Name = TableNames.CLUB_BUFF,
+            Table = ParseClubBuffTable(
+            xmlReader.GetXmlDocument(xmlReader.GetEntry("table/clubbuff.xml")))
+        };
         yield return new TableMetadata { Name = TableNames.VIP, Table = ParsePremiumClubTable() };
         yield return new TableMetadata { Name = TableNames.INDIVIDUAL_ITEM_DROP, Table = ParseIndividualItemDropTable() };
         yield return new TableMetadata { Name = TableNames.COLOR_PALETTE, Table = ParseColorPaletteTable() };
@@ -1049,6 +1055,17 @@ public class TableMapper : TypeMapper<TableMetadata> {
         }
 
         return new PremiumClubTable(premiumClubBuffs, premiumClubItems, premiumClubPackages);
+    }
+
+    internal static ClubBuffTable ParseClubBuffTable(XmlDocument document) {
+        var entries = new Dictionary<int, ClubBuffTable.Entry>();
+        foreach (XmlElement element in document.SelectNodes("/ms2/clubBuff")!.Cast<XmlElement>()) {
+            int id = int.Parse(element.GetAttribute("id"), CultureInfo.InvariantCulture);
+            int effectId = int.Parse(element.GetAttribute("additionalEffectId").Trim(), CultureInfo.InvariantCulture);
+            short effectLevel = short.Parse(element.GetAttribute("additionalEffectLevel"), CultureInfo.InvariantCulture);
+            entries.Add(id, new ClubBuffTable.Entry(effectId, effectLevel));
+        }
+        return new ClubBuffTable(entries);
     }
 
     private IndividualItemDropTable ParseIndividualItemDropTable() {

@@ -415,6 +415,12 @@ message ClubRequest {
     string name = 2;
   }
 
+  message SetBuff {
+    int64 club_id = 1;
+    int32 buff_id = 2;
+    int32 buff_level = 3;
+  }
+
   int64 requestor_id = 1;
   oneof club {
     Create create = 2;
@@ -423,6 +429,7 @@ message ClubRequest {
     Invite invite = 5;
     RespondInvite respond_invite = 6;
     Rename rename = 7;
+    SetBuff set_buff = 8;
   }
 }
 

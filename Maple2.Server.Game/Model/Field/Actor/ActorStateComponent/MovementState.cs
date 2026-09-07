@@ -112,19 +112,6 @@ public partial class MovementState {
         return new NpcTalkTask(actor.TaskState, this, NpcTaskPriority.Interrupt);
     }
 
-    //public bool TryJumpTo(Vector3 position, float height) {
-    //
-    //}
-    //
-    //public bool TryStun() {
-    //
-    //}
-    //
-    //public bool TryKnockback(Vector3 direction, float height) {
-    //
-    //}
-
-
     public NpcTask TryCastSkill(int id, short level, int faceTarget, Vector3 facePos, long uid) {
         walkTask?.Cancel();
         emoteActionTask?.Cancel();
