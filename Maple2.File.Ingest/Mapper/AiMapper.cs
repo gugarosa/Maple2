@@ -38,7 +38,7 @@ public class AiMapper : TypeMapper<AiMetadata> {
             }
 
             foreach (Entry entry in data.BattleEnd) {
-                MapEntry(battle, entry);
+                MapEntry(battleEnd, entry);
             }
 
             foreach (Entry node in data.AiPresets) {

@@ -59,6 +59,8 @@ This is an integration baseline, not evidence that every gameplay issue or rever
   requested during resume callbacks, rather than stranding valid queued work.
 - Combat-exit AI dispatch runs the declared `battleEnd` sequence and lets pending
   actions finish, without evaluating combat-only reserved branches out of combat.
+  Ingestion keeps battle-end entries separate from battle entries; a real-AI
+  archive regression covers this metadata-to-dispatch boundary.
 - Dungeon mission scoring, weekly rank-reward persistence, atomic mail delivery, and stale-week cleanup are implemented.
 - Weekly rank cleanup preserves claims made in the current week, including delayed
   or repeated reset callbacks; the scheduled boundary is Friday midnight.

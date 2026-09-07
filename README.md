@@ -240,6 +240,13 @@ dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualif
 Re-ingest metadata after updating trigger normalization so persisted scripts use the
 same canonical representation.
 
+The same read-only approach covers event carrier patrols and combat-exit AI:
+
+```powershell
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~EventPatrolArchiveTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~AiLifecycleArchiveTests"
+```
+
 ### Measuring damage in game
 
 Use `damage start` to measure attacks against the nearest living NPC or dummy, or
