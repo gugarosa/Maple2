@@ -356,6 +356,118 @@ public class ItemCollectionTest {
         Assert.That(collection.Count, Is.EqualTo(4));
     }
 
+    [Test]
+    public void BatchCannotReuseTheSamePartialStack() {
+        var existing = CreateItem(1000, amount: 90);
+        var first = CreateItem(1000, amount: 6);
+        var second = CreateItem(1000, amount: 6);
+        var collection = new ItemCollection(1) { [0] = existing };
+
+        Assert.That(collection.PlanAdd([first, second]), Is.Null);
+        Assert.That(existing.Amount, Is.EqualTo(90));
+        Assert.That(first.Amount, Is.EqualTo(6));
+        Assert.That(second.Amount, Is.EqualTo(6));
+    }
+
+    [Test]
+    public void BatchCountsEverySplitStackBeforeChangingAnything() {
+        var existing = CreateItem(1000, amount: 90);
+        var collection = new ItemCollection(2) { [0] = existing };
+
+        Assert.That(collection.PlanAdd([CreateItem(1000, amount: 111)]), Is.Null);
+        Assert.That(existing.Amount, Is.EqualTo(90));
+        Assert.That(collection.Count, Is.EqualTo(1));
+
+        Model.Game.Item[]? plan = collection.PlanAdd([CreateItem(1000, amount: 110)]);
+        Assert.That(plan!.Select(item => item.Amount), Is.EqualTo(new[] { 100, 100 }));
+        Assert.That(existing.Amount, Is.EqualTo(90));
+    }
+
+    [Test]
+    public void BatchCanStackIncomingItemsTogether() {
+        var collection = new ItemCollection(1);
+        Model.Game.Item[]? plan = collection.PlanAdd([CreateItem(1000, amount: 60), CreateItem(1000, amount: 40)]);
+
+        Assert.That(plan, Has.Length.EqualTo(1));
+        Assert.That(plan![0].Amount, Is.EqualTo(100));
+        Assert.That(collection.Count, Is.Zero);
+    }
+
+    [Test]
+    public void BatchPreservesStackCompatibility() {
+        var existing = CreateItem(1000, amount: 90);
+        existing.ExpiryTime = 120;
+        var collection = new ItemCollection(1) { [0] = existing };
+        var incoming = CreateItem(1000, amount: 1);
+        incoming.ExpiryTime = 240;
+        Assert.That(collection.PlanAdd([incoming]), Is.Null);
+
+        incoming.ExpiryTime = 179;
+        incoming.Transfer = new Model.Game.ItemTransfer(TransferFlag.None, 100);
+        Assert.That(collection.PlanAdd([incoming]), Is.Null);
+
+        incoming.Transfer = existing.Transfer?.Clone();
+        Assert.That(collection.PlanAdd([incoming])![0].Amount, Is.EqualTo(91));
+        Assert.That(existing.Amount, Is.EqualTo(90));
+    }
+
+    [Test]
+    public void ApplyingCommittedAdditionsPreservesExistingItemReferences() {
+        var existing = CreateItem(1000, amount: 90);
+        var collection = new ItemCollection(3) { [2] = existing };
+        Model.Game.Item[] plan = collection.PlanAdd([CreateItem(1000, amount: 15)])!;
+        Model.Game.Item update = plan.Single(item => item.Slot == 2);
+        Model.Game.Item addition = plan.Single(item => item.Slot == 0);
+        var saved = new Model.Game.Item(addition.Metadata, addition.Rarity, addition.Amount) {
+            Uid = long.MaxValue,
+            Slot = addition.Slot,
+        };
+
+        Assert.That(collection.ApplyAdded(update), Is.EqualTo((existing, 10)));
+        Assert.That(collection.ApplyAdded(saved), Is.EqualTo((saved, 5)));
+        Assert.That(collection.Get(existing.Uid), Is.SameAs(existing));
+        Assert.That(collection.Get(saved.Uid), Is.SameAs(saved));
+        Assert.That(existing.Amount, Is.EqualTo(100));
+    }
+
+    [Test]
+    public void FurnishingBatchReusesEmptyRecordsAndAddsTheFullAmount() {
+        var existing = CreateItem(50200094, amount: 0);
+        existing.Group = ItemGroup.Furnishing;
+        var collection = new ItemCollection(1) { [0] = existing };
+
+        Model.Game.Item[] plan = collection.PlanAdd(
+            [CreateItem(50200094, amount: 3), CreateItem(50200094, amount: 4)], furnishing: true)!;
+        Assert.That(plan, Has.Length.EqualTo(1));
+        Assert.That(plan[0].Uid, Is.EqualTo(existing.Uid));
+        Assert.That(plan[0].Group, Is.EqualTo(ItemGroup.Furnishing));
+        Assert.That(plan[0].Amount, Is.EqualTo(7));
+        Assert.That(existing.Amount, Is.Zero);
+    }
+
+    [Test]
+    public void FurnishingBatchCannotOverflowAStackOrMixTemplates() {
+        var existing = CreateItem(50200094, amount: 99);
+        existing.Template = new Model.Game.UgcItemLook { Url = "first" };
+        var incoming = CreateItem(50200094, amount: 2);
+        incoming.Template = existing.Template.Clone();
+        var collection = new ItemCollection(2) { [0] = existing };
+        Assert.That(collection.PlanAdd([incoming], furnishing: true), Is.Null);
+
+        incoming.Template.Url = "second";
+        Model.Game.Item[] plan = collection.PlanAdd([incoming], furnishing: true)!;
+        Assert.That(plan, Has.Length.EqualTo(1));
+        Assert.That(plan[0].Slot, Is.EqualTo(1));
+        Assert.That(plan[0].Template!.Url, Is.EqualTo("second"));
+        Assert.That(existing.Amount, Is.EqualTo(99));
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void BatchRejectsInvalidAmounts(int amount) {
+        Assert.That(new ItemCollection(1).PlanAdd([CreateItem(1000, amount: amount)]), Is.Null);
+    }
+
     private static Model.Game.Item CreateItem(int id, int rarity = 1, int amount = 1) {
         var fakeProperty = new ItemMetadataProperty(false, 0, 100, 18, 0, string.Empty, string.Empty, ItemTag.None, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], false, 0, false, [], [], [], 0, 0);
         var fakeCustomize = new ItemMetadataCustomize(0, 0);

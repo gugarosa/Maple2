@@ -12,6 +12,7 @@ public sealed class Ms2Context(DbContextOptions options) : DbContext(options) {
     internal DbSet<Guild> Guild { get; set; } = null!;
     internal DbSet<GuildMember> GuildMember { get; set; } = null!;
     internal DbSet<GuildApplication> GuildApplication { get; set; } = null!;
+    internal DbSet<GuildQuestReward> GuildQuestReward { get; set; } = null!;
     internal DbSet<Home> Home { get; set; } = null!;
     internal DbSet<Item> Item { get; set; } = null!;
     internal DbSet<PetConfig> PetConfig { get; set; } = null!;
@@ -57,6 +58,7 @@ public sealed class Ms2Context(DbContextOptions options) : DbContext(options) {
         modelBuilder.Entity<Guild>(Maple2.Database.Model.Guild.Configure);
         modelBuilder.Entity<GuildMember>(Maple2.Database.Model.GuildMember.Configure);
         modelBuilder.Entity<GuildApplication>(Maple2.Database.Model.GuildApplication.Configure);
+        modelBuilder.Entity<GuildQuestReward>(Maple2.Database.Model.GuildQuestReward.Configure);
         modelBuilder.Entity<Home>(Maple2.Database.Model.Home.Configure);
         modelBuilder.Entity<Item>(Maple2.Database.Model.Item.Configure);
         modelBuilder.Entity<PetConfig>(Maple2.Database.Model.PetConfig.Configure);

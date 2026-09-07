@@ -717,6 +717,31 @@ namespace Maple2.Server.World.Migrations
                     b.ToTable("guild-application", (string)null);
                 });
 
+            modelBuilder.Entity("Maple2.Database.Model.GuildQuestReward", b =>
+                {
+                    b.Property<long>("OwnerId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("QuestId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CompletionCount")
+                        .HasColumnType("int");
+
+                    b.Property<long>("StartTime")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("CharacterId")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("GuildId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("OwnerId", "QuestId", "StartTime", "CompletionCount");
+
+                    b.ToTable("guild-quest-reward", (string)null);
+                });
+
             modelBuilder.Entity("Maple2.Database.Model.GuildMember", b =>
                 {
                     b.Property<long>("GuildId")

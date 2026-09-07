@@ -368,12 +368,12 @@ public class EquipManager {
         return slot == item.Metadata.SlotNames[0];
     }
 
-    public void Save(GameStorage.Request db) {
+    public bool Save(GameStorage.Request db) {
         lock (session.Item) {
-            db.SaveItems(0, delete.ToArray());
-            db.SaveItems(session.CharacterId, Gear.Values.ToArray());
-            db.SaveItems(session.CharacterId, Outfit.Values.ToArray());
-            db.SaveItems(session.CharacterId, Badge.Values.ToArray());
+            return db.SaveItems(0, delete.ToArray()) &&
+                   db.SaveItems(session.CharacterId, Gear.Values.ToArray()) &&
+                   db.SaveItems(session.CharacterId, Outfit.Values.ToArray()) &&
+                   db.SaveItems(session.CharacterId, Badge.Values.ToArray());
         }
     }
 }

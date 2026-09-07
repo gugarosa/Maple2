@@ -41,6 +41,8 @@ public partial class WorldService {
                 return Task.FromResult(UpdateGuildEmblem(request.RequestorId, request.UpdateEmblem));
             case GuildRequest.GuildOneofCase.UpdatePoster:
                 return Task.FromResult(UpdateGuildPoster(request.RequestorId, request.UpdatePoster));
+            case GuildRequest.GuildOneofCase.QuestReward:
+                return Task.FromResult(AwardGuildQuestReward(request.RequestorId, request.QuestReward));
             default:
                 return Task.FromResult(new GuildResponse { Error = (int) GuildError.s_guild_err_none });
         }
@@ -226,6 +228,18 @@ public partial class WorldService {
         }
 
         return new GuildResponse { GuildId = poster.GuildId };
+    }
+
+    private GuildResponse AwardGuildQuestReward(long requestorId, GuildRequest.Types.QuestReward reward) {
+        if (!playerLookup.TryGet(requestorId, out PlayerInfo? info)) {
+            return new GuildResponse { Error = (int) GuildError.s_guild_err_null_user };
+        }
+
+        GuildError error = guildLookup.AwardQuestReward(
+            requestorId, reward.QuestId, reward.StartTime, reward.CompletionCount);
+        return error == GuildError.none
+            ? new GuildResponse { GuildId = info.GuildId }
+            : new GuildResponse { Error = (int) error };
     }
 
     private static GuildInfo ToGuildInfo(Guild guild) {

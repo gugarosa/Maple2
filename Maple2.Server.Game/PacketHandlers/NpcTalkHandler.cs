@@ -1,5 +1,6 @@
 ﻿using Maple2.Database.Storage;
 using Maple2.Model.Enum;
+using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Maple2.PacketLib.Tools;
@@ -296,7 +297,10 @@ public class NpcTalkHandler : FieldPacketHandler {
         }
 
         if (action == 2) {
-            session.Quest.Start(questId);
+            QuestError error = session.Quest.Start(questId);
+            if (error != QuestError.none) {
+                session.Send(QuestPacket.Error(error));
+            }
         } else {
             if (!session.Quest.TryGetQuest(questId, out Quest? quest)) {
                 return;

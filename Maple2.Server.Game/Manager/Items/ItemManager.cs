@@ -1,9 +1,11 @@
 ﻿using Maple2.Database.Storage;
+using Maple2.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
 using Maple2.Server.Game.Util;
+using Serilog;
 
 namespace Maple2.Server.Game.Manager.Items;
 
@@ -56,6 +58,32 @@ public class ItemManager {
         }
     }
 
+    internal Item[]? PlanAdd(IReadOnlyList<Item> additions) {
+        if (additions.Count == 0) {
+            return [];
+        }
+        if (additions.Any(item => item.IsCurrency() || item.Type.IsMedal)) {
+            Log.Error("Cannot plan non-inventory quest acceptance rewards");
+            return null;
+        }
+        Item[]? inventory = Inventory.PlanAdd(additions.Where(item => !item.Type.IsFurnishing));
+        Item[]? furnishings = Furnishing.PlanAdd(additions.Where(item => item.Type.IsFurnishing));
+        return inventory == null || furnishings == null ? null : [.. inventory, .. furnishings];
+    }
+
+    internal void ApplyAdded(IReadOnlyList<Item> additions, bool notifyNew) {
+        // Apply the entire committed batch before item conditions can grant or consume other items.
+        List<(Item Item, int Added, bool New)> applied = additions.Select(item =>
+            item.Group == ItemGroup.Furnishing ? Furnishing.ApplyAdded(item) : Inventory.ApplyAdded(item)).ToList();
+        foreach ((Item item, int added, bool isNew) in applied) {
+            if (item.Group == ItemGroup.Furnishing) {
+                Furnishing.NotifyAdded(item, added, isNew, notifyNew);
+            } else {
+                Inventory.NotifyAdded(item, added, isNew, notifyNew);
+            }
+        }
+    }
+
     public bool MailItem(Item item) {
         lock (session.Item) {
             using GameStorage.Request db = session.GameStorage.Context();
@@ -91,9 +119,9 @@ public class ItemManager {
         return true;
     }
 
-    public void Save(GameStorage.Request db) {
-        Equips.Save(db);
-        Inventory.Save(db);
-        Furnishing.Save(db);
+    public bool Save(GameStorage.Request db) {
+        lock (session.Item) {
+            return Equips.Save(db) && Inventory.Save(db) && Furnishing.Save(db);
+        }
     }
 }

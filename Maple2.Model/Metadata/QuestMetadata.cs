@@ -32,7 +32,11 @@ public record QuestMetadataBasic(
     int StartNpc,
     int CompleteNpc,
     int[]? CompleteMaps,
-    int[]? ProgressMaps);
+    int[]? ProgressMaps,
+    int Repeatable,
+    string UsePeriod,
+    string Alliance,
+    string AllianceRank);
 
 public record QuestMetadataRequire(
     short Level,
@@ -42,7 +46,9 @@ public record QuestMetadataRequire(
     int[] SelectableQuest,
     int Achievement,
     (int, int) UnrequiredAchievement, // (AchievementId, Grade) Player CANNOT have this achievement to start the quest.
-    int GearScore);
+    int GearScore,
+    string Alliance,
+    int FameGrade);
 
 public record QuestMetadataReward(
     int Meso,
@@ -56,7 +62,9 @@ public record QuestMetadataReward(
     int Treva,
     int Rue,
     List<QuestMetadataReward.Item> EssentialItem,
-    List<QuestMetadataReward.Item> EssentialJobItem) {
+    List<QuestMetadataReward.Item> EssentialJobItem,
+    int UseMainFamePoint,
+    int FameLog) {
 
     public record Item(int Id, int Rarity, int Amount);
 }
@@ -93,4 +101,3 @@ public record QuestMentoringMission(
 public record QuestSummonPortal(
     int MapId,
     int PortalId);
-

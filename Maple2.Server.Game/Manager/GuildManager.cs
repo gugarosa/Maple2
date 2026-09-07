@@ -231,6 +231,7 @@ public class GuildManager : IDisposable {
         int addFunds = funds - Guild.Funds;
         Guild.Experience = exp;
         Guild.Funds = funds;
+        UpdateProperties();
 
         session.Send(GuildPacket.GuildExperience(Guild.Experience));
         session.Send(GuildPacket.GuildFunds(Guild.Funds));
@@ -239,6 +240,24 @@ public class GuildManager : IDisposable {
             session.Send(GuildPacket.AddContribution(addExp, addFunds));
         }
         return true;
+    }
+
+    public bool AwardQuestReward(int questId, long startTime, int completionCount) {
+        try {
+            GuildResponse response = session.World.Guild(new GuildRequest {
+                RequestorId = session.CharacterId,
+                QuestReward = new GuildRequest.Types.QuestReward {
+                    QuestId = questId,
+                    StartTime = startTime,
+                    CompletionCount = completionCount,
+                },
+            });
+            return response.Error == (int) GuildError.none;
+        } catch (Grpc.Core.RpcException ex) {
+            logger.Error(ex, "Failed to award guild reward for quest {QuestId} start {StartTime} completion {CompletionCount}",
+                questId, startTime, completionCount);
+            return false;
+        }
     }
 
     public bool UpdateLeader(long oldLeaderId, long newLeaderId) {
@@ -329,9 +348,7 @@ public class GuildManager : IDisposable {
     [MemberNotNull(nameof(Properties))]
     private void UpdateProperties() {
         int experience = Guild?.Experience ?? 0;
-        Properties = session.TableMetadata.GuildTable.Properties
-            .OrderBy(entry => entry.Value.Experience)
-            .MinBy(entry => entry.Value.Experience > experience).Value;
+        Properties = session.TableMetadata.GuildTable.GetProperty(experience);
 
         if (Guild != null) {
             Guild.Capacity = Properties.Capacity;

@@ -3,6 +3,7 @@ using System.CommandLine.Invocation;
 using System.CommandLine.IO;
 using Maple2.Database.Storage;
 using Maple2.Model.Enum;
+using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Maple2.Server.Game.Session;
@@ -35,31 +36,42 @@ public class QuestCommand : GameCommand {
         session.Quest.TryGetQuest(id, out Quest? quest);
         switch (state) {
             case QuestState.Started:
-                if (quest == null) {
-                    session.Quest.Start(id, true);
-                    break;
-                }
-                if (quest.State == QuestState.Started) {
+                if (quest?.State == QuestState.Started) {
                     ctx.Console.Error.WriteLine("Quest is already started.");
                     return;
                 }
 
-                // Remove then re-add to properly wipe quest
-                session.Quest.Remove(quest);
-                session.Quest.Start(id, true);
+                if (quest != null && metadata.Basic.Repeatable == 0 && !session.Quest.Remove(quest)) {
+                    Fail("Could not reset quest.");
+                    return;
+                }
+                QuestError error = session.Quest.Start(id, true);
+                if (error != QuestError.none) {
+                    Fail($"Could not start quest: {error}.");
+                }
                 break;
             case QuestState.Completed:
                 if (quest == null) {
-                    session.Quest.Start(id, true);
-                    session.Quest.TryGetQuest(id, out quest);
-                    break;
+                    if (session.Quest.Start(id, true) != QuestError.none || !session.Quest.TryGetQuest(id, out quest)) {
+                        Fail("Could not start quest for completion.");
+                        return;
+                    }
                 }
                 if (quest.State == QuestState.Completed) {
                     ctx.Console.Error.WriteLine("Quest is already completed.");
                     return;
                 }
-                session.Quest.Complete(quest, true);
+                if (!session.Quest.Complete(quest, true)) {
+                    Fail("Could not complete quest.");
+                }
                 break;
+        }
+
+        return;
+
+        void Fail(string message) {
+            ctx.Console.Error.WriteLine(message);
+            ctx.ExitCode = 1;
         }
     }
 }

@@ -141,15 +141,19 @@ public partial class GameStorage {
         }
 
         public bool SaveItems(long ownerId, params Item[] items) {
-            var models = new Model.Item[items.Length];
-            for (int i = 0; i < items.Length; i++) {
-                if (items[i].Uid == 0) {
+            foreach (Item item in items) {
+                if (item.Uid == 0) {
                     continue;
                 }
 
-                models[i] = items[i];
-                models[i].OwnerId = ownerId;
-                Context.Item.Update(models[i]);
+                Model.Item model = item;
+                model.OwnerId = ownerId;
+                Model.Item? tracked = Context.Item.Local.FirstOrDefault(value => value.Id == item.Uid);
+                if (tracked == null) {
+                    Context.Item.Update(model);
+                } else {
+                    Context.Entry(tracked).CurrentValues.SetValues(model);
+                }
             }
 
             return Context.TrySaveChanges();

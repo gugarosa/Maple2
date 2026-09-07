@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Diagnostics.CodeAnalysis;
+using Maple2.Model.Enum;
 using Maple2.Model.Game;
 
 namespace Maple2.Server.Game.Manager.Items;
@@ -274,6 +275,96 @@ public class ItemCollection : IEnumerable<Item> {
         }
 
         return remaining;
+    }
+
+    // Plan on detached copies so a failed batch cannot consume stack space or change live items.
+    internal Item[]? PlanAdd(IEnumerable<Item> additions, bool furnishing = false) {
+        mutex.EnterReadLock();
+        try {
+            Item?[] planned = items.Select(item => {
+                if (item == null) return null;
+                Item copy = item.Clone();
+                copy.Slot = item.Slot;
+                copy.Group = item.Group;
+                return copy;
+            }).ToArray();
+
+            foreach (Item source in additions) {
+                if (source.Amount <= 0) {
+                    return null;
+                }
+
+                Item add = source.Clone();
+                add.Group = furnishing ? ItemGroup.Furnishing : source.Group;
+                int slotMax = Math.Max(1, add.Metadata.Property.SlotMax);
+                if (furnishing) {
+                    Item? stored = planned.FirstOrDefault(item =>
+                        item != null && item.Id == add.Id && item.Template?.Url == add.Template?.Url);
+                    if (stored != null) {
+                        if (add.Amount > slotMax - stored.Amount) {
+                            return null;
+                        }
+                        stored.Amount += add.Amount;
+                        continue;
+                    }
+                    if (add.Amount > slotMax) {
+                        return null;
+                    }
+                } else {
+                    foreach (Item? item in planned) {
+                        if (item != null) {
+                            StackItem(item, add);
+                        }
+                        if (add.Amount == 0) break;
+                    }
+                }
+
+                while (add.Amount > 0) {
+                    int slot = Array.FindIndex(planned, item => item == null);
+                    if (slot < 0) {
+                        return null;
+                    }
+                    Item split = add.Clone();
+                    split.Slot = (short) slot;
+                    split.Group = add.Group;
+                    split.Amount = Math.Min(add.Amount, slotMax);
+                    planned[slot] = split;
+                    add.Amount -= split.Amount;
+                }
+            }
+
+            return planned.Where(item => item != null && items[item.Slot]?.Amount != item.Amount)
+                .Select(item => item!).ToArray();
+        } finally {
+            mutex.ExitReadLock();
+        }
+    }
+
+    // The owning ItemManager lock must cover planning, persistence, and application.
+    internal (Item Item, int Added) ApplyAdded(Item saved) {
+        mutex.EnterWriteLock();
+        try {
+            if (!ValidSlot(saved.Slot) || saved.Uid <= 0) {
+                throw new InvalidOperationException("Invalid persisted inventory addition.");
+            }
+
+            Item? existing = items[saved.Slot];
+            if (existing != null) {
+                if (existing.Uid != saved.Uid || saved.Amount <= existing.Amount) {
+                    throw new InvalidOperationException("Inventory changed during a planned addition.");
+                }
+                int added = saved.Amount - existing.Amount;
+                existing.Amount = saved.Amount;
+                return (existing, added);
+            }
+
+            uidToSlot.Add(saved.Uid, saved.Slot);
+            items[saved.Slot] = saved;
+            Count++;
+            return (saved, saved.Amount);
+        } finally {
+            mutex.ExitWriteLock();
+        }
     }
 
     private bool ValidSlot(short slot) => slot >= 0 && slot < Size;

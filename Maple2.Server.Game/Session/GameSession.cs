@@ -704,8 +704,6 @@ public sealed partial class GameSession : Core.Network.Session {
         // Meso Market
         Player.Value.Account.MesoMarketListed = 0;
         Send(MesoMarketPacket.Quota(Player.Value.Account.MesoMarketListed, Player.Value.Account.MesoMarketPurchased));
-        // Expire in-progress daily missions and alliance quests
-        Quest.ExpireDaily();
         // Shop restock
         Shop.DailyReset();
         // Dungeon daily clears
@@ -1030,7 +1028,11 @@ public sealed partial class GameSession : Core.Network.Session {
         TrySaveComponent(UgcMarket.Save);
         TrySaveComponent(Config.Save);
         TrySaveComponent(Shop.Save);
-        TrySaveComponent(Item.Save);
+        TrySaveComponent(request => {
+            if (!Item.Save(request)) {
+                throw new InvalidOperationException("Failed to save item state.");
+            }
+        });
         TrySaveComponent(Survival.Save);
         TrySaveComponent(Housing.Save);
         TrySaveComponent(GameEvent.Save);
