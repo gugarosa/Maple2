@@ -645,6 +645,9 @@ public class ItemUseHandler : FieldPacketHandler {
                 Logger.Warning("QuestScroll item {ItemId} has invalid questID {QuestId}", item.Id, questId);
                 return;
             }
+            if (session.Quest.TryGetQuest(questId, out Quest? existing) && existing.State == QuestState.Started) {
+                continue;
+            }
             if (!session.Quest.CanStart(metadata)) {
                 Logger.Warning("QuestScroll item {ItemId} has questID {QuestId} that cannot be started", item.Id, questId);
                 return;
@@ -652,7 +655,14 @@ public class ItemUseHandler : FieldPacketHandler {
         }
 
         foreach (int questId in questIds) {
-            session.Quest.Start(questId);
+            if (session.Quest.TryGetQuest(questId, out Quest? existing) && existing.State == QuestState.Started) {
+                continue;
+            }
+            QuestError error = session.Quest.Start(questId);
+            if (error != QuestError.none) {
+                session.Send(QuestPacket.Error(error));
+                return;
+            }
         }
 
         session.Item.Inventory.Consume(item.Uid, 1);

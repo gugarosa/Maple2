@@ -253,21 +253,55 @@ public class InventoryManager {
             }
 
             foreach ((Item item, int added) in result) {
-                session.Send(item.Uid == add.Uid
-                    ? ItemInventoryPacket.Add(add)
-                    : ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
-
-                if (notifyNew) {
-                    session.Send(ItemInventoryPacket.NotifyNew(item.Uid, added));
-                }
-                session.ConditionUpdate(ConditionType.item_collect, codeLong: item.Id);
-                session.ConditionUpdate(ConditionType.item_collect_revise, codeLong: item.Id);
-                session.ConditionUpdate(ConditionType.item_add, counter: item.Amount, codeLong: item.Id);
-                session.ConditionUpdate(ConditionType.item_exist, counter: item.Amount, codeLong: item.Id);
+                NotifyAdded(item, added, item.Uid == add.Uid, notifyNew);
             }
 
             return true;
         }
+    }
+
+    internal Item[]? PlanAdd(IEnumerable<Item> additions) {
+        var result = new List<Item>();
+        foreach (IGrouping<InventoryType, Item> group in additions.GroupBy(item => item.Inventory)) {
+            if (!tabs.TryGetValue(group.Key, out ItemCollection? collection)) {
+                return null;
+            }
+
+            Item[] items = group.Select(item => {
+                Item copy = item.Clone();
+                copy.Group = ItemGroup.Default;
+                if (copy.Metadata.Limit.TransferType == TransferType.BindOnLoot) {
+                    copy.Transfer?.Bind(session.Player.Value.Character);
+                }
+                return copy;
+            }).ToArray();
+            Item[]? planned = collection.PlanAdd(items);
+            if (planned == null) {
+                return null;
+            }
+            result.AddRange(planned);
+        }
+        return result.ToArray();
+    }
+
+    internal (Item Item, int Added, bool New) ApplyAdded(Item item) {
+        ItemCollection collection = tabs[item.Inventory];
+        bool isNew = collection[item.Slot] == null;
+        (Item value, int added) = collection.ApplyAdded(item);
+        return (value, added, isNew);
+    }
+
+    internal void NotifyAdded(Item item, int added, bool isNew, bool notifyNew) {
+        session.Send(isNew
+            ? ItemInventoryPacket.Add(item)
+            : ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
+        if (notifyNew) {
+            session.Send(ItemInventoryPacket.NotifyNew(item.Uid, added));
+        }
+        session.ConditionUpdate(ConditionType.item_collect, codeLong: item.Id);
+        session.ConditionUpdate(ConditionType.item_collect_revise, codeLong: item.Id);
+        session.ConditionUpdate(ConditionType.item_add, counter: item.Amount, codeLong: item.Id);
+        session.ConditionUpdate(ConditionType.item_exist, counter: item.Amount, codeLong: item.Id);
     }
 
     private void AddCurrency(Item add) {
@@ -331,45 +365,12 @@ public class InventoryManager {
     }
 
     public bool CanAdd(Item item) {
-        lock (session.Item) {
-            if (tabs.TryGetValue(item.Inventory, out ItemCollection? items)) {
-                return items.OpenSlots > 0 || items.GetStackResult(item) == 0;
-            }
-
-            return false;
-        }
+        return CanAdd([item]);
     }
 
     public bool CanAdd(ICollection<Item> items) {
         lock (session.Item) {
-            // Group items by inventory type
-            Dictionary<InventoryType, List<Item>> itemsByType = items.GroupBy(item => item.Inventory)
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach ((InventoryType inventoryType, List<Item> typeItems) in itemsByType) {
-                if (!tabs.TryGetValue(inventoryType, out ItemCollection? collection)) {
-                    return false;
-                }
-
-                short availableSlots = collection.OpenSlots;
-
-                foreach (Item item in typeItems) {
-                    int stackResult = collection.GetStackResult(item);
-
-                    if (stackResult == 0) {
-                        // Item can be fully stacked, no slots needed
-                        continue;
-                    }
-
-                    // Need a new slot
-                    if (availableSlots <= 0) {
-                        return false;
-                    }
-                    availableSlots--;
-                }
-            }
-
-            return true;
+            return session.Item.PlanAdd(items.Where(item => !item.IsCurrency() && !item.Type.IsMedal).ToArray()) != null;
         }
     }
 
@@ -743,12 +744,10 @@ public class InventoryManager {
         }
     }
 
-    public void Save(GameStorage.Request db) {
+    public bool Save(GameStorage.Request db) {
         lock (session.Item) {
-            db.SaveItems(0, delete.ToArray());
-            foreach (ItemCollection tab in tabs.Values) {
-                db.SaveItems(session.CharacterId, tab.ToArray());
-            }
+            return db.SaveItems(0, delete.ToArray()) &&
+                   tabs.Values.All(tab => db.SaveItems(session.CharacterId, tab.ToArray()));
         }
     }
 

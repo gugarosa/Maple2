@@ -7,15 +7,18 @@ This document describes the current implementation. It does not imply that every
 An upstream issue remaining open does not establish that its original defect is
 still present in this fork.
 
-## Validated integration baseline (2026-09-06)
+## Validated integration baseline (2026-09-07)
 
 The following checks completed against isolated real client metadata and an isolated database:
 
 - All 11 solution projects, including `Maple2.Server.DebugGame`, compile.
-- The regular NUnit suite passes: 321 tests. Four additional explicitly selected
-  MySQL persistence tests pass in a throwaway game database.
+- The regular Release NUnit suite passes: 343 tests. Thirteen additional explicitly
+  selected MySQL persistence tests pass in throwaway game databases using the actual
+  migrations, including the disjoint account/character/mail identifier ranges.
 - Read-only client archive checks cover all normalized trigger definitions and the
-  actual Horus carrier patrol references without changing client assets.
+  actual Horus carrier patrol references. The quest archive regression checks all
+  4,903 timing/faction mappings and the item/portal/furnishing/guild reward examples
+  without changing client assets.
 - Full ingestion completed all metadata and processed 1,183 maps and 235,082 map entities.
 - SQL verification confirmed merged client/server constants, client pet slots, premium potion `90000409` `useItem`, 20 Toxic Garden weapons, 11 Henesys bombs, and Frey recovery metadata.
 - The Docker World, Login, Web, `game-ch0`, and `game-ch1` stack starts successfully. Both Game health endpoints report `Healthy`, and Login plus both Game client ports return 25-byte handshakes.
@@ -23,6 +26,10 @@ The following checks completed against isolated real client metadata and an isol
   stop grace period so volume flushing is not cut short by Docker's default timeout.
 - The account-wide dungeon migration completed an upgrade, rollback, and re-upgrade
   against a separate disposable MySQL schema.
+- The guild-reward ledger migration also completed an upgrade, rollback, and
+  re-upgrade in an empty, isolated schema. Quest persistence regressions cover
+  concurrent acceptance, session-save lock ordering, failed activation, pending
+  inventory saves, and retained completion history.
 
 This is an integration baseline, not evidence that every gameplay issue or reverse-engineered protocol flow is complete.
 
@@ -48,6 +55,13 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 
 - Rested EXP is credited to total EXP and consumed using the typed canonical constant rate. The accumulation time unit in the available `restExp.xml` data is not established, so official home/offline accrual is not claimed as complete.
 - Quest trigger detection handles requested quest states, job filtering, negation, and persisted exploration progress.
+- Quest acceptance commits the quest and its acceptance items together, including
+  pending inventory saves, stack updates, and account-owned furnishings. Full
+  inventories, missing item metadata, and failed storage leave acceptance unapplied.
+  Trusted restarts use the same item and summoned-portal path and preserve completion counts.
+- Guild quest EXP and funds use authoritative World metadata and current database
+  membership. Durable per-activation receipts make guild credit retry-safe; a credited
+  activation cannot be abandoned and reaccepted to obtain another grant.
 - Composite trigger conditions retain their nested AND/OR predicates, outer actions,
   and state transitions. Unsupported nested predicates cannot weaken an AND group.
 - Trigger ingestion applies declared action renames and normalizes the verified
@@ -81,7 +95,46 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - The merged typed `ConstantsTable` is canonical for parsed constants. `Constant` is intended for code-owned emulator invariants; remaining exceptions are listed below.
 - Item-option probability, selection, and variation data are joined from the server tables. Verified source coverage is 5,696 category-matched weights plus four entries that provide explicit random weights without probability rows; all 5,700 referenced variation entries resolve.
 - Skill metadata includes a focused correction that enables the existing `useItem` behavior for premium potion `90000409` level 1; no separate consumption handler was added.
+- Quest metadata retains raw repeat/period, faction, mission-rank, reputation-grade,
+  `useMainFamePoint`, and `fameLog` values rather than omitting or reinterpreting them.
 - The unused `Maple2.Graphics.Interface` project, hard-coded base-stat fallback/reset path, dead gifting helper, and unused generated-proto imports were removed.
+
+## Quest lifecycle and reward boundaries
+
+Client expiry lists are reconciliation requests, not deletion authority. The server
+resends known quest states and acknowledges no unverified expirations. Completed
+quests cannot be abandoned, and failed database deletion cannot remove live progress.
+The previous type-based daily deletion and unrestricted player replays are disabled.
+Trusted server/admin restarts still run the complete acceptance path; this is not
+an implementation of a retail repeat schedule.
+
+The inspected NA/Live archive contains 4,903 quests. `repeatable` has values 0–3;
+`usePeriod` includes empty, `5`, `1440`, `10080`, and `fri`. Numeric periods also
+occur on nonrepeatable definitions. Neither these values nor the v12 packet
+decoders establish the period unit/anchor, active-versus-completed expiry rules,
+or Friday cutoff/timezone. Completion `EndTime` is not treated as an inferred
+expiration deadline. Public replay eligibility remains blocked until those
+contracts are established, rather than permitting repeatable reward farming.
+
+The five Alliance weapon-test quests `93000123`–`93000127` have acceptance items
+and summoned portals. The acceptance transaction also covers the eight furnishing
+rewards in seven housing quests. Existing item objects retain their identities
+when stacks grow; all committed additions are applied before item-condition
+notifications can consume or grant other items.
+
+Sixty source quests define guild EXP/fund rewards; `73000001`–`73000004` specify
+120 EXP and 20,000 funds each. Internal requests contain quest identity, not reward
+amounts. A receipt identifies owner, quest, acceptance timestamp, and completion
+count. Guild credit and its receipt are atomic, but World guild credit and Game
+personal XP/currency/item rewards are **not a distributed transaction**.
+
+Faction requirements with nonzero `fameGrade` fail closed while reputation
+ownership and awards are unknown. Source `useMainFamePoint` values 1 and 2 are
+preserved as integers; `fameLog=5000` is not guessed to mean 5,000 points or a
+journal entry. The available fame-log table contains IDs 1–369. Locale-filtered
+grade thresholds exist, but do not establish point awards or account/character
+ownership. Alliance enum values are not cast to the different reputation wire IDs.
+The full reputation subsystem remains unimplemented.
 
 ## Known blockers and data limits
 
@@ -94,9 +147,9 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - Item-option value weighting is not complete for the 6,306 IDs described above; this is a source-data limitation, not equivalent server probability data.
 - Rested EXP credit is fixed, but the `restExp.xml` accumulation time unit and exact official offline/home timing remain unverified.
 - Reverse-engineered packet structures must be confirmed against the client before adding fields or enabling incomplete flows.
-- Faction acceptance already has an NPC request path, but the reputation award/state
-  surface remains incomplete. Repeatable quest flags and periods still need
-  reconciliation with the available source definitions.
+- Faction acceptance has an NPC request path with explicit failure replies and
+  atomic acceptance rewards. The reputation award/state and quest reset clocks
+  remain blocked as described above; NPC-specific client scenarios are not claimed fixed.
 - Encounter reports are not attributed to a generic trigger fix without evidence.
   The reviewed carrier, NPC-task, physical-jump, and summon paths are tracked
   separately in the issue ledger; source command counts are not simultaneous spawn counts.
@@ -125,6 +178,10 @@ missing retail probabilities.
 keys and preserves character references. Its transactional old-row conversion protects
 existing progress during rollout; it is a data migration, not an alternate supported API.
 Do not remove it before all supported databases have completed that conversion.
+
+`20260907103000_GuildQuestRewards` adds the durable guild-reward receipt ledger
+without rewriting existing quests or guilds. Its receipts must survive retries and
+ordinary quest progression; do not clear them to work around a rejected reward.
 
 ## Metadata refresh
 

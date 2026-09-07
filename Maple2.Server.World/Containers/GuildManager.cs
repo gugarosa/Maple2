@@ -18,6 +18,8 @@ public class GuildManager : IDisposable {
 
     public readonly Guild Guild;
     private readonly ConcurrentDictionary<long, (string, DateTime)> pendingInvites;
+    private readonly object stateLock = new();
+    private readonly Serilog.ILogger logger = Serilog.Log.Logger.ForContext<GuildManager>();
 
     public GuildManager(Guild guild) {
         Guild = guild;
@@ -25,8 +27,10 @@ public class GuildManager : IDisposable {
     }
 
     public void Dispose() {
-        using GameStorage.Request db = GameStorage.Context();
-        db.SaveGuild(Guild);
+        lock (stateLock) {
+            using GameStorage.Request db = GameStorage.Context();
+            db.SaveGuild(Guild);
+        }
     }
 
     public void Broadcast(GuildRequest request) {
@@ -45,7 +49,10 @@ public class GuildManager : IDisposable {
 
             try {
                 client.Guild(request);
-            } catch { /* ignored */ }
+            } catch (RpcException ex) {
+                logger.Warning(ex, "Failed to broadcast {Operation} for guild {GuildId} to channel {Channel}",
+                    request.GuildCase, Guild.Id, group.Key);
+            }
         }
     }
 
@@ -218,37 +225,67 @@ public class GuildManager : IDisposable {
     }
 
     public GuildError CheckIn(long requestorId) {
-        const int contribution = 10;
+        lock (stateLock) {
+            if (!Guild.Members.TryGetValue(requestorId, out GuildMember? requestor)) {
+                return GuildError.s_guild_err_null_member;
+            }
 
-        if (!Guild.Members.TryGetValue(requestorId, out GuildMember? requestor)) {
-            return GuildError.s_guild_err_null_member;
+            using GameStorage.Request db = GameStorage.Context();
+            GuildCheckInResult result = db.CheckInGuild(Guild.Id, requestorId);
+            if (!result.Success) {
+                return GuildError.s_guild_err_unknown;
+            }
+
+            requestor.CheckinTime = result.CheckInTime;
+            requestor.WeeklyContribution += result.Contribution;
+            requestor.TotalContribution += result.Contribution;
+            Guild.Experience = result.Experience;
+            Guild.Funds = result.Funds;
+            Guild.Capacity = TableMetadata.GuildTable.GetProperty(Guild.Experience).Capacity;
+
+            Broadcast(new GuildRequest {
+                UpdateContribution = new GuildRequest.Types.UpdateContribution {
+                    ContributorId = requestor.CharacterId,
+                    GuildExp = Guild.Experience,
+                    GuildFund = Guild.Funds,
+                },
+            });
+            Broadcast(new GuildRequest {
+                UpdateMember = new GuildRequest.Types.UpdateMember {
+                    RequestorId = requestor.CharacterId,
+                    CharacterId = requestor.CharacterId,
+                    Contribution = result.Contribution,
+                    CheckInTime = requestor.CheckinTime,
+                },
+            });
         }
 
-        requestor.CheckinTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        requestor.WeeklyContribution += contribution;
-        requestor.TotalContribution += contribution;
-
-        GuildTable.Property property = GuildProperty();
-        Guild.Experience += property.CheckInExp;
-        Guild.Funds += property.CheckInFund;
-
-        Broadcast(new GuildRequest {
-            UpdateContribution = new GuildRequest.Types.UpdateContribution {
-                ContributorId = requestor.CharacterId,
-                GuildExp = Guild.Experience,
-                GuildFund = Guild.Funds,
-            },
-        });
-        Broadcast(new GuildRequest {
-            UpdateMember = new GuildRequest.Types.UpdateMember {
-                RequestorId = requestor.CharacterId,
-                CharacterId = requestor.CharacterId,
-                Contribution = contribution,
-                CheckInTime = requestor.CheckinTime,
-            },
-        });
-
         return GuildError.none;
+    }
+
+    public GuildError AwardQuestReward(long characterId, int questId, long startTime, int completionCount) {
+        lock (stateLock) {
+            using GameStorage.Request db = GameStorage.Context();
+            GuildQuestRewardResult result = db.AwardGuildQuestReward(
+                Guild.Id, characterId, questId, startTime, completionCount);
+            if (result.Status == GuildQuestRewardStatus.NotMember) {
+                return GuildError.s_guild_err_not_join_member;
+            }
+            if (result.Status is GuildQuestRewardStatus.InvalidRequest or GuildQuestRewardStatus.Failed) {
+                return GuildError.s_guild_err_unknown;
+            }
+            Guild.Experience = result.Experience;
+            Guild.Funds = result.Funds;
+            Guild.Capacity = TableMetadata.GuildTable.GetProperty(Guild.Experience).Capacity;
+            Broadcast(new GuildRequest {
+                UpdateContribution = new GuildRequest.Types.UpdateContribution {
+                    ContributorId = characterId,
+                    GuildExp = Guild.Experience,
+                    GuildFund = Guild.Funds,
+                },
+            });
+            return GuildError.none;
+        }
     }
 
     public GuildError UpdateLeader(long requestorId, long newLeaderId) {
@@ -299,26 +336,28 @@ public class GuildManager : IDisposable {
     }
 
     public GuildError UpdateEmblem(long requestorId, string emblem) {
-        if (!Guild.Members.TryGetValue(requestorId, out GuildMember? requestor)) {
-            return GuildError.s_guild_err_null_member;
-        }
-        GuildRank? rank = Guild.Ranks.ElementAtOrDefault(requestor.Rank);
-        if (rank == null || !rank.Permission.HasFlag(GuildPermission.EditEmblem)) {
-            return GuildError.s_guild_err_no_authority;
-        }
+        lock (stateLock) {
+            if (!Guild.Members.TryGetValue(requestorId, out GuildMember? requestor)) {
+                return GuildError.s_guild_err_null_member;
+            }
+            GuildRank? rank = Guild.Ranks.ElementAtOrDefault(requestor.Rank);
+            if (rank == null || !rank.Permission.HasFlag(GuildPermission.EditEmblem)) {
+                return GuildError.s_guild_err_no_authority;
+            }
 
-        Guild.Emblem = emblem;
+            Guild.Emblem = emblem;
 
-        using (GameStorage.Request db = GameStorage.Context()) {
-            db.SaveGuild(Guild);
+            using (GameStorage.Request db = GameStorage.Context()) {
+                db.SaveGuild(Guild);
+            }
+
+            Broadcast(new GuildRequest {
+                UpdateEmblem = new GuildRequest.Types.UpdateEmblem {
+                    RequestorName = requestor.Name,
+                    Emblem = Guild.Emblem,
+                },
+            });
         }
-
-        Broadcast(new GuildRequest {
-            UpdateEmblem = new GuildRequest.Types.UpdateEmblem {
-                RequestorName = requestor.Name,
-                Emblem = Guild.Emblem,
-            },
-        });
 
         return GuildError.none;
     }
@@ -375,9 +414,4 @@ public class GuildManager : IDisposable {
         return string.Empty;
     }
 
-    private GuildTable.Property GuildProperty() {
-        return TableMetadata.GuildTable.Properties
-            .OrderBy(entry => entry.Value.Experience)
-            .MinBy(entry => entry.Value.Experience > Guild.Experience).Value;
-    }
 }

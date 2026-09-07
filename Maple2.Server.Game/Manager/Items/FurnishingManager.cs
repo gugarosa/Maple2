@@ -75,6 +75,23 @@ public class FurnishingManager {
         }
     }
 
+    internal Item[]? PlanAdd(IEnumerable<Item> additions) => storage.PlanAdd(additions, furnishing: true);
+
+    internal (Item Item, int Added, bool New) ApplyAdded(Item item) {
+        bool isNew = storage[item.Slot] == null || storage[item.Slot]!.Amount == 0;
+        (Item value, int added) = storage.ApplyAdded(item);
+        return (value, added, isNew);
+    }
+
+    internal void NotifyAdded(Item item, int added, bool isNew, bool notifyNew) {
+        session.Send(isNew
+            ? FurnishingStoragePacket.Add(item)
+            : FurnishingStoragePacket.Update(item.Uid, item.Amount));
+        if (notifyNew) {
+            session.Send(ItemInventoryPacket.NotifyNew(item.Uid, added));
+        }
+    }
+
     /// <summary>
     /// Places a cube of the specified item uid at the requested location.
     /// If there are no amount remaining, we still keep the entry to allow reuse of the item uid.
@@ -233,9 +250,13 @@ public class FurnishingManager {
     }
 
     public long AddStorage(Item item, UgcItemLook? template = null) {
-        const int amount = 1;
+        int amount = item.Amount;
 
         lock (session.Item) {
+            if (amount <= 0) {
+                logger.Error("Cannot add furnishing {ItemId} with amount {Amount}", item.Id, amount);
+                return 0;
+            }
             Item? stored = storage.FirstOrDefault(existing => existing.Id == item.Id && existing.Template?.Url == template?.Url);
             if (stored == null) {
                 if (storage.OpenSlots <= 0) {
@@ -258,7 +279,8 @@ public class FurnishingManager {
                 return newItem.Uid;
             }
 
-            if (stored.Amount + amount > item.Metadata.Property.SlotMax) {
+            if (amount > item.Metadata.Property.SlotMax - stored.Amount) {
+                logger.Warning("Furnishing stack is full, cannot add item: {ItemId}", item.Id);
                 return 0;
             }
 
@@ -312,9 +334,9 @@ public class FurnishingManager {
         }
     }
 
-    public void Save(GameStorage.Request db) {
+    public bool Save(GameStorage.Request db) {
         lock (session.Item) {
-            db.SaveItems(session.AccountId, storage.ToArray());
+            return db.SaveItems(session.AccountId, storage.ToArray());
         }
     }
 }

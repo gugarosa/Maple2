@@ -7,6 +7,7 @@ using Maple2.Model.Enum;
 using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
+using Maple2.Server.Game.Manager.Field;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
@@ -39,10 +40,10 @@ public sealed class QuestManager {
         using GameStorage.Request db = session.GameStorage.Context();
         accountValues = db.GetQuests(session.AccountId);
         characterValues = db.GetQuests(session.CharacterId);
-        Initialize(db);
     }
 
     public void Load() {
+        Initialize();
         session.Send(QuestPacket.LoadExploration(session.Config.ExplorationProgress));
 
         foreach (ImmutableList<Quest> batch in accountValues.Values.Batch(BATCH_SIZE)) {
@@ -53,12 +54,8 @@ public sealed class QuestManager {
         }
     }
 
-    private void Initialize(GameStorage.Request db) {
+    private void Initialize() {
         IEnumerable<QuestMetadata> quests = session.QuestMetadata.GetQuests();
-        IList<QuestTag> events = session.FindEvent(GameEventType.QuestTag)
-            .Where(gameEvent => gameEvent.Metadata.Data is QuestTag)
-            .Select(gameEvent => (QuestTag) gameEvent.Metadata.Data)
-            .ToList();
         foreach (QuestMetadata metadata in quests) {
             if (!metadata.Basic.AutoStart ||
                 metadata.Basic.Type == QuestType.FieldMission) {
@@ -86,28 +83,10 @@ public sealed class QuestManager {
                 continue;
             }
 
-            var quest = new Quest(metadata) {
-                Track = true,
-                State = QuestState.Started,
-                StartTime = DateTime.Now.ToEpochSeconds(),
-            };
-
-            for (int i = 0; i < metadata.Conditions.Length; i++) {
-                quest.Conditions.Add(i, new Quest.Condition(metadata.Conditions[i]));
+            QuestError error = Start(metadata.Id);
+            if (error != QuestError.none) {
+                logger.Warning("Failed to auto-start quest {QuestId}: {Error}", metadata.Id, error);
             }
-
-            long ownerId = metadata.Basic.Account > 0 ? session.AccountId : session.CharacterId;
-            quest = db.CreateQuest(ownerId, quest);
-            if (quest == null) {
-                continue;
-            }
-
-            if (metadata.Basic.Account > 0) {
-                accountValues.Add(metadata.Id, quest);
-                continue;
-            }
-            Add(quest);
-            session.Send(QuestPacket.Start(quest));
         }
     }
 
@@ -124,83 +103,112 @@ public sealed class QuestManager {
     }
 
     /// <summary>
-    /// Starts a new quest (or prexisting if repeatable).
+    /// Starts a new quest or restarts a completed repeatable quest with all acceptance effects.
     /// </summary>
     public QuestError Start(int questId, bool bypassRequirements = false) {
-        if (TryGetQuest(questId, out Quest? existingQuest)) {
-            if (existingQuest.State == QuestState.Completed && IsRepeatable(existingQuest.Metadata)) {
-                return Restart(existingQuest, bypassRequirements);
+        if (bypassRequirements && TryGetQuest(questId, out Quest? completed) &&
+            completed.State == QuestState.Completed && IsRepeatable(completed.Metadata)) {
+            // Persist the previous completion and its personal rewards before beginning a durable replay.
+            session.SessionSave();
+        }
+
+        lock (session.Item) {
+            TryGetQuest(questId, out Quest? previous);
+            if (previous != null && (previous.State != QuestState.Completed || !IsRepeatable(previous.Metadata))) {
+                return QuestError.s_quest_error_accept_fail;
             }
-            return QuestError.s_quest_error_accept_fail;
+            if (previous != null && !bypassRequirements) {
+                logger.Warning("Quest {QuestId} cannot restart without a verified repeat schedule (repeatable={Repeatable}, period={Period})",
+                    questId, previous.Metadata.Basic.Repeatable, previous.Metadata.Basic.UsePeriod);
+                return QuestError.s_quest_error_accept_fail;
+            }
+
+            if (!session.QuestMetadata.TryGet(questId, out QuestMetadata? metadata) ||
+                (!bypassRequirements && !CanStart(metadata))) {
+                return QuestError.s_quest_error_accept_fail;
+            }
+
+            FieldManager? field = session.Field;
+            FieldNpc? portalNpc = session.NpcScript?.Npc;
+            if (metadata.SummonPortal != null && (field == null || portalNpc == null)) {
+                logger.Warning("Cannot activate quest {QuestId} without its portal's NPC context", questId);
+                return QuestError.s_quest_error_accept_fail;
+            }
+
+            List<Item>? rewards = CreateAcceptanceRewards(metadata.AcceptReward);
+            if (rewards == null) {
+                return QuestError.s_quest_error_accept_fail;
+            }
+            Item[]? additions = session.Item.PlanAdd(rewards);
+            if (additions == null) {
+                return QuestError.s_quest_error_inventory_full;
+            }
+
+            Quest quest = CreateStartedQuest(metadata, previous, DateTime.Now.ToEpochSeconds());
+            using GameStorage.Request db = session.GameStorage.Context();
+            List<Item>? saved = db.ActivateQuest(session.AccountId, session.CharacterId, quest, previous, additions, session.Item.Save);
+            if (saved == null) {
+                return QuestError.s_quest_error_accept_fail;
+            }
+
+            IDictionary<int, Quest> values = metadata.Basic.Account > 0 ? accountValues : characterValues;
+            values[quest.Id] = quest;
+            session.Item.ApplyAdded(saved, notifyNew: true);
+            session.ConditionUpdate(ConditionType.quest_accept, codeLong: quest.Id);
+            session.Send(QuestPacket.Start(quest));
+            if (metadata.SummonPortal != null && field != null && portalNpc != null) {
+                SummonPortal(field, metadata.SummonPortal, portalNpc);
+            }
+            return QuestError.none;
         }
+    }
 
-        if (!session.QuestMetadata.TryGet(questId, out QuestMetadata? metadata)) {
-            return QuestError.s_quest_error_accept_fail;
-        }
-
-        if (!bypassRequirements && !CanStart(metadata)) {
-            return QuestError.s_quest_error_accept_fail;
-        }
-
-        var quest = new Quest(metadata) {
-            Track = true,
-            State = QuestState.Started,
-            StartTime = DateTime.Now.ToEpochSeconds(),
-        };
-
-        for (int i = 0; i < metadata.Conditions.Length; i++) {
-            quest.Conditions.Add(i, new Quest.Condition(metadata.Conditions[i]));
-        }
-
-        using GameStorage.Request db = session.GameStorage.Context();
-        long ownerId = metadata.Basic.Account > 0 ? session.AccountId : session.CharacterId;
-        quest = db.CreateQuest(ownerId, quest);
-        if (quest == null) {
-            logger.Error("Failed to create quest entry {questId}", metadata.Id);
-            return QuestError.s_quest_error_accept_fail;
-        }
-        Add(quest);
-
-        // TODO: Confirm inventory can hold all the items.
-        foreach (QuestMetadataReward.Item acceptReward in metadata.AcceptReward.EssentialItem) {
-            Item? reward = session.Field?.ItemDrop.CreateItem(acceptReward.Id, acceptReward.Rarity, acceptReward.Amount);
-            if (reward == null) {
-                logger.Error("Failed to create quest reward {RewardId}", acceptReward.Id);
+    private List<Item>? CreateAcceptanceRewards(QuestMetadataReward reward) {
+        var items = new List<Item>();
+        IEnumerable<(QuestMetadataReward.Item Item, bool Job)> entries =
+            reward.EssentialItem.Select(item => (item, false))
+                .Concat(reward.EssentialJobItem.Select(item => (item, true)));
+        foreach ((QuestMetadataReward.Item entry, bool job) in entries) {
+            if (entry.Amount <= 0 || !session.ItemMetadata.TryGet(entry.Id, out ItemMetadata? metadata)) {
+                logger.Error("Invalid quest acceptance reward {ItemId} with amount {Amount}", entry.Id, entry.Amount);
+                return null;
+            }
+            if (job && metadata.Limit.JobRecommends.Length > 0 &&
+                !metadata.Limit.JobRecommends.Contains(JobCode.None) &&
+                !metadata.Limit.JobRecommends.Contains(session.Player.Value.Character.Job.Code())) {
                 continue;
             }
-            if (!session.Item.Inventory.Add(reward, true)) {
-                logger.Error("Failed to add quest reward {RewardId} to inventory", acceptReward.Id);
+
+            int remaining = entry.Amount;
+            while (remaining > 0) {
+                int amount = Math.Min(remaining, Math.Max(1, metadata.Property.SlotMax));
+                Item? item = session.Field?.ItemDrop.CreateItem(entry.Id, entry.Rarity, amount);
+                if (item == null || item.IsCurrency() || item.Type.IsMedal) {
+                    logger.Error("Cannot create inventory acceptance reward {ItemId}", entry.Id);
+                    return null;
+                }
+                items.Add(item);
+                remaining -= amount;
             }
         }
-
-        session.ConditionUpdate(ConditionType.quest_accept, codeLong: quest.Id);
-        session.Send(QuestPacket.Start(quest));
-        if (quest.Metadata.SummonPortal != null) {
-            SummonPortal(quest);
-        }
-        return QuestError.none;
+        return items;
     }
 
     private static bool IsRepeatable(QuestMetadata metadata) {
-        return metadata.Basic.Type is QuestType.DailyMission or QuestType.AllianceQuest or QuestType.GuildQuest;
+        return metadata.Basic.Repeatable is 1 or 2 or 3;
     }
 
-    private QuestError Restart(Quest quest, bool bypassRequirements = false) {
-        if (!bypassRequirements && !CanStart(quest.Metadata)) {
-            return QuestError.s_quest_error_accept_fail;
+    internal static Quest CreateStartedQuest(QuestMetadata metadata, Quest? previous, long now) {
+        var quest = new Quest(metadata) {
+            State = QuestState.Started,
+            Track = previous?.Track ?? true,
+            CompletionCount = previous?.CompletionCount ?? 0,
+            StartTime = now,
+        };
+        for (int i = 0; i < metadata.Conditions.Length; i++) {
+            quest.Conditions.Add(i, new Quest.Condition(metadata.Conditions[i]));
         }
-
-        quest.State = QuestState.Started;
-        quest.StartTime = DateTime.Now.ToEpochSeconds();
-        quest.EndTime = 0;
-        quest.Conditions.Clear();
-        for (int i = 0; i < quest.Metadata.Conditions.Length; i++) {
-            quest.Conditions.Add(i, new Quest.Condition(quest.Metadata.Conditions[i]));
-        }
-
-        session.ConditionUpdate(ConditionType.quest_accept, codeLong: quest.Id);
-        session.Send(QuestPacket.Start(quest));
-        return QuestError.none;
+        return quest;
     }
 
     /// <summary>
@@ -268,7 +276,7 @@ public sealed class QuestManager {
     /// </summary>
     /// <param name="metadata">Metadata of the quest.</param>
     public bool CanStart(QuestMetadata metadata) {
-        if (metadata.Basic.Disabled) {
+        if (metadata.Basic.Disabled || TryGetQuest(metadata.Id, out _)) {
             return false;
         }
 
@@ -278,6 +286,10 @@ public sealed class QuestManager {
         }
 
         QuestMetadataRequire require = metadata.Require;
+        // Reputation ownership and awards are not established; do not silently bypass faction grades.
+        if (require.FameGrade > 0) {
+            return false;
+        }
         if (require.Level > 0 && require.Level > session.Player.Value.Character.Level) {
             return false;
         }
@@ -330,7 +342,7 @@ public sealed class QuestManager {
     }
 
     public bool CanComplete(Quest quest) {
-        return quest.State != QuestState.Completed && quest.Conditions
+        return quest.State == QuestState.Started && quest.Conditions
             .All(condition => condition.Value.Counter >= condition.Value.Metadata.Value);
     }
 
@@ -338,7 +350,8 @@ public sealed class QuestManager {
     /// Gives the player the rewards for completing the quest.
     /// </summary>
     public bool Complete(Quest quest, bool bypassConditions = false) {
-        if (quest.State == QuestState.Completed) {
+        if (quest.State != QuestState.Started ||
+            !TryGetQuest(quest.Id, out Quest? current) || !ReferenceEquals(current, quest)) {
             return false;
         }
 
@@ -375,77 +388,95 @@ public sealed class QuestManager {
             rewards.Add(item);
         }
 
+        if (reward.GuildCoin > 0) {
+            Item? guildCoin = session.Field?.ItemDrop.CreateItem(Constant.GuildCoinId, Constant.GuildCoinRarity, reward.GuildCoin);
+            if (guildCoin == null) {
+                logger.Error("Failed to create guild coin reward for quest {QuestId}", quest.Id);
+                return false;
+            }
+            rewards.Add(guildCoin);
+        }
+
         if (!session.Item.Inventory.CanAdd(rewards) && !Constant.MailQuestItems) {
             session.Send(ItemInventoryPacket.Error(ItemInventoryError.s_err_inventory));
             return false;
         }
 
-        if (reward.Exp > 0) {
-            ExpType expType = reward.RelativeExp != ExpType.none ? reward.RelativeExp : ExpType.quest;
-            session.Exp.AddBaseExp(reward.Exp, expType);
+        if ((reward.GuildExp > 0 || reward.GuildFund > 0) &&
+            !session.Guild.AwardQuestReward(quest.Id, quest.StartTime, checked(quest.CompletionCount + 1))) {
+            session.Send(QuestPacket.Error(QuestError.s_quest_error_consume_fail));
+            return false;
         }
 
-        if (reward.Meso > 0) {
-            session.Currency.Meso += reward.Meso;
-        }
-
-        if (reward.Treva > 0) {
-            session.Currency[CurrencyType.Treva] += reward.Treva;
-        }
-
-        if (reward.Rue > 0) {
-            session.Currency[CurrencyType.Rue] += reward.Rue;
-        }
-
-        if (reward.MenteeCoin > 0) {
-            session.Currency[CurrencyType.MenteeToken] += reward.MenteeCoin;
-        }
-
-        if (reward.MissionPoint > 0) {
-            session.ConditionUpdate(ConditionType.mission_point, counter: reward.MissionPoint);
-        }
-
-        if (reward.GuildCoin > 0 && session.Field != null) {
-            Item? guildCoin = session.Field.ItemDrop.CreateItem(Constant.GuildCoinId, Constant.GuildCoinRarity, reward.GuildCoin);
-            if (guildCoin != null) {
-                rewards.Add(guildCoin);
+        lock (session.Item) {
+            if (quest.State != QuestState.Started ||
+                !TryGetQuest(quest.Id, out current) || !ReferenceEquals(current, quest)) {
+                return false;
             }
-        }
-
-        foreach (Item item in rewards) {
-            if (!session.Item.Inventory.Add(item, true)) {
-                session.Item.MailItem(item);
+            if (!session.Item.Inventory.CanAdd(rewards) && !Constant.MailQuestItems) {
+                session.Send(ItemInventoryPacket.Error(ItemInventoryError.s_err_inventory));
+                return false;
             }
+
+            if (reward.Exp > 0) {
+                ExpType expType = reward.RelativeExp != ExpType.none ? reward.RelativeExp : ExpType.quest;
+                session.Exp.AddBaseExp(reward.Exp, expType);
+            }
+
+            if (reward.Meso > 0) {
+                session.Currency.Meso += reward.Meso;
+            }
+
+            if (reward.Treva > 0) {
+                session.Currency[CurrencyType.Treva] += reward.Treva;
+            }
+
+            if (reward.Rue > 0) {
+                session.Currency[CurrencyType.Rue] += reward.Rue;
+            }
+
+            if (reward.MenteeCoin > 0) {
+                session.Currency[CurrencyType.MenteeToken] += reward.MenteeCoin;
+            }
+
+            if (reward.MissionPoint > 0) {
+                session.ConditionUpdate(ConditionType.mission_point, counter: reward.MissionPoint);
+            }
+
+            foreach (Item item in rewards) {
+                if (!session.Item.Inventory.Add(item, true)) {
+                    session.Item.MailItem(item);
+                }
+            }
+
+            quest.EndTime = DateTime.Now.ToEpochSeconds();
+            quest.State = QuestState.Completed;
+            quest.CompletionCount = checked(quest.CompletionCount + 1);
+
+            session.ConditionUpdate(ConditionType.quest_clear_by_chapter, codeLong: quest.Metadata.Basic.ChapterId);
+            session.ConditionUpdate(ConditionType.quest, codeLong: quest.Metadata.Id);
+            session.ConditionUpdate(ConditionType.quest_clear, codeLong: quest.Metadata.Id);
+            if (quest.Metadata.Basic.Type == QuestType.FieldMission) {
+                session.ConditionUpdate(ConditionType.field_mission);
+            }
+
+            if (quest.Metadata.Basic.Type == QuestType.AllianceQuest) {
+                session.ConditionUpdate(ConditionType.quest_alliance, codeLong: quest.Metadata.Id);
+            }
+
+            if (quest.Metadata.Basic.Type == QuestType.DailyMission) {
+                session.ConditionUpdate(ConditionType.quest_daily, codeLong: quest.Metadata.Id);
+            }
+
+            if (IsRepeatable(quest.Metadata) && quest.CompletionCount > 1) {
+                session.ConditionUpdate(ConditionType.repeat_quest_clear, codeLong: quest.Metadata.Id);
+            }
+
+            session.Send(QuestPacket.Complete(quest));
+            TryJobAdvance(quest.Id);
+            CompleteChapter(quest.Id);
+            return true;
         }
-
-        // TODO: GuildFund, GuildExp rewards require gRPC to World server
-
-        session.ConditionUpdate(ConditionType.quest_clear_by_chapter, codeLong: quest.Metadata.Basic.ChapterId);
-        session.ConditionUpdate(ConditionType.quest, codeLong: quest.Metadata.Id);
-        session.ConditionUpdate(ConditionType.quest_clear, codeLong: quest.Metadata.Id);
-        if (quest.Metadata.Basic.Type == QuestType.FieldMission) {
-            session.ConditionUpdate(ConditionType.field_mission);
-        }
-
-        if (quest.Metadata.Basic.Type == QuestType.AllianceQuest) {
-            session.ConditionUpdate(ConditionType.quest_alliance, codeLong: quest.Metadata.Id);
-        }
-
-        if (quest.Metadata.Basic.Type == QuestType.DailyMission) {
-            session.ConditionUpdate(ConditionType.quest_daily, codeLong: quest.Metadata.Id);
-        }
-
-        if (IsRepeatable(quest.Metadata) && quest.CompletionCount > 0) {
-            session.ConditionUpdate(ConditionType.repeat_quest_clear, codeLong: quest.Metadata.Id);
-        }
-
-        quest.EndTime = DateTime.Now.ToEpochSeconds();
-        quest.State = QuestState.Completed;
-        quest.CompletionCount++;
-        session.Send(QuestPacket.Complete(quest));
-        TryJobAdvance(quest.Id);
-        CompleteChapter(quest.Id);
-        return true;
     }
 
     /// <summary>
@@ -457,10 +488,6 @@ public sealed class QuestManager {
 
         // Get any new quests that can be started
         foreach (QuestMetadata metadata in allQuests) {
-            if (TryGetQuest(metadata.Id, out Quest? quest) && quest.State == QuestState.Completed && !IsRepeatable(metadata)) {
-                continue;
-            }
-
             if (!session.Quest.CanStart(metadata)) {
                 continue;
             }
@@ -490,35 +517,46 @@ public sealed class QuestManager {
         return results;
     }
 
-    public void Expired(IList<int> questIds) {
-        foreach (int questId in questIds) {
-            if (!session.Quest.TryGetQuest(questId, out Quest? quest)) {
-                continue;
+    public void ReconcileExpiry(IList<int> questIds) {
+        // The client supplies IDs, not authority to delete progress. Raw periods do not establish a server deadline.
+        List<Quest> preserved = [];
+        foreach (int questId in questIds.Distinct()) {
+            if (TryGetQuest(questId, out Quest? quest)) {
+                preserved.Add(quest);
             }
-
-            session.Quest.Remove(quest);
         }
-        session.Send(QuestPacket.Expired(questIds));
-    }
-
-    public void ExpireDaily() {
-        List<int> expiredIds = characterValues.Values
-            .Concat(accountValues.Values)
-            .Where(q => q.State == QuestState.Started && IsRepeatable(q.Metadata))
-            .Select(q => q.Id)
-            .ToList();
-
-        if (expiredIds.Count > 0) {
-            Expired(expiredIds);
+        if (preserved.Count > 0) {
+            logger.Warning("Preserved {Count} quests from an unverified client expiry request", preserved.Count);
+            foreach (ImmutableList<Quest> batch in preserved.Batch(BATCH_SIZE)) {
+                session.Send(QuestPacket.LoadQuestStates(batch));
+            }
         }
+        session.Send(QuestPacket.Expired([]));
     }
 
     public bool Remove(Quest quest) {
-        using GameStorage.Request db = session.GameStorage.Context();
-        if (quest.Metadata.Basic.Account > 0) {
-            return accountValues.Remove(quest.Id) && db.DeleteQuest(session.AccountId, quest.Id);
+        lock (session.Item) {
+            IDictionary<int, Quest> values = quest.Metadata.Basic.Account > 0 ? accountValues : characterValues;
+            if (!values.TryGetValue(quest.Id, out Quest? current) || !ReferenceEquals(current, quest)) {
+                logger.Warning("Cannot remove stale quest {QuestId}", quest.Id);
+                return false;
+            }
+            using GameStorage.Request db = session.GameStorage.Context();
+            long ownerId = quest.Metadata.Basic.Account > 0 ? session.AccountId : session.CharacterId;
+            if (!db.DeleteQuest(ownerId, quest.Id)) {
+                logger.Error("Failed to delete quest {QuestId} for owner {OwnerId}", quest.Id, ownerId);
+                return false;
+            }
+            return values.Remove(quest.Id);
         }
-        return characterValues.Remove(quest.Id) && db.DeleteQuest(session.CharacterId, quest.Id);
+    }
+
+    public bool Abandon(Quest quest) {
+        if (quest.State != QuestState.Started || !quest.Metadata.Basic.Forfeitable) {
+            logger.Warning("Rejected abandonment of quest {QuestId} in state {State}", quest.Id, quest.State);
+            return false;
+        }
+        return Remove(quest);
     }
 
     public bool TryGetQuest(int questId, [NotNullWhen(true)] out Quest? quest) {
@@ -680,16 +718,10 @@ public sealed class QuestManager {
         Load();
     }
 
-    private void SummonPortal(Quest quest) {
-        if (session.Field is null) return;
-        if (session.NpcScript?.Npc == null) {
-            logger.Warning("Cannot summon quest portal for quest {QuestId}: No NPC script context", quest.Id);
-            return;
-        }
-
-        FieldPortal portal = session.Field.SpawnPortal(quest.Metadata.SummonPortal!, session.NpcScript.Npc, session.Player);
+    private void SummonPortal(FieldManager field, QuestSummonPortal metadata, FieldNpc npc) {
+        FieldPortal portal = field.SpawnPortal(metadata, npc, session.Player);
         session.Send(PortalPacket.Add(portal));
-        session.Send(QuestPacket.SummonPortal(session.NpcScript.Npc.ObjectId, portal.Value.Id, portal.StartTick));
+        session.Send(QuestPacket.SummonPortal(npc.ObjectId, portal.Value.Id, portal.StartTick));
     }
 
     /// <summary>

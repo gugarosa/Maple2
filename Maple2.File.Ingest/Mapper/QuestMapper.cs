@@ -43,7 +43,11 @@ public class QuestMapper : TypeMapper<QuestMetadata> {
                     StartNpc: data.start?.npc ?? 0,
                     CompleteNpc: data.complete?.npc ?? 0,
                     CompleteMaps: data.complete?.map,
-                    ProgressMaps: data.progressMap.progressMap
+                    ProgressMaps: data.progressMap.progressMap,
+                    Repeatable: data.basic.repeatable,
+                    UsePeriod: data.basic.usePeriod,
+                    Alliance: data.basic.alliance.ToString(),
+                    AllianceRank: data.basic.rank.ToString()
                 ),
                 Require: new QuestMetadataRequire(
                     Level: data.require.level,
@@ -53,7 +57,9 @@ public class QuestMapper : TypeMapper<QuestMetadata> {
                     SelectableQuest: data.require.selectableQuest,
                     Achievement: data.require.achievement,
                     UnrequiredAchievement: unrequiredAchievement,
-                    GearScore: data.require.gearScore
+                    GearScore: data.require.gearScore,
+                    Alliance: data.require.alliance,
+                    FameGrade: data.require.fameGrade
                 ),
                 AcceptReward: Convert(data.acceptReward),
                 CompleteReward: Convert(data.completeReward),
@@ -123,7 +129,9 @@ public class QuestMapper : TypeMapper<QuestMetadata> {
             EssentialItem: essentialItem.Select(item =>
                 new QuestMetadataReward.Item(item.code, item.rank, item.count)).ToList(),
             EssentialJobItem: essentialJobItem.Select(item =>
-                new QuestMetadataReward.Item(item.code, item.rank, item.count)).ToList()
+                new QuestMetadataReward.Item(item.code, item.rank, item.count)).ToList(),
+            UseMainFamePoint: reward.useMainFamePoint,
+            FameLog: reward.fameLog
         );
     }
 

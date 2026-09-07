@@ -8,6 +8,29 @@ public record GuildTable(
     IReadOnlyDictionary<GuildNpcType, IReadOnlyDictionary<short, GuildTable.Npc>> Npcs,
     IReadOnlyDictionary<short, GuildTable.Property> Properties) : Table {
 
+    public Property GetProperty(int experience) {
+        return Properties.Values
+            .Where(property => property.Experience <= experience)
+            .MaxBy(property => property.Experience)
+            ?? Properties.Values.MinBy(property => property.Experience)
+            ?? throw new InvalidOperationException("Guild properties are empty.");
+    }
+
+    public (int Experience, int Funds) AddProgress(int experience, int funds, int addExperience, int addFunds) {
+        ArgumentOutOfRangeException.ThrowIfNegative(experience);
+        ArgumentOutOfRangeException.ThrowIfNegative(funds);
+        ArgumentOutOfRangeException.ThrowIfNegative(addExperience);
+        ArgumentOutOfRangeException.ThrowIfNegative(addFunds);
+        int updatedExperience = (int) Math.Min((long) experience + addExperience, int.MaxValue);
+        long fundMax = GetProperty(updatedExperience).FundMax;
+        if (fundMax < 0) {
+            throw new InvalidDataException("Guild fund capacity cannot be negative.");
+        }
+        int updatedFunds = (int) Math.Max(funds,
+            Math.Min(Math.Min(fundMax, int.MaxValue), (long) funds + addFunds));
+        return (updatedExperience, updatedFunds);
+    }
+
     public record Buff(
         int Id,
         short Level,

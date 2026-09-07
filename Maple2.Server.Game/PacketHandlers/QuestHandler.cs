@@ -98,19 +98,18 @@ public class QuestHandler : FieldPacketHandler {
             if (metadata.RemoteAccept.MapId != 0 && metadata.RemoteAccept.MapId != session.Player.Value.Character.MapId) {
                 return;
             }
-
-            session.Quest.Start(questId);
-            return;
+        } else {
+            bool isPostbox = npcObjectId == 0 && metadata.Basic.UsePostbox;
+            bool fieldNpcExists = session.Field.Npcs.TryGetValue(npcObjectId, out FieldNpc? _);
+            if (!isPostbox && !fieldNpcExists) {
+                return;
+            }
         }
 
-        bool isPostbox = npcObjectId == 0 && metadata.Basic.UsePostbox;
-        bool fieldNpcExists = session.Field.Npcs.TryGetValue(npcObjectId, out FieldNpc? _);
-
-        if (!isPostbox && !fieldNpcExists) {
-            return;
+        QuestError error = session.Quest.Start(questId);
+        if (error != QuestError.none) {
+            session.Send(QuestPacket.Error(error));
         }
-
-        session.Quest.Start(questId);
     }
 
     private void HandleComplete(GameSession session, IByteReader packet) {
@@ -127,15 +126,11 @@ public class QuestHandler : FieldPacketHandler {
     private static void HandleForfeit(GameSession session, IByteReader packet) {
         int questId = packet.ReadInt();
 
-        if (!session.Quest.TryGetQuest(questId, out Quest? quest) || !quest.Metadata.Basic.Forfeitable) {
+        if (!session.Quest.TryGetQuest(questId, out Quest? quest)) {
             return;
         }
 
-        if (quest.CompletionCount > 0) {
-            quest.State = QuestState.Completed; // ?? how do you revert?
-        }
-
-        if (session.Quest.Remove(quest)) {
+        if (session.Quest.Abandon(quest)) {
             session.Send(QuestPacket.Abandon(quest.Id));
         }
     }
@@ -147,7 +142,7 @@ public class QuestHandler : FieldPacketHandler {
             questIds.Add(packet.ReadInt());
         }
 
-        session.Quest.Expired(questIds);
+        session.Quest.ReconcileExpiry(questIds);
     }
 
     private static void HandleAddExplorationQuests(GameSession session, IByteReader packet) {
@@ -168,7 +163,10 @@ public class QuestHandler : FieldPacketHandler {
                 continue;
             }
 
-            session.Quest.Start(questId);
+            QuestError error = session.Quest.Start(questId);
+            if (error != QuestError.none) {
+                session.Send(QuestPacket.Error(error));
+            }
         }
     }
 
@@ -180,6 +178,7 @@ public class QuestHandler : FieldPacketHandler {
             return;
         }
 
+        quest.Track = tracking;
         session.Send(QuestPacket.SetTracking(questId, tracking));
     }
 

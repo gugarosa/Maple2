@@ -92,6 +92,22 @@ public class GuildLookup : IDisposable {
         return GuildError.none;
     }
 
+    public GuildError AwardQuestReward(long characterId, int questId, long startTime, int completionCount) {
+        using (GameStorage.Request db = gameStorage.Context()) {
+            (bool receiptFound, long receiptGuildId) = db.GetGuildQuestRewardGuildId(
+                characterId, questId, startTime, completionCount);
+            long? guildId = receiptFound ? receiptGuildId : db.GetGuildId(characterId);
+            if (guildId == null) {
+                return GuildError.s_guild_err_not_join_member;
+            }
+            if (!TryGet(guildId.Value, out GuildManager? manager)) {
+                return receiptFound ? GuildError.none : GuildError.s_guild_err_null_guild;
+            }
+
+            return manager.AwardQuestReward(characterId, questId, startTime, completionCount);
+        }
+    }
+
     private GuildManager? FetchGuild(long guildId) {
         using GameStorage.Request db = gameStorage.Context();
         Guild? guild = db.GetGuild(guildId);
@@ -108,6 +124,6 @@ public class GuildLookup : IDisposable {
             ChannelClients = channelClients,
             TableMetadata = tableMetadata,
         };
-        return guilds.TryAdd(guild.Id, manager) ? manager : null;
+        return guilds.GetOrAdd(guild.Id, manager);
     }
 }

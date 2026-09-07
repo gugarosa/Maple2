@@ -5,6 +5,10 @@ An open-source MapleStory2 server emulator written in C# (.NET 8.0). Run your ow
 [![Tests](https://github.com/gugarosa/Maple2/actions/workflows/test.yml/badge.svg)](https://github.com/gugarosa/Maple2/actions/workflows/test.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
+Quest progress is protected from client-requested expiry. Public quest replays and
+reputation-grade prerequisites remain gated until their timing/state contracts are
+verified; see [Development Status](DEVELOPMENT_STATUS.md#quest-lifecycle-and-reward-boundaries).
+
 ---
 
 ## Prerequisites
