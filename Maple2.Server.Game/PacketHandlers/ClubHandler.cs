@@ -234,6 +234,19 @@ public class ClubHandler : FieldPacketHandler {
         long clubId = packet.ReadLong();
         int buffId = packet.ReadInt();
         int buffLevel = packet.ReadInt();
+
+        ClubResponse response = World.Club(new ClubRequest {
+            RequestorId = session.CharacterId,
+            SetBuff = new ClubRequest.Types.SetBuff {
+                ClubId = clubId,
+                BuffId = buffId,
+                BuffLevel = buffLevel,
+            },
+        });
+
+        if (response.Error != 0) {
+            session.Send(ClubPacket.Error((ClubError) response.Error));
+        }
     }
 
     private void HandleRename(GameSession session, IByteReader packet) {

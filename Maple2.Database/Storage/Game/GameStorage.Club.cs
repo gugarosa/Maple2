@@ -2,6 +2,7 @@
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Tools.Extensions;
+using Microsoft.EntityFrameworkCore;
 using Z.EntityFramework.Plus;
 using Club = Maple2.Model.Game.Club.Club;
 using ClubMember = Maple2.Model.Game.Club.ClubMember;
@@ -91,6 +92,17 @@ public partial class GameStorage {
         public bool DeleteClubMember(long clubId, long characterId) {
             int count = Context.ClubMember.Where(member => member.ClubId == clubId && member.CharacterId == characterId).Delete();
             return SaveChanges() && count > 0;
+        }
+
+        public bool SaveClubBuff(long clubId, int buffId) {
+            Context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.TrackAll;
+            Model.Club? club = Context.Club.Find(clubId);
+            if (club == null) {
+                return false;
+            }
+
+            club.BuffId = buffId;
+            return SaveChanges();
         }
 
         private List<ClubMember> GetClubMembers(IPlayerInfoProvider provider, long clubId) {

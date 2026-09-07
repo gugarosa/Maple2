@@ -222,7 +222,7 @@ public static class TriggerFunctionMapping {
         { "check_any_user_additional_effect", attrs => new Trigger.CheckAnyUserAdditionalEffect(ParseInt(attrs?["box_id"]?.Value), ParseInt(attrs?["additional_effect_id"]?.Value), ParseInt(attrs?["level"]?.Value), ParseBool(attrs?["negate"]?.Value)) },
         { "check_dungeon_lobby_user_count", attrs => new Trigger.CheckDungeonLobbyUserCount(ParseBool(attrs?["negate"]?.Value)) },
         { "check_npc_additional_effect", attrs => new Trigger.CheckNpcAdditionalEffect(ParseInt(attrs?["spawn_id"]?.Value), ParseInt(attrs?["additional_effect_id"]?.Value), ParseInt(attrs?["level"]?.Value), ParseBool(attrs?["negate"]?.Value)) },
-        { "npc_damage", attrs => new Trigger.NpcDamage(ParseInt(attrs?["spawn_id"]?.Value), ParseFloat(attrs?["damageRate"]?.Value), ParseOperatorType(attrs?["operator"]?.Value)) },
+        { "npc_damage", attrs => new Trigger.NpcDamage(ParseInt(attrs?["spawn_id"]?.Value), ParseFloat(attrs?["damage_rate"]?.Value), ParseOperatorType(attrs?["operator"]?.Value)) },
         { "npc_extra_data", attrs => new Trigger.NpcExtraData(ParseInt(attrs?["spawn_point_id"]?.Value), attrs?["extra_data_key"]?.Value ?? string.Empty, ParseInt(attrs?["extra_data_value"]?.Value), ParseOperatorType(attrs?["operator"]?.Value)) },
         { "npc_hp", attrs => new Trigger.NpcHp(ParseInt(attrs?["spawn_id"]?.Value), ParseBool(attrs?["is_relative"]?.Value), ParseInt(attrs?["value"]?.Value), ParseCompareType(attrs?["compare_type"]?.Value)) },
         { "check_same_user_tag", attrs => new Trigger.CheckSameUserTag(ParseInt(attrs?["box_id"]?.Value), ParseBool(attrs?["negate"]?.Value)) },
@@ -261,7 +261,7 @@ public static class TriggerFunctionMapping {
         { "wait_seconds_user_value", attrs => new Trigger.WaitSecondsUserValue(attrs?["key"]?.Value ?? string.Empty, attrs?["desc"]?.Value ?? string.Empty) },
         { "wait_tick", attrs => new Trigger.WaitTick(ParseInt(attrs?["wait_tick"]?.Value)) },
         { "wedding_entry_in_field", attrs => new Trigger.WeddingEntryInField(attrs?["entry_type"]?.Value ?? string.Empty, ParseBool(attrs?["is_in_field"]?.Value)) },
-        { "wedding_hall_state", attrs => new Trigger.WeddingHallState(attrs?["hallState"]?.Value ?? string.Empty, ParseBool(attrs?["success"]?.Value)) },
+        { "wedding_hall_state", attrs => new Trigger.WeddingHallState(attrs?["hall_state"]?.Value ?? string.Empty, ParseBool(attrs?["success"]?.Value)) },
         { "wedding_mutual_agree_result", attrs => new Trigger.WeddingMutualAgreeResult(attrs?["agree_type"]?.Value ?? string.Empty) },
         { "widget_value", attrs => new Trigger.WidgetValue(attrs?["type"]?.Value ?? string.Empty, attrs?["widget_name"]?.Value ?? string.Empty, attrs?["condition"]?.Value ?? string.Empty, ParseBool(attrs?["negate"]?.Value), attrs?["desc"]?.Value ?? string.Empty) },
         { "any_one", _ => new Trigger.GroupAnyOne() },
@@ -312,9 +312,16 @@ public static class TriggerFunctionMapping {
         return (Align) Enum.Parse(typeof(Align), align, true);
     }
 
-    private static OperatorType ParseOperatorType(string? operatorType) {
-        if (string.IsNullOrEmpty(operatorType)) return OperatorType.GreaterEqual;
-        return (OperatorType) Enum.Parse(typeof(OperatorType), operatorType, true);
+    internal static OperatorType ParseOperatorType(string? operatorType) {
+        if (string.IsNullOrWhiteSpace(operatorType)) return OperatorType.GreaterEqual;
+        return operatorType.Trim() switch {
+            ">" => OperatorType.Greater,
+            ">=" => OperatorType.GreaterEqual,
+            "=" or "==" => OperatorType.Equal,
+            "<=" => OperatorType.LessEqual,
+            "<" => OperatorType.Less,
+            var value => Enum.Parse<OperatorType>(value, true),
+        };
     }
 
     private static CompareType ParseCompareType(string? compareType) {
@@ -323,8 +330,10 @@ public static class TriggerFunctionMapping {
     }
 
     public static int[] ParseIntArray(string? value) {
-        if (string.IsNullOrEmpty(value)) return [];
-        if (value is "all") return [-1]; // Special case for "all" to indicate all IDs.
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        value = value.Trim();
+        if (value.Equals("all", StringComparison.OrdinalIgnoreCase)) return [-1];
+        value = value.Replace('.', ',');
         // Handles ranges and comma-separated values and mixed usage.
         if (value.Contains(',')) {
             var result = new List<int>();

@@ -21,6 +21,7 @@ public class TableMetadataStorage {
     private readonly Lazy<LapenshardUpgradeTable> lapenshardUpgradeTable;
     private readonly Lazy<ItemSocketTable> itemSocketTable;
     private readonly Lazy<GuildTable> guildTable;
+    private readonly Lazy<ClubBuffTable> clubBuffTable;
     private readonly Lazy<PremiumClubTable> premiumClubTable;
     private readonly Lazy<IndividualItemDropTable> individualItemDropTable;
     private readonly Lazy<ColorPaletteTable> colorPaletteTable;
@@ -89,6 +90,7 @@ public class TableMetadataStorage {
     public LapenshardUpgradeTable LapenshardUpgradeTable => lapenshardUpgradeTable.Value;
     public ItemSocketTable ItemSocketTable => itemSocketTable.Value;
     public GuildTable GuildTable => guildTable.Value;
+    public ClubBuffTable ClubBuffTable => clubBuffTable.Value;
     public PremiumClubTable PremiumClubTable => premiumClubTable.Value;
     public IndividualItemDropTable IndividualItemDropTable => individualItemDropTable.Value;
     public ColorPaletteTable ColorPaletteTable => colorPaletteTable.Value;
@@ -158,6 +160,7 @@ public class TableMetadataStorage {
         lapenshardUpgradeTable = Retrieve<LapenshardUpgradeTable>(context, TableNames.ITEM_LAPENSHARD_UPGRADE);
         itemSocketTable = Retrieve<ItemSocketTable>(context, TableNames.ITEM_SOCKET);
         guildTable = Retrieve<GuildTable>(context, TableNames.GUILD);
+        clubBuffTable = Retrieve<ClubBuffTable>(context, TableNames.CLUB_BUFF);
         premiumClubTable = Retrieve<PremiumClubTable>(context, TableNames.VIP);
         individualItemDropTable = Retrieve<IndividualItemDropTable>(context, TableNames.INDIVIDUAL_ITEM_DROP);
         colorPaletteTable = Retrieve<ColorPaletteTable>(context, TableNames.COLOR_PALETTE);

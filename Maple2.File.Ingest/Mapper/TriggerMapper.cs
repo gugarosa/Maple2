@@ -282,6 +282,15 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
             node.ParentNode?.RemoveChild(node);
         }
 
+        // The group holds predicates; effects belong to the enclosing condition.
+        foreach (XmlNode group in xml.SelectNodes("//condition/group[action]")!) {
+            XmlNode parent = group.ParentNode!;
+            XmlNode? next = group.NextSibling;
+            foreach (XmlNode action in group.SelectNodes("action")!.Cast<XmlNode>().ToArray()) {
+                parent.InsertBefore(action, next);
+            }
+        }
+
         // Continue with the existing normalization logic
         foreach (XmlNode node in xml.SelectNodes("//state")!) {
             XmlAttribute? attr = node.Attributes?["name"];
@@ -322,8 +331,8 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
                     overrideValue.FunctionLookup.TryGetValue(valueDefault, out overrideValue);
                     Debug.Assert(overrideValue is not null, $"Unable to find override for {valueDefault}");
                 }
-                node.Attributes["name"]!.Value = overrideValue.Name;
             }
+            node.Attributes["name"]!.Value = overrideValue.Name;
 
             foreach (XmlAttribute xmlAttribute in nodeParams) {
                 overrideValue.Names.TryGetValue(TriggerTranslate.ToSnakeCase(xmlAttribute.Name), out string? newName);
@@ -382,6 +391,24 @@ public class TriggerMapper : TypeMapper<TriggerMetadata> {
                 XmlAttribute newAttribute = xml.CreateAttribute(newName);
                 newAttribute.Value = xmlAttribute.Value;
                 node.Attributes.Append(newAttribute);
+            }
+        }
+
+        // Normalize known authoring spellings, rather than adding runtime enum aliases.
+        foreach (XmlElement action in xml.SelectNodes("//action[@name='add_cinematic_talk' and @align='Reft']")!) {
+            action.SetAttribute("align", "left");
+        }
+        foreach (XmlElement action in xml.SelectNodes("//action[@name='create_field_game' and @type='MapleSurvive']")!) {
+            action.SetAttribute("type", "MapleSurvival");
+        }
+
+        foreach (XmlElement condition in xml.SelectNodes("//condition[@name='user_detected']")!) {
+            string boxIds = condition.GetAttribute("box_ids");
+            if (boxIds.StartsWith('!') && int.TryParse(boxIds.AsSpan(1), out int boxId) && boxId >= 0) {
+                bool negate = condition.GetAttribute("negate") is "1" ||
+                              condition.GetAttribute("negate").Equals("true", StringComparison.OrdinalIgnoreCase);
+                condition.SetAttribute("box_ids", boxId.ToString());
+                condition.SetAttribute("negate", negate ? "false" : "true");
             }
         }
 

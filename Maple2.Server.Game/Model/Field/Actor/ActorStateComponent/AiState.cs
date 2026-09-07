@@ -26,7 +26,7 @@ public class AiState {
     private Dictionary<string, long> coolTimes = new();
     private List<Node> reservedNodes = new List<Node>();
 
-    private enum DecisionTreeType {
+    internal enum DecisionTreeType {
         None,
         Battle,
         BattleEnd,
@@ -56,7 +56,7 @@ public class AiState {
         }
 
         if (AiMetadata.BattleEnd.Length != 0) {
-            battleEnd = new Node("battle", AiMetadata.BattleEnd);
+            battleEnd = new Node("battleEnd", AiMetadata.BattleEnd);
         }
 
         if (AiMetadata.Reserved.Length != 0) {
@@ -107,25 +107,14 @@ public class AiState {
         }
 
         bool isInBattle = actor.BattleState.InBattle;
-
-        if (!isInBattle) {
-            if (currentTree == DecisionTreeType.Battle) {
-                aiStack.Clear();
-
-                currentTree = battleEnd is not null ? DecisionTreeType.BattleEnd : DecisionTreeType.None;
-            } else if (currentTree == DecisionTreeType.BattleEnd && aiStack.Count == 0) {
-                currentTree = DecisionTreeType.None;
-            }
-
-            return;
-        } else if (currentTree == DecisionTreeType.BattleEnd) {
+        (DecisionTreeType nextTree, bool resetStack, bool process) = GetTreeTransition(
+            currentTree, isInBattle, battle != null, battleEnd != null, aiStack.Count > 0);
+        if (resetStack) {
             aiStack.Clear();
-
-            currentTree = DecisionTreeType.None;
         }
-
-        if (isInBattle && battle is not null) {
-            currentTree = DecisionTreeType.Battle;
+        currentTree = nextTree;
+        if (!process) {
+            return;
         }
 
         if (lastEvaluated != AiMetadata) {
@@ -134,11 +123,13 @@ public class AiState {
 
         lastEvaluated = AiMetadata;
 
-        foreach (var node in reservedNodes.ToList()) {
-            if (ProcessCondition((dynamic) node)) {
-                aiStack.Clear();
-                reservedNodes.Remove(node);
-                Push(node);
+        if (isInBattle) {
+            foreach (var node in reservedNodes.ToList()) {
+                if (ProcessCondition((dynamic) node)) {
+                    aiStack.Clear();
+                    reservedNodes.Remove(node);
+                    Push(node);
+                }
             }
         }
 
@@ -176,6 +167,22 @@ public class AiState {
                 break;
             }
         }
+    }
+
+    internal static (DecisionTreeType Tree, bool ResetStack, bool Process) GetTreeTransition(
+        DecisionTreeType current, bool inBattle, bool hasBattle, bool hasBattleEnd, bool hasPendingNodes) {
+        DecisionTreeType next;
+        if (inBattle) {
+            next = hasBattle ? DecisionTreeType.Battle : DecisionTreeType.None;
+        } else if (current == DecisionTreeType.Battle) {
+            next = hasBattleEnd ? DecisionTreeType.BattleEnd : DecisionTreeType.None;
+        } else if (current == DecisionTreeType.BattleEnd && hasPendingNodes) {
+            next = DecisionTreeType.BattleEnd;
+        } else {
+            next = DecisionTreeType.None;
+        }
+
+        return (next, next != current, inBattle || next == DecisionTreeType.BattleEnd);
     }
 
     private void SetNodeTask(NpcTask? task, long limit = 0) {

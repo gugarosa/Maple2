@@ -41,6 +41,7 @@ public sealed partial class GameSession : Core.Network.Session {
     // gameDisposeState: 0 = active, 1 = disposing, 2 = disposed
     private int gameDisposeState;
     private readonly GameServer server;
+    private readonly Dictionary<int, short> activeClubBuffs = [];
 
     public readonly CommandRouter CommandHandler;
     public readonly EventQueue Scheduler;
@@ -522,7 +523,7 @@ public sealed partial class GameSession : Core.Network.Session {
         Config.LoadStatAttributes();
         Config.LoadSkillPoints();
         Player.Buffs.LoadFieldBuffs();
-        RefreshClubBuffs();
+        RefreshClubBuffsInField();
 
         TimeEventResponse globalEventResponse = World.TimeEvent(new TimeEventRequest {
             GetGlobalPortal = new TimeEventRequest.Types.GetGlobalPortal(),
@@ -730,32 +731,57 @@ public sealed partial class GameSession : Core.Network.Session {
     }
 
     public void RefreshClubBuffs() {
-        if (Field == null) {
+        FieldManager? field = Field;
+        if (field == null) {
             return;
         }
 
-        foreach ((long clubId, ClubManager club) in Clubs) {
-            int buffId = club.Club.BuffId;
-            if (buffId <= 0) {
-                continue;
-            }
-
-            bool memberInField = Field.Players.Values.Any(fieldPlayer =>
-                fieldPlayer.Value.Character.Id != CharacterId &&
-                club.Club.Members.ContainsKey(fieldPlayer.Value.Character.Id));
-
-            if (memberInField) {
-                Player.Buffs.AddBuff(Player, Player, buffId, 1, Field.FieldTick);
-
-                // Also apply buff to club members already in field
-                foreach (FieldPlayer fieldPlayer in Field.Players.Values) {
-                    if (fieldPlayer.Value.Character.Id != CharacterId &&
-                        club.Club.Members.ContainsKey(fieldPlayer.Value.Character.Id)) {
-                        fieldPlayer.Buffs.AddBuff(fieldPlayer, fieldPlayer, buffId, 1, Field.FieldTick);
-                    }
-                }
+        HashSet<long> fieldCharacterIds = field.Players.Values
+            .Select(fieldPlayer => fieldPlayer.Value.Character.Id)
+            .ToHashSet();
+        Dictionary<int, short> desired = ClubBuffPolicy.SelectEffects(
+            Clubs.Values.Select(manager => new ClubBuffPolicy.ClubSelection(
+                manager.Club.State,
+                manager.Club.BuffId,
+                manager.Club.Members.Keys.ToArray())),
+            CharacterId,
+            fieldCharacterIds,
+            TableMetadata.ClubBuffTable.Entries);
+        foreach ((int buffId, short level) in activeClubBuffs.ToArray()) {
+            if (!Player.Buffs.HasBuff(buffId, level)) {
+                activeClubBuffs.Remove(buffId);
             }
         }
+        ClubBuffPolicy.Changes changes = ClubBuffPolicy.GetChanges(activeClubBuffs, desired);
+
+        foreach (int buffId in changes.Remove) {
+            Player.Buffs.Remove(buffId, Player.ObjectId);
+            activeClubBuffs.Remove(buffId);
+        }
+        foreach (ClubBuffPolicy.Effect buff in changes.Add) {
+            Player.Buffs.AddBuff(Player, Player, buff.Id, buff.Level, field.FieldTick);
+            if (Player.Buffs.HasBuff(buff.Id, buff.Level)) {
+                activeClubBuffs[buff.Id] = buff.Level;
+            }
+        }
+    }
+
+    public void RefreshClubBuffsInField() {
+        if (Field == null) {
+            return;
+        }
+        foreach (FieldPlayer player in Field.Players.Values) {
+            player.Session.RefreshClubBuffs();
+        }
+    }
+
+    public void ScheduleClubBuffRefresh() {
+        FieldManager? field = Field;
+        field?.Scheduler.Schedule(() => {
+            if (ReferenceEquals(Field, field)) {
+                RefreshClubBuffs();
+            }
+        });
     }
 
     public void MigrateToPlanner(PlotMode plotMode) {

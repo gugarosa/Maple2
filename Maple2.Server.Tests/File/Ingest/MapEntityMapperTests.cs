@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Reflection;
+using System.Text.Json;
 using Maple2.File.Flat;
 using Maple2.File.Flat.maplestory2library;
 using Maple2.File.Ingest.Mapper;
@@ -11,6 +12,38 @@ using Maple2.Model.Metadata;
 namespace Maple2.Server.Tests.File.Ingest;
 
 public class MapEntityMapperTests {
+    [Test]
+    public void EventCarrierSpawnRetainsItsDeclaredPatrol() {
+        IEventSpawnPointNPC spawn = InterfaceProxy<IEventSpawnPointNPC>.Create(new Dictionary<string, object?> {
+            [nameof(IMapEntity.EntityId)] = "eb634082-dfad-43dd-a3af-45b0b8164c94",
+            [nameof(ISpawnPointNPC.SpawnPointID)] = 998,
+            [nameof(ISpawnPointNPC.NpcCount)] = 1u,
+            [nameof(ISpawnPointNPC.PatrolData)] = "316b4d88-7a45-4e34-98c1-8fc1488d59d7",
+            [nameof(IEventSpawnPointNPC.SpawnAnimation)] = "",
+        });
+
+        SpawnPointNPC result = MapEntityMapper.CreateNpcSpawn(spawn, [new SpawnPointNPCListEntry(11001808, 1)]);
+
+        Assert.That(result, Is.TypeOf<EventSpawnPointNPC>());
+        Assert.That(result.SpawnPointId, Is.EqualTo(998));
+        Assert.That(result.PatrolData, Is.EqualTo("316b4d887a454e3498c18fc1488d59d7"));
+        string json = JsonSerializer.Serialize<MapBlock>(result);
+        var restored = (EventSpawnPointNPC) JsonSerializer.Deserialize<MapBlock>(json)!;
+        Assert.That(restored.PatrolData, Is.EqualTo(result.PatrolData));
+    }
+
+    [TestCase("")]
+    [TestCase("00000000-0000-0000-0000-000000000000")]
+    public void EventSpawnWithoutPatrolUsesTheSameNormalizationAsRegularSpawns(string patrol) {
+        IEventSpawnPointNPC spawn = InterfaceProxy<IEventSpawnPointNPC>.Create(new Dictionary<string, object?> {
+            [nameof(IMapEntity.EntityId)] = "eb634082-dfad-43dd-a3af-45b0b8164c94",
+            [nameof(ISpawnPointNPC.PatrolData)] = patrol,
+            [nameof(IEventSpawnPointNPC.SpawnAnimation)] = "",
+        });
+
+        Assert.That(MapEntityMapper.CreateNpcSpawn(spawn, []).PatrolData, Is.Null);
+    }
+
     [TestCase("02000328_bf", "18300003", 18300003)] // Toxic Garden
     [TestCase("52000120_qd", "18100052", 18100052)] // Henesys bomb
     public void TriggerCubeObjectWeaponEmitsBothRoles(string xblock, string itemCode, int expectedItemId) {

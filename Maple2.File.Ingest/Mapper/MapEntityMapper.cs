@@ -109,19 +109,10 @@ public class MapEntityMapper : TypeMapper<MapEntity> {
                                 continue;
                             }
 
-                            switch (npcSpawn) {
-                                case IEventSpawnPointNPC eventNpcSpawn:
-                                    yield return new MapEntity(xblock, new Guid(entity.EntityId), entity.EntityName) {
-                                        Block = new EventSpawnPointNPC(npcSpawn.EntityId, npcSpawn.SpawnPointID, npcSpawn.Position, npcSpawn.Rotation, npcSpawn.IsVisible, npcSpawn.IsSpawnOnFieldCreate, npcSpawn.SpawnRadius, (int) npcSpawn.NpcCount, npcList, (int) npcSpawn.RegenCheckTime, (int) eventNpcSpawn.LifeTime, eventNpcSpawn.SpawnAnimation),
-                                    };
-                                    continue;
-                                default:
-                                    string? patrolData = npcSpawn.PatrolData != "00000000-0000-0000-0000-000000000000" ? npcSpawn.PatrolData.Replace("-", string.Empty) : null;
-                                    yield return new MapEntity(xblock, new Guid(entity.EntityId), entity.EntityName) {
-                                        Block = new SpawnPointNPC(npcSpawn.EntityId, npcSpawn.SpawnPointID, npcSpawn.Position, npcSpawn.Rotation, npcSpawn.IsVisible, npcSpawn.IsSpawnOnFieldCreate, npcSpawn.SpawnRadius, npcList, (int) npcSpawn.RegenCheckTime, patrolData),
-                                    };
-                                    continue;
-                            }
+                            yield return new MapEntity(xblock, new Guid(entity.EntityId), entity.EntityName) {
+                                Block = CreateNpcSpawn(npcSpawn, npcList),
+                            };
+                            continue;
                         case IEventSpawnPointItem itemSpawn:
                             yield return new MapEntity(xblock, new Guid(entity.EntityId), entity.EntityName) {
                                 Block = new EventSpawnPointItem(itemSpawn.SpawnPointID, itemSpawn.Position, itemSpawn.Rotation, itemSpawn.LifeTime, int.TryParse(itemSpawn.individualDropBoxId, out int individualDropBoxId) ? individualDropBoxId : 0, int.TryParse(itemSpawn.globalDropBoxId, out int globalDropBoxId) ? globalDropBoxId : 0, (int) itemSpawn.globalDropLevel, itemSpawn.IsVisible),
@@ -250,6 +241,20 @@ public class MapEntityMapper : TypeMapper<MapEntity> {
             }
         }
 
+    }
+
+    internal static SpawnPointNPC CreateNpcSpawn(ISpawnPointNPC spawn, IList<SpawnPointNPCListEntry> npcs) {
+        string? patrolData = string.IsNullOrEmpty(spawn.PatrolData) ||
+                             spawn.PatrolData == "00000000-0000-0000-0000-000000000000"
+            ? null
+            : spawn.PatrolData.Replace("-", string.Empty);
+        return spawn is IEventSpawnPointNPC eventSpawn
+            ? new EventSpawnPointNPC(spawn.EntityId, spawn.SpawnPointID, spawn.Position, spawn.Rotation,
+                spawn.IsVisible, spawn.IsSpawnOnFieldCreate, spawn.SpawnRadius, (int) spawn.NpcCount,
+                npcs, (int) spawn.RegenCheckTime, (int) eventSpawn.LifeTime, eventSpawn.SpawnAnimation, patrolData)
+            : new SpawnPointNPC(spawn.EntityId, spawn.SpawnPointID, spawn.Position, spawn.Rotation,
+                spawn.IsVisible, spawn.IsSpawnOnFieldCreate, spawn.SpawnRadius, npcs,
+                (int) spawn.RegenCheckTime, patrolData);
     }
 
     private static ObjectWeapon CreateObjectWeapon(IMS2PhysXProp physXProp) {

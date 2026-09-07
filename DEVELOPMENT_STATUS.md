@@ -12,8 +12,10 @@ still present in this fork.
 The following checks completed against isolated real client metadata and an isolated database:
 
 - All 11 solution projects, including `Maple2.Server.DebugGame`, compile.
-- The regular NUnit suite passes: 273 tests. Three additional explicitly selected
+- The regular NUnit suite passes: 321 tests. Four additional explicitly selected
   MySQL persistence tests pass in a throwaway game database.
+- Read-only client archive checks cover all normalized trigger definitions and the
+  actual Horus carrier patrol references without changing client assets.
 - Full ingestion completed all metadata and processed 1,183 maps and 235,082 map entities.
 - SQL verification confirmed merged client/server constants, client pet slots, premium potion `90000409` `useItem`, 20 Toxic Garden weapons, 11 Henesys bombs, and Frey recovery metadata.
 - The Docker World, Login, Web, `game-ch0`, and `game-ch1` stack starts successfully. Both Game health endpoints report `Healthy`, and Login plus both Game client ports return 25-byte handshakes.
@@ -46,6 +48,19 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 
 - Rested EXP is credited to total EXP and consumed using the typed canonical constant rate. The accumulation time unit in the available `restExp.xml` data is not established, so official home/offline accrual is not claimed as complete.
 - Quest trigger detection handles requested quest states, job filtering, negation, and persisted exploration progress.
+- Composite trigger conditions retain their nested AND/OR predicates, outer actions,
+  and state transitions. Unsupported nested predicates cannot weaken an AND group.
+- Trigger ingestion applies declared action renames and normalizes the verified
+  source selector/enum spellings before runtime. NPC damage thresholds and wedding
+  state predicates read their canonical metadata attributes.
+- Event-spawned NPCs retain their declared patrol paths, including the Horus
+  carrier segments that do not have an explicit scripted movement action.
+- NPC task scheduling removes terminal queue heads and preserves successor starts
+  requested during resume callbacks, rather than stranding valid queued work.
+- Combat-exit AI dispatch runs the declared `battleEnd` sequence and lets pending
+  actions finish, without evaluating combat-only reserved branches out of combat.
+  Ingestion keeps battle-end entries separate from battle entries; a real-AI
+  archive regression covers this metadata-to-dispatch boundary.
 - Dungeon mission scoring, weekly rank-reward persistence, atomic mail delivery, and stale-week cleanup are implemented.
 - Weekly rank cleanup preserves claims made in the current week, including delayed
   or repeated reset callbacks; the scheduled boundary is Friday midnight.
@@ -55,6 +70,10 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - Room admission counts loading clients as well as present players. Session-owned
   reservations are released on failed/abandoned transfers without letting stale
   session cleanup release a replacement session's slot.
+- Club buff selection uses the client `clubbuff.xml` mapping, validates established
+  membership and leader authority, persists the selector, and transfers it between
+  World and Game servers. Effects are recomputed after entry, departure, membership,
+  and selection changes, including revocation when a member is no longer eligible.
 
 ### Metadata
 
@@ -75,6 +94,20 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - Item-option value weighting is not complete for the 6,306 IDs described above; this is a source-data limitation, not equivalent server probability data.
 - Rested EXP credit is fixed, but the `restExp.xml` accumulation time unit and exact official offline/home timing remain unverified.
 - Reverse-engineered packet structures must be confirmed against the client before adding fields or enabling incomplete flows.
+- Faction acceptance already has an NPC request path, but the reputation award/state
+  surface remains incomplete. Repeatable quest flags and periods still need
+  reconciliation with the available source definitions.
+- Encounter reports are not attributed to a generic trigger fix without evidence.
+  The reviewed carrier, NPC-task, physical-jump, and summon paths are tracked
+  separately in the issue ledger; source command counts are not simultaneous spawn counts.
+- AI summon references in the inspected Barkhant/Surnuny data use small per-parent
+  identifiers rather than loadable NPC template IDs. Their authoritative mapping
+  was not present in the inspected NPC definitions or server tables. Summons remain
+  disabled rather than guessing child IDs, count semantics, or living timeouts.
+- Physical AI jumping remains unimplemented. The source speed/height parameters
+  have not been tied to the client packet's angle/scale fields or a verified
+  trajectory/navigation contract. An inferred implementation was rejected rather
+  than shipping mismatched movement or leaving canceled NPCs suspended off-navmesh.
 
 ## Canonical state and retained data policies
 
@@ -106,6 +139,27 @@ pwsh ./scripts/start_servers.ps1
 Rebuild application images when source or parser versions changed; starting old images against
 new metadata is not supported. For local development, run `dotnet tool restore` and then
 `dotnet run --project Maple2.File.Ingest --`. Do not use `--drop-data` as a routine refresh command.
+
+## Read-only trigger archive coverage
+
+The continuation pass parses all 4,584 normalized trigger definitions from the
+available NA/Live client data and verifies that every operation name is registered.
+It also checks predicate/effect/transition preservation for 265 composite groups
+across 105 trigger scripts. This establishes parsing and binding coverage, not
+completion of every trigger operation's gameplay behavior.
+
+## Club protocol evidence
+
+The club selection request and existing response commands are corroborated by the
+v12 [outbound club decoder](https://github.com/kOchirasu/MapleShark2-Scripts/blob/a1ff30dadb279c6db68cae7576a2fcd117abf08d/Outbound/0x0096.py)
+and [inbound club decoder](https://github.com/kOchirasu/MapleShark2-Scripts/blob/a1ff30dadb279c6db68cae7576a2fcd117abf08d/Inbound/0x00F8.py).
+Response commands 13 and 22 carry club ID, selector ID, and the observed level value
+1; byte-layout tests cover both. The current metadata permits selectors 1–3,
+mapped to their level-1 effects. No fee or unknown fields were invented.
+
+Leader-only selection is enforced as server policy and is corroborated by the
+leader receipt flow; no captured non-leader attempt was available. In-client
+confirmation remains distinct from this source/protocol evidence.
 
 ## Docker build context
 

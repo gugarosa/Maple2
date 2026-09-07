@@ -209,7 +209,8 @@ keeps C# checkout line endings consistent across workstations and CI.
 
 ### Opt-in persistence tests
 
-`DungeonPersistenceTests` exercises account-wide migration and rank-mail transactions
+`GameStoragePersistenceTests` exercises account-wide migration, rank-mail transactions,
+and club buff persistence
 against MySQL. It creates a uniquely named temporary game database and deletes only
 that database afterward. It does not load connection settings from `.env`.
 
@@ -219,11 +220,32 @@ and point `DATA_DB_NAME` to an ingested database whose name starts with
 
 ```powershell
 $env:MAPLE2_RUN_DB_TESTS = "1"
-dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~DungeonPersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~GameStoragePersistenceTests"
 ```
 
 These tests are explicitly selected, not run against normal development or player
 databases by the default test command.
+
+### Read-only client trigger validation
+
+With a compatible client installed, this explicit test imports its trigger metadata
+in memory and checks runtime parsing, operation mappings, and composite conditions.
+It does not change client files or connect to a database.
+
+```powershell
+$env:MS2_DATA_FOLDER = "C:\Path\To\MapleStory2\Data"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~CompositeTriggerArchiveTests"
+```
+
+Re-ingest metadata after updating trigger normalization so persisted scripts use the
+same canonical representation.
+
+The same read-only approach covers event carrier patrols and combat-exit AI:
+
+```powershell
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~EventPatrolArchiveTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~AiLifecycleArchiveTests"
+```
 
 ### Measuring damage in game
 

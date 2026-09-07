@@ -6,10 +6,92 @@ using Maple2.File.Ingest.Mapper;
 using Maple2.Model.Enum;
 using Maple2.Server.Game.Trigger;
 using Maple2.Server.Game.Trigger.Helpers;
+using TriggerDefinition = Maple2.Server.Game.Trigger.Helpers.Trigger;
 
 namespace Maple2.Server.Tests.File.Ingest;
 
 public class TriggerMapperTests {
+    [Test]
+    public void ActionRenameDoesNotRequireAFunctionSplitter() {
+        var document = new XmlDocument();
+        document.LoadXml("""
+            <ms2><state name="start"><onEnter>
+              <action name="DungeonVariable" varID="2" value="1" />
+            </onEnter></state></ms2>
+            """);
+
+        document.LoadXml(TriggerMapper.NormalizeTriggerXmlNames(document));
+        var action = (XmlElement) document.SelectSingleNode("//action")!;
+        Assert.That(action.GetAttribute("name"), Is.EqualTo("set_dungeon_variable"));
+        Assert.That(action.GetAttribute("var_id"), Is.EqualTo("2"));
+        Assert.That(TriggerFunctionMapping.ActionMap[action.GetAttribute("name")](action.Attributes),
+            Is.TypeOf<TriggerDefinition.SetDungeonVariable>());
+    }
+
+    [TestCase("AddCinematicTalk", "align", "Reft", "left")]
+    [TestCase("CreateFieldGame", "type", "MapleSurvive", "MapleSurvival")]
+    public void KnownSourceEnumSpellingsAreNormalizedBeforeRuntime(
+        string actionName, string attribute, string source, string expected) {
+        var document = new XmlDocument();
+        document.LoadXml($"""
+            <ms2><state name="start"><onEnter>
+              <action name="{actionName}" {attribute}="{source}" />
+            </onEnter></state></ms2>
+            """);
+
+        document.LoadXml(TriggerMapper.NormalizeTriggerXmlNames(document));
+        var action = (XmlElement) document.SelectSingleNode("//action")!;
+        Assert.That(action.GetAttribute(attribute), Is.EqualTo(expected));
+    }
+
+    [TestCase("UserDetected", true)]
+    [TestCase("!UserDetected", false)]
+    public void NegatedSourceBoxSelectorUsesCanonicalConditionNegation(string name, bool negate) {
+        var document = new XmlDocument();
+        document.LoadXml($"""
+            <ms2><state name="start">
+              <condition name="{name}" arg1="!100"><transition state="complete" /></condition>
+            </state><state name="complete" /></ms2>
+            """);
+
+        document.LoadXml(TriggerMapper.NormalizeTriggerXmlNames(document));
+        XmlElement condition = (XmlElement) document.SelectSingleNode("//condition")!;
+        Assert.That(condition.GetAttribute("name"), Is.EqualTo("user_detected"));
+        Assert.That(condition.GetAttribute("box_ids"), Is.EqualTo("100"));
+        Assert.That(condition.GetAttribute("negate"), Is.EqualTo(negate ? "true" : "false"));
+    }
+
+    [Test]
+    public void GroupActionsArePromotedToCanonicalConditionBodyInOrder() {
+        var document = new XmlDocument();
+        document.LoadXml("""
+            <ms2>
+              <state name="start">
+                <condition name="AllOf">
+                  <group>
+                    <condition name="True" />
+                    <action name="SetUserValue" key="first" value="1" triggerId="1" />
+                    <action name="SetUserValue" key="second" value="1" triggerId="1" />
+                  </group>
+                  <action name="SetUserValue" key="third" value="1" triggerId="1" />
+                  <transition state="complete" />
+                </condition>
+              </state>
+              <state name="complete" />
+            </ms2>
+            """);
+
+        string normalized = TriggerMapper.NormalizeTriggerXmlNames(document);
+        document.LoadXml(normalized);
+        XmlNode condition = document.SelectSingleNode("//condition[@name='all_of']")!;
+        Assert.That(condition.SelectNodes("group/action"), Is.Empty);
+        Assert.That(condition.SelectNodes("action")!.Cast<XmlNode>()
+            .Select(action => action.Attributes!["key"]!.Value),
+            Is.EqualTo(new[] { "first", "second", "third" }));
+        Assert.That(condition.SelectSingleNode("transition")?.Attributes?["state"]?.Value,
+            Is.EqualTo("complete"));
+    }
+
     private const string WakeupTrigger = """
         <ms2>
           <state name="idle">
