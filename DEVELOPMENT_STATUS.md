@@ -50,6 +50,12 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 
 ### Runtime and operations
 
+- Workspace and client distribution follow [CLIENT_SETUP.md](CLIENT_SETUP.md):
+  one original client, one server checkout, and source-only setup artifacts in
+  sibling `release`. Mushroom 2.0.3 uses its normal installed location and existing
+  client-root selection. Native add-ons already match its bundled files; the
+  genuine original Nx backup is retained. No proprietary game installer or remote
+  service is claimed as published.
 - Docker Compose keeps the custom two-channel topology: `game-ch0` is instanced content and `game-ch1` is the normal channel.
 - MySQL, World, Login, and Game readiness checks gate startup. World, Login, and Game mount `config.yaml` read-only.
 - Metadata ingestion is an explicit Compose profile and uses the repository-local EF Core 7.0.20 tool manifest.

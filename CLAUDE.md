@@ -17,6 +17,22 @@ Local execution requires the .NET 8 SDK plus the `Microsoft.NETCore.App` and `Mi
 `global.json` keeps builds and formatting on a stable .NET 8 SDK. Do not bypass
 that selection merely because a newer SDK is installed.
 
+## Client and workspace boundaries
+
+The recommended workspace has sibling `client`, `server` (this checkout), and
+`release` directories. Read [CLIENT_SETUP.md](CLIENT_SETUP.md) before changing
+launching, native client add-ons, or distribution.
+
+- Use the official installed Mushroom Launcher and configure the existing client
+  root with `scripts\configure_client.ps1`; do not create a replacement launcher.
+- Preserve the genuine `x64\NxCharacter64.dll.bak`: the proxy loads it at runtime.
+- Do not overwrite original game binaries/data or ship them in the source-only
+  setup kit. Do not copy `.env`, launcher credentials, or user profiles into releases.
+- `scripts\build_client_release.ps1` packages an explicit allowlist from a clean
+  checkout. Remote endpoints, clean-PC prerequisites, signing, and proprietary
+  redistribution require separate evidence; local readiness does not prove them.
+- Do not launch/focus a game while another MapleStory session is in use.
+
 ## Build and Development Commands
 
 ### Initial Setup

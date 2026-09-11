@@ -14,12 +14,17 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
       - name: Test
         run: dotnet test -c Release
+      - name: Test operations and client setup
+        shell: pwsh
+        run: |
+          .\scripts\test_operations.ps1
+          .\scripts\test_client_setup.ps1

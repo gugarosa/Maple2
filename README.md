@@ -30,11 +30,17 @@ if a newer major SDK is installed; the Docker images include their own toolchain
 
 ### 1. Clone and configure
 
-```bash
-git clone https://github.com/gugarosa/Maple2.git
-cd Maple2
-cp .env.example .env
+```powershell
+git clone https://github.com/gugarosa/Maple2.git server
+New-Item -ItemType Directory -Path client, release
+Set-Location server
+Copy-Item .env.example .env
 ```
+
+Keep the original game installation in sibling `client`, this checkout in
+`server`, and generated distribution material in `release`. Mushroom Launcher
+keeps its normal per-user installation outside these folders. See
+[Client Setup](CLIENT_SETUP.md) for the exact file, launcher, and release contract.
 
 Edit `.env` with your settings:
 
@@ -43,7 +49,7 @@ Edit `.env` with your settings:
 DB_PASSWORD=yourStrongPassword
 
 # Path to your MapleStory2 client Data folder (for importing game data)
-MS2_DOCKER_DATA_FOLDER=C:/Nexon/Library/maplestory2/Data/
+MS2_DOCKER_DATA_FOLDER=D:\MapleStory\MapleStory2\client\Data
 
 # Local play
 CLIENT_BIND_IP=127.0.0.1
@@ -130,8 +136,16 @@ Usernames use 3-24 letters, numbers, or underscores. Passwords use 8-16 characte
 to fit the existing client's password field. Registration is explicit: an unknown
 or blank login never creates an account.
 
-Point your compatible MapleStory2 launcher at `127.0.0.1` (or your `GAME_IP`),
-port `20001`, then sign in with those credentials. Leave automatic login disabled
+Install [official Mushroom Launcher](https://github.com/shuabritze/mushroom-launcher/releases/tag/v2.0.3),
+close it, then configure the existing client:
+
+```powershell
+.\scripts\configure_client.ps1 -ClientPath "D:\MapleStory\MapleStory2\client"
+```
+
+Open `client\Mushroom Launcher.lnk`. The profile connects to Login at `127.0.0.1`
+port `20001`; for another machine pass the operator's Login host using
+`-LoginHost`. Sign in with your registered credentials. Leave automatic login disabled
 to type them in the client; keep the client's default local/locale login mode
 enabled. The optional debug console is not required for normal play.
 
@@ -139,7 +153,7 @@ If a compatible client is already patched but its launcher shortcut is missing,
 launch it from PowerShell using its own installation as the working directory:
 
 ```powershell
-$clientPath = "C:\Games\MapleStory2"
+$clientPath = "C:\Games\MapleStory2\client"
 Start-Process -FilePath "$clientPath\x64\MapleStory2.exe" -WorkingDirectory $clientPath `
     -ArgumentList "--nxapp=nxl", "--ip=127.0.0.1", "--port=20001"
 ```
@@ -311,7 +325,14 @@ Docker or touching real data:
 
 ```powershell
 .\scripts\test_operations.ps1
+.\scripts\test_client_setup.ps1
 ```
+
+Create a revision-stamped source-only client setup kit with
+`.\scripts\build_client_release.ps1` from a clean checkout. It goes to sibling
+`release`; no proprietary client, launcher binary, credentials, or user data is
+packaged. [Client Setup](CLIENT_SETUP.md#build-and-distribute-the-setup-kit)
+documents the distribution boundaries and remaining remote-release gates.
 
 ### Read-only client trigger validation
 
