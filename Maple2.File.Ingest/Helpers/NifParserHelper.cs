@@ -1,5 +1,5 @@
 ﻿using Maple2.File.IO.Nif;
-using Maple2.File.Parser;
+using Maple2.File.Parser.Tools;
 using Maple2.Model.Metadata;
 using Maple2.Tools.VectorMath;
 using System.Numerics;
@@ -15,10 +15,16 @@ public static class NifParserHelper {
     public static void ParseNif(List<PrefixedM2dReader> modelReaders) {
         Console.WriteLine("Parsing NIF files...");
 
-        NifParser nifParser = new(modelReaders);
+        // The parser's tolerant iterator omits failed reads; ingestion must fail instead of saving incomplete geometry.
+        var documents = modelReaders.SelectMany(reader => reader.Files
+            .Where(entry => entry.Name.EndsWith(".nif", StringComparison.Ordinal))
+            .Select(entry => {
+                string path = reader.PathPrefix + entry.Name;
+                return (Llid: LlidHash.Hash(path), Document: new NifDocument(path, reader.GetBytes(entry)));
+            }));
 
-        Parallel.ForEach(nifParser.Parse(), (item) => {
-            ParseNifDocument(item.llid, item.document);
+        Parallel.ForEach(documents, item => {
+            ParseNifDocument(item.Llid, item.Document);
         });
 
         nifDocuments = nifDocuments.OrderBy(item => item.Key).ToDictionary(item => item.Key, item => item.Value);

@@ -135,6 +135,8 @@ public class GuildQuestRewardPersistenceTests {
         }
         using (GameStorage.Request request = storage.Context()) {
             Assert.That(request.DeleteQuest(memberOwnerId, questId), Is.False);
+            Assert.That(request.ExpireQuest(memberOwnerId, memberQuest, startTime + 86400),
+                Is.EqualTo(QuestExpirationResult.RewardPending));
             Assert.That(request.GetQuests(memberOwnerId)[questId].State, Is.EqualTo(QuestState.Started));
         }
         using (GameStorage.Request request = storage.Context()) {
@@ -160,8 +162,14 @@ public class GuildQuestRewardPersistenceTests {
         memberQuest.StartTime = secondStartTime;
         memberQuest.EndTime = 0;
         memberQuest.CompletionCount = 0;
+        using (var context = new Ms2Context(gameOptions)) {
+            Assert.That(context.Database.ExecuteSqlInterpolated($"""
+                UPDATE `quest` SET `State` = {(int) QuestState.Started}, `StartTime` = {secondStartTime},
+                    `EndTime` = 0, `CompletionCount` = 0
+                WHERE `OwnerId` = {memberOwnerId} AND `Id` = {questId}
+                """), Is.EqualTo(1));
+        }
         using (GameStorage.Request request = storage.Context()) {
-            Assert.That(request.SaveQuests(memberOwnerId, [memberQuest]), Is.True);
             GuildQuestRewardResult second = request.AwardGuildQuestReward(
                 guildId, member.Id, questId, secondStartTime, 1);
             Assert.That(second.Status, Is.EqualTo(GuildQuestRewardStatus.Applied));

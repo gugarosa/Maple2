@@ -62,31 +62,38 @@ if (ms2Root == null) {
 }
 
 string xmlPath = Path.Combine(ms2Root, "Xml.m2d");
-string exportedPath = Path.Combine(ms2Root, "Resource/Exported.m2d");
+string exportedPath = Path.Combine(ms2Root, "Resource", "Exported.m2d");
 string serverPath = Path.Combine(ms2Root, "Server.m2d");
-
-if (!File.Exists(xmlPath)) {
-    throw new FileNotFoundException($"Could not find Xml.m2d file at path: {xmlPath}");
-}
-
-if (!File.Exists(exportedPath)) {
-    throw new FileNotFoundException($"Could not find Exported.m2d file at path: {exportedPath}");
-}
-
-if (!File.Exists(serverPath)) {
-    throw new FileNotFoundException($"Could not find Server.m2d file at path: {serverPath}\n" +
-                                    "You can download this file from here: https://github.com/Zintixx/MapleStory2-XML/releases/latest");
+(string Prefix, string ArchivePath)[] modelArchives = [
+    ("/library/", Path.Combine(ms2Root, "Resource", "Library.m2d")),
+    ("/model/map/", Path.Combine(ms2Root, "Resource", "Model", "Map.m2d")),
+    ("/model/effect/", Path.Combine(ms2Root, "Resource", "Model", "Effect.m2d")),
+    ("/model/camera/", Path.Combine(ms2Root, "Resource", "Model", "Camera.m2d")),
+    ("/model/tool/", Path.Combine(ms2Root, "Resource", "Model", "Tool.m2d")),
+    ("/model/item/", Path.Combine(ms2Root, "Resource", "Model", "Item.m2d")),
+    ("/model/npc/", Path.Combine(ms2Root, "Resource", "Model", "Npc.m2d")),
+    ("/model/path/", Path.Combine(ms2Root, "Resource", "Model", "Path.m2d")),
+    ("/model/character/", Path.Combine(ms2Root, "Resource", "Model", "Character.m2d")),
+    ("/model/textures/", Path.Combine(ms2Root, "Resource", "Model", "Textures.m2d")),
+];
+foreach (string archive in new[] { xmlPath, exportedPath, serverPath }.Concat(modelArchives.Select(entry => entry.ArchivePath))) {
+    foreach (string required in new[] { archive, Path.ChangeExtension(archive, ".m2h") }) {
+        if (!File.Exists(required)) {
+            throw new FileNotFoundException($"Required client archive is missing: {required}. Supply the original client archives and customized Server.m2d/Server.m2h before ingestion.");
+        }
+    }
 }
 
 string? server = Environment.GetEnvironmentVariable("DB_IP");
 string? port = Environment.GetEnvironmentVariable("DB_PORT");
 string? database = Environment.GetEnvironmentVariable("DATA_DB_NAME");
+string? gameDatabase = Environment.GetEnvironmentVariable("GAME_DB_NAME");
 string? user = Environment.GetEnvironmentVariable("DB_USER");
 string? password = Environment.GetEnvironmentVariable("DB_PASSWORD");
 
-if (server == null || port == null || database == null || user == null || password == null) {
-    throw new ArgumentException("Database connection information was not set");
-}
+SchemaVersionManager.ValidateDatabaseNames(database, gameDatabase);
+string dataDbConnection = DatabaseConnectionString.Build(server, port, database, user, password);
+string gameDbConnection = DatabaseConnectionString.Build(server, port, gameDatabase, user, password);
 
 string worldServerDir = Path.Combine(Paths.SOLUTION_DIR, "Maple2.Server.World");
 
@@ -102,15 +109,14 @@ using var xmlReader = new M2dReader(xmlPath);
 using var exportedReader = new M2dReader(exportedPath);
 using var serverReader = new M2dReader(serverPath);
 
-string dataDbConnection = $"Server={server};Port={port};Database={database};User={user};Password={password};oldguids=true";
-
 DbContextOptions options = new DbContextOptionsBuilder()
-    .UseMySql(dataDbConnection, ServerVersion.AutoDetect(dataDbConnection)).Options;
+    .UseMySql(dataDbConnection, ServerVersion.AutoDetect(gameDbConnection)).Options;
 
 Console.WriteLine("Connecting to metadata database...");
 using var metadataContext = new MetadataContext(options);
 
-bool schemaChanged = SchemaVersionManager.ShouldRecreateDatabase(metadataContext);
+bool created = metadataContext.Database.EnsureCreated();
+bool schemaChanged = !created && SchemaVersionManager.ShouldRecreateDatabase(metadataContext);
 
 if (dropData || schemaChanged) {
     Console.WriteLine("Dropping metadata database...");
@@ -130,19 +136,6 @@ Console.WriteLine("Starting data ingestion...");
 Filter.Load(xmlReader, locale, env);
 
 // new TriggerGenerator(xmlReader).Generate();
-
-var modelReaders = new List<PrefixedM2dReader> {
-    new PrefixedM2dReader("/library/", Path.Combine(ms2Root, "Resource/Library.m2d")),
-    new PrefixedM2dReader("/model/map/", Path.Combine(ms2Root, "Resource/Model/Map.m2d")),
-    new PrefixedM2dReader("/model/effect/", Path.Combine(ms2Root, "Resource/Model/Effect.m2d")),
-    new PrefixedM2dReader("/model/camera/", Path.Combine(ms2Root, "Resource/Model/Camera.m2d")),
-    new PrefixedM2dReader("/model/tool/", Path.Combine(ms2Root, "Resource/Model/Tool.m2d")),
-    new PrefixedM2dReader("/model/item/", Path.Combine(ms2Root, "Resource/Model/Item.m2d")),
-    new PrefixedM2dReader("/model/npc/", Path.Combine(ms2Root, "Resource/Model/Npc.m2d")),
-    new PrefixedM2dReader("/model/path/", Path.Combine(ms2Root, "Resource/Model/Path.m2d")),
-    new PrefixedM2dReader("/model/character/", Path.Combine(ms2Root, "Resource/Model/Character.m2d")),
-    new PrefixedM2dReader("/model/textures/", Path.Combine(ms2Root, "Resource/Model/Textures.m2d")),
-};
 
 UpdateDatabase(metadataContext, new TriggerMapper(xmlReader));
 
@@ -167,7 +160,17 @@ UpdateDatabase(metadataContext, new AchievementMapper(xmlReader));
 UpdateDatabase(metadataContext, new FunctionCubeMapper(xmlReader));
 UpdateDatabase(metadataContext, new BanWordMapper(xmlReader));
 
-NifParserHelper.ParseNif(modelReaders);
+List<PrefixedM2dReader> modelReaders = [];
+try {
+    foreach (var entry in modelArchives) {
+        modelReaders.Add(new PrefixedM2dReader(entry.Prefix, entry.ArchivePath));
+    }
+    NifParserHelper.ParseNif(modelReaders);
+} finally {
+    foreach (PrefixedM2dReader reader in modelReaders) {
+        reader.Dispose();
+    }
+}
 
 UpdateDatabase(metadataContext, new NifMapper());
 UpdateDatabase(metadataContext, new NxsMeshMapper());

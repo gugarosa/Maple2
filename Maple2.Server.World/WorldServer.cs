@@ -169,7 +169,7 @@ public class WorldServer {
         DateTime now = DateTime.Now;
         var lastMidnight = new DateTime(now.Year, now.Month, now.Day);
         if (lastReset < lastMidnight) {
-            db.DailyReset();
+            DailyReset();
         }
 
         DateTime nextMidnight = lastMidnight.AddDays(1);
@@ -184,13 +184,7 @@ public class WorldServer {
     }
 
     private void DailyReset() {
-        using GameStorage.Request db = gameStorage.Context();
-        db.DailyReset();
-        foreach ((int channelId, ChannelClient channelClient) in channelClients) {
-            channelClient.GameReset(new GameResetRequest {
-                Daily = new GameResetRequest.Types.Daily(),
-            });
-        }
+        GameReset(new GameResetRequest { Daily = new GameResetRequest.Types.Daily() });
     }
     #endregion
 
@@ -205,7 +199,7 @@ public class WorldServer {
         DateTime lastFridayMidnight = new DateTime(now.Year, now.Month, now.Day).AddDays(-daysSinceFriday);
 
         if (lastReset < lastFridayMidnight) {
-            db.WeeklyReset();
+            WeeklyReset();
         }
 
         DateTime nextFriday = now.Date.NextDayOfWeek(DayOfWeek.Friday);
@@ -219,13 +213,7 @@ public class WorldServer {
     }
 
     private void WeeklyReset() {
-        using GameStorage.Request db = gameStorage.Context();
-        db.WeeklyReset();
-        foreach ((int channelId, ChannelClient channelClient) in channelClients) {
-            channelClient.GameReset(new GameResetRequest {
-                Weekly = new GameResetRequest.Types.Weekly(),
-            });
-        }
+        GameReset(new GameResetRequest { Weekly = new GameResetRequest.Types.Weekly() });
     }
     #endregion
 
@@ -238,7 +226,7 @@ public class WorldServer {
         DateTime firstOfMonth = new DateTime(now.Year, now.Month, 1);
 
         if (lastReset < firstOfMonth) {
-            db.MonthlyReset();
+            MonthlyReset();
         }
 
         DateTime nextMonth = firstOfMonth.AddMonths(1);
@@ -254,13 +242,48 @@ public class WorldServer {
     }
 
     private void MonthlyReset() {
-        using GameStorage.Request db = gameStorage.Context();
-        db.MonthlyReset();
-        foreach ((int channelId, ChannelClient channelClient) in channelClients) {
-            channelClient.GameReset(new GameResetRequest {
-                Monthly = new GameResetRequest.Types.Monthly(),
-            });
+        GameReset(new GameResetRequest { Monthly = new GameResetRequest.Types.Monthly() });
+    }
+
+    public bool GameReset(GameResetRequest request) {
+        if (request.ResetCase is not (GameResetRequest.ResetOneofCase.Daily or
+            GameResetRequest.ResetOneofCase.Weekly or GameResetRequest.ResetOneofCase.Monthly)) {
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "A reset period is required."));
         }
+        try {
+            using GameStorage.Request db = gameStorage.Context();
+            switch (request.ResetCase) {
+                case GameResetRequest.ResetOneofCase.Daily:
+                    db.DailyReset();
+                    break;
+                case GameResetRequest.ResetOneofCase.Weekly:
+                    db.WeeklyReset();
+                    break;
+                case GameResetRequest.ResetOneofCase.Monthly:
+                    db.MonthlyReset();
+                    break;
+                default:
+                    throw new RpcException(new Status(StatusCode.InvalidArgument, "A reset period is required."));
+            }
+        } catch (Exception ex) when (ex is not RpcException) {
+            logger.Error(ex, "Failed {Reset} offline reset", request.ResetCase);
+            return false;
+        }
+
+        bool success = true;
+        foreach ((int channelId, ChannelClient channelClient) in channelClients) {
+            try {
+                GameResetResponse response = channelClient.GameReset(request, deadline: DateTime.UtcNow.AddMinutes(5));
+                if (response.Error != 0) {
+                    success = false;
+                    logger.Error("Channel {Channel} could not persist every {Reset} reset", channelId, request.ResetCase);
+                }
+            } catch (Exception ex) when (ex is RpcException or ObjectDisposedException) {
+                success = false;
+                logger.Error(ex, "Failed {Reset} reset on channel {Channel}", request.ResetCase, channelId);
+            }
+        }
+        return success;
     }
     #endregion
 

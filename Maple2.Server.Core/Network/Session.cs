@@ -30,6 +30,7 @@ public abstract class Session : IDisposable {
     private const int SEND_TIMEOUT_MS = 5000;
 
     public SessionState State { get; set; }
+    public virtual bool CanProcessPackets => !disposed && Volatile.Read(ref disconnecting) == 0;
 
     public EventHandler<string>? OnError;
     public EventHandler<IByteReader>? OnPacket;
@@ -72,8 +73,8 @@ public abstract class Session : IDisposable {
         );
         recvPipe = new Pipe(options);
 
-        // Allow client to close immediately
-        tcpClient.LingerState = new LingerOption(true, 0);
+        // Abortive close can discard the final login/migration response with a TCP reset.
+        tcpClient.LingerState = new LingerOption(false, 0);
         name = tcpClient.Client.RemoteEndPoint?.ToString() ?? "Unknown";
 
         byte[] sivBytes = RandomNumberGenerator.GetBytes(4);
@@ -381,7 +382,6 @@ public abstract class Session : IDisposable {
     }
 
     private void CloseClient() {
-        // Must close socket before network stream to prevent lingering
         client.Client?.Close();
         client.Close();
     }
@@ -411,6 +411,8 @@ public abstract class Session : IDisposable {
         short op = (short) (packet[1] << 8 | packet[0]);
         RecvOp opcode = (RecvOp) op;
         switch (opcode) {
+            case RecvOp.ResponseLogin:
+            case RecvOp.ResponseKey:
             case RecvOp.UserSync:
             case RecvOp.RequestTimeSync:
             case RecvOp.GuideObjectSync:

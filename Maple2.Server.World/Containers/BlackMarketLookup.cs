@@ -137,47 +137,24 @@ public class BlackMarketLookup : IDisposable {
     }
 
     public BlackMarketError Add(long listingId) {
-        using GameStorage.Request db = gameStorage.Context();
-        BlackMarketListing? listing = db.GetBlackMarketListing(listingId);
-        if (listing == null) {
-            return BlackMarketError.s_blackmarket_error_fail_register;
-        }
-
-        listings.TryAdd(listingId, listing);
-        return BlackMarketError.none;
+        return Refresh(listingId) ? BlackMarketError.none : BlackMarketError.s_blackmarket_error_fail_register;
     }
 
-    public BlackMarketError Remove(long listingId) {
-        if (!listings.TryRemove(listingId, out _)) {
-            return BlackMarketError.s_blackmarket_error_close;
+    public bool Refresh(long listingId) {
+        // ponytail: serialize cache refreshes so an older read cannot replace a newer one; shard only if contention warrants it.
+        lock (listings) {
+            using GameStorage.Request db = gameStorage.Context();
+            BlackMarketListing? listing = db.GetBlackMarketListing(listingId);
+            if (listing == null) {
+                listings.TryRemove(listingId, out _);
+                return false;
+            }
+            listings[listingId] = listing;
+            return true;
         }
-
-        using GameStorage.Request db = gameStorage.Context();
-        if (!db.DeleteBlackMarketListing(listingId)) {
-            return BlackMarketError.s_blackmarket_error_close;
-        }
-
-        return BlackMarketError.none;
-    }
-
-    public BlackMarketError Purchase(long listingId) {
-        using GameStorage.Request db = gameStorage.Context();
-
-        BlackMarketListing? listing = db.GetBlackMarketListing(listingId);
-
-        if (listing == null) {
-            listings.TryRemove(listingId, out _);
-            return BlackMarketError.none;
-        }
-
-        listings[listingId] = listing;
-        return BlackMarketError.none;
     }
 
     public void Dispose() {
-        foreach (BlackMarketListing listing in listings.Values) {
-            using GameStorage.Request db = gameStorage.Context();
-            db.SaveItems(listing.Id, listing.Item);
-        }
+        listings.Clear();
     }
 }

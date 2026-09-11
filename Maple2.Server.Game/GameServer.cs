@@ -159,21 +159,33 @@ public class GameServer : Server<GameSession> {
         return premiumMarketCache.TryGetValue(id, out PremiumMarketItem? item) ? item.AdditionalQuantities.FirstOrDefault(subItem => subItem.Id == subId) : null;
     }
 
-    public void DailyReset() {
-        foreach (GameSession session in sessions.Values) {
-            session.DailyReset();
+    public bool DailyReset() {
+        bool success = true;
+        foreach (GameSession session in GetResetSessions()) {
+            success &= session.DailyReset();
         }
+        return success;
     }
 
-    public void WeeklyReset() {
-        foreach (GameSession session in sessions.Values) {
-            session.WeeklyReset();
+    public bool WeeklyReset() {
+        bool success = true;
+        foreach (GameSession session in GetResetSessions()) {
+            success &= session.WeeklyReset();
         }
+        return success;
     }
 
-    public void MonthlyReset() {
-        foreach (GameSession session in sessions.Values) {
-            session.MonthlyReset();
+    public bool MonthlyReset() {
+        bool success = true;
+        foreach (GameSession session in GetResetSessions()) {
+            success &= session.MonthlyReset();
+        }
+        return success;
+    }
+
+    private GameSession[] GetResetSessions() {
+        lock (mutex) {
+            return connectingSessions.Where(session => session.AccountId > 0).Concat(sessions.Values).Distinct().ToArray();
         }
     }
 

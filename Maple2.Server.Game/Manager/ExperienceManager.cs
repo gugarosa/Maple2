@@ -143,7 +143,8 @@ public sealed class ExperienceManager {
         return AddScaledExp(expGained, message);
     }
 
-    public long AddExp(ExpType expType, float modifier = 1f, long additionalExp = 0) {
+    public long AddExp(ExpType expType, float modifier = 1f, long additionalExp = 0,
+        ICollection<Action>? notifications = null) {
         if (session.Field is null) return 0;
         if (!session.TableMetadata.CommonExpTable.Entries.TryGetValue(expType, out CommonExpTable.Entry? entry)
             || !session.TableMetadata.ExpTable.ExpBase.TryGetValue(entry.ExpTableId, out IReadOnlyDictionary<int, long>? expBase)) {
@@ -186,7 +187,7 @@ public sealed class ExperienceManager {
         long baseExp = (long) ((expValue * modifier) * entry.Factor);
         float mult = ConfigProvider.Settings.ExpMultiplier(expType);
         long scaled = ScaleExp(baseExp, mult);
-        return AddScaledExp(scaled + additionalExp, expType.Message());
+        return AddScaledExp(scaled + additionalExp, expType.Message(), notifications);
     }
 
     // Applies the appropriate multiplier for the given ExpType to a provided base amount (unscaled)
@@ -216,12 +217,14 @@ public sealed class ExperienceManager {
         return scaled > long.MaxValue ? long.MaxValue : (long) scaled;
     }
 
-    private long AddScaledExp(long scaledAmount, ExpMessageCode message) {
+    private long AddScaledExp(long scaledAmount, ExpMessageCode message, ICollection<Action>? notifications = null) {
         long total = AddRestedExperience(scaledAmount);
-        LevelUp();
-        AddPrestigeExp(message.Type());
+        LevelUp(notifications);
+        AddPrestigeExp(message.Type(), notifications);
         session.Send(ExperienceUpPacket.Add(total, Exp, RestExp, message));
-        session.ConditionUpdate(ConditionType.exp, counter: total);
+        session.Item.AfterUnlock(() => {
+            if (!session.PersistenceAborted) session.ConditionUpdate(ConditionType.exp, counter: total);
+        }, notifications);
         return total;
     }
 
@@ -238,7 +241,7 @@ public sealed class ExperienceManager {
         AddBaseExp(baseExp, ExpType.monster);
     }
 
-    public bool LevelUp() {
+    public bool LevelUp(ICollection<Action>? notifications = null) {
         int startLevel = Level;
         for (int level = startLevel; level < Constants.characterMaxLevel; level++) {
             if (!session.TableMetadata.ExpTable.NextExp.TryGetValue(level, out long expToNextLevel) || expToNextLevel > Exp) {
@@ -252,8 +255,13 @@ public sealed class ExperienceManager {
             session.Player.Flag |= PlayerObjectFlag.Level;
             session.Dungeon.UpdateDungeonEnterLimit();
             session.Field?.Broadcast(LevelUpPacket.LevelUp(session.Player));
-            session.ConditionUpdate(ConditionType.level_up, codeLong: (int) session.Player.Value.Character.Job.Code(), targetLong: Level);
-            session.ConditionUpdate(ConditionType.level, targetLong: Level);
+            int jobCode = (int) session.Player.Value.Character.Job.Code();
+            short level = Level;
+            session.Item.AfterUnlock(() => {
+                if (session.PersistenceAborted) return;
+                session.ConditionUpdate(ConditionType.level_up, codeLong: jobCode, targetLong: level);
+                session.ConditionUpdate(ConditionType.level, targetLong: level);
+            }, notifications);
             session.Config.UpdateDeathPenalty(0);
             session.Stats.Refresh();
 
@@ -267,7 +275,7 @@ public sealed class ExperienceManager {
         return startLevel != Level;
     }
 
-    private void AddPrestigeExp(ExpType expType) {
+    private void AddPrestigeExp(ExpType expType, ICollection<Action>? notifications = null) {
         if (Level < Constants.AdventureLevelStartLevel) {
             return;
         }
@@ -293,15 +301,18 @@ public sealed class ExperienceManager {
         }
         session.Send(PrestigePacket.AddExp(PrestigeCurrentExp, amount));
         if (PrestigeLevel > startLevel) {
-            PrestigeLevelUp(PrestigeLevel - startLevel);
+            PrestigeLevelUp(PrestigeLevel - startLevel, notifications);
         }
     }
 
-    public void PrestigeLevelUp(int amount = 1) {
+    public void PrestigeLevelUp(int amount = 1, ICollection<Action>? notifications = null) {
         PrestigeLevel = Math.Clamp(PrestigeLevel + amount, amount, Constants.AdventureLevelLimit);
         PrestigeLevelsGained += amount;
-        session.ConditionUpdate(ConditionType.adventure_level, counter: amount);
-        session.ConditionUpdate(ConditionType.adventure_level_up, counter: amount);
+        session.Item.AfterUnlock(() => {
+            if (session.PersistenceAborted) return;
+            session.ConditionUpdate(ConditionType.adventure_level, counter: amount);
+            session.ConditionUpdate(ConditionType.adventure_level_up, counter: amount);
+        }, notifications);
         foreach (PrestigeMission mission in PrestigeMissions) {
             mission.GainedLevels += amount;
         }
@@ -312,7 +323,7 @@ public sealed class ExperienceManager {
                 break;
             }
 
-            if (!session.Item.Inventory.Add(item, true)) {
+            if (!session.Item.Inventory.Add(item, true, notifications: notifications)) {
                 session.Item.MailItem(item);
             }
         }

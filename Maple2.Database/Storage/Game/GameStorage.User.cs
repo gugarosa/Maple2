@@ -1,13 +1,11 @@
-﻿using System.Text.Json;
-using Maple2.Database.Extensions;
+﻿using Maple2.Database.Extensions;
 using Maple2.Database.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
+using Maple2.Model.Validators;
 using Maple2.Server.Game.Manager.Config;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.ChangeTracking;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.Logging;
 using Account = Maple2.Model.Game.Account;
 using Character = Maple2.Model.Game.Character;
@@ -42,25 +40,24 @@ public partial class GameStorage {
         }
 
         public bool VerifyPassword(long accountId, string password) {
-            Model.Account? account = Context.Account.Find(accountId);
-#if DEBUG
-            if (string.IsNullOrEmpty(account?.Password)) {
-                return true;
+            if (!AccountCredentialValidator.ValidLoginPassword(password)) {
+                return false;
             }
-#endif
-            // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
-            return account != null && BCrypt.Net.BCrypt.Verify(password, account.Password);
+            Model.Account? account = Context.Account.Find(accountId);
+            if (account == null || string.IsNullOrEmpty(account.Password)) {
+                return false;
+            }
+            try {
+                return BCrypt.Net.BCrypt.Verify(password, account.Password);
+            } catch (BCrypt.Net.SaltParseException ex) {
+                Logger.LogError(ex, "Account {AccountId} has an invalid password hash", accountId);
+                return false;
+            }
         }
 
         public bool UpdateMachineId(long accountId, Guid machineId) {
-            Model.Account? account = Context.Account.Find(accountId);
-            if (account == null) {
-                return false;
-            }
-            account.MachineId = machineId;
-            Context.Account.Update(account);
-
-            return Context.TrySaveChanges();
+            return Context.Account.Where(account => account.Id == accountId)
+                .ExecuteUpdate(update => update.SetProperty(account => account.MachineId, machineId)) == 1;
         }
 
         public (Account?, IList<Character>?) ListCharacters(long accountId) {
@@ -231,11 +228,20 @@ public partial class GameStorage {
 
         // We pass in objectId only for Player initialization.
         public Player? LoadPlayer(long accountId, long characterId, int objectId, short channel) {
+            using var transaction = Context.Database.CurrentTransaction == null
+                ? Context.Database.BeginTransaction(System.Data.IsolationLevel.ReadCommitted) : null;
             Context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.TrackAll;
 
-            Model.Account? account = Context.Account.Find(accountId);
+            // Claim online ownership before reading a snapshot that an offline reset could invalidate.
+            bool accountTracked = Context.Account.Local.Any(value => value.Id == accountId);
+            Model.Account? account = Context.Account
+                .FromSqlInterpolated($"SELECT * FROM `account` WHERE `Id` = {accountId} FOR UPDATE")
+                .SingleOrDefault();
             if (account == null) {
                 return null;
+            }
+            if (accountTracked) {
+                Context.Entry(account).Reload();
             }
 
             Model.Character? character = Context.Character.FirstOrDefault(character =>
@@ -296,6 +302,7 @@ public partial class GameStorage {
                 },
             };
 
+            transaction?.Commit();
             return player;
         }
 
@@ -336,89 +343,13 @@ public partial class GameStorage {
             unlock.CharacterId = character.Id;
             Context.Update(unlock);
 
-            bool saved = false;
-            int attempt = 0;
-            const int maxAttempts = 5;
-
-            while (!saved && attempt < maxAttempts) {
-                try {
-                    attempt++;
-                    Context.SaveChanges();
-                    saved = true;
-                } catch (DbUpdateConcurrencyException ex) {
-                    Logger.LogWarning("> Concurrency conflict (attempt {Attempt}) for CharacterId={CharacterId}", attempt, player.Character.Id);
-                    foreach (EntityEntry entry in ex.Entries) {
-                        string entityName = entry.Metadata.ClrType.Name;
-                        if (entry.Entity is not Model.Account && entry.Entity is not Model.Character && entry.Entity is not CharacterUnlock) {
-                            // Intentionally re-throw for unsupported entity types as fail-fast behavior during development.
-                            // SavePlayer only handles concurrency conflicts for Account, Character, and CharacterUnlock.
-                            // If other entities are unexpectedly involved, this indicates a logic error that should be caught immediately.
-                            Logger.LogInformation("  Unsupported concurrency entity {EntityName}, rethrowing.", entityName);
-                            throw;
-                        }
-
-                        PropertyValues? databaseValues = entry.GetDatabaseValues();
-                        if (databaseValues == null) {
-                            Logger.LogInformation("  Entity {EntityName} appears deleted in DB. Aborting save.", entityName);
-                            return false;
-                        }
-                        PropertyValues proposedValues = entry.CurrentValues;
-
-                        Logger.LogWarning("  Diff for {EntityName}:", entityName);
-                        foreach (IProperty property in proposedValues.Properties) {
-                            if (property.IsConcurrencyToken) {
-                                object? originalValue = entry.OriginalValues[property];
-                                object? currentValue = proposedValues[property];
-                                object? databaseValue2 = databaseValues[property];
-                                Logger.LogError("    {PropertyName}: original='{S}' current='{FormatValue1}' db='{S1}' <concurrency token>", property.Name, FormatValue(originalValue), FormatValue(currentValue), FormatValue(databaseValue2));
-                                continue;
-                            }
-                            if (property.Name.Equals("Password", StringComparison.OrdinalIgnoreCase)) {
-                                continue;
-                            }
-
-                            object? proposedValue = proposedValues[property];
-                            object? databaseValue = databaseValues[property];
-
-                            // Handle CreationTime as immutable: always trust database value and suppress logging
-                            if (property.Name.Equals("CreationTime", StringComparison.OrdinalIgnoreCase)) {
-                                if (proposedValue is DateTime propCt && databaseValue is DateTime dbCt) {
-                                    // If they differ only by fractional seconds / timezone, normalize by taking db value
-                                    if (propCt != dbCt) {
-                                        proposedValues[property] = dbCt;
-                                    }
-                                } else if (databaseValue != null) {
-                                    proposedValues[property] = databaseValue; // non-DateTime edge case
-                                }
-                                continue; // don't log CreationTime differences
-                            }
-
-                            if (property.Name.Contains("CreationTime", StringComparison.OrdinalIgnoreCase) &&
-                                proposedValue is DateTime pvDt && pvDt == default &&
-                                databaseValue is DateTime dbDt && dbDt != default) {
-                                proposedValues[property] = databaseValue;
-                                continue;
-                            }
-
-                            if (IsJsonStructurallyEqual(property.Name, proposedValue, databaseValue)) {
-                                // Logger.LogWarning($"    {property.Name}: proposed and db are structurally equal JSON. proposed='{FormatValue(proposedValue)}' db='{FormatValue(databaseValue)}'");
-                                continue;
-                            }
-
-                            if (!Equals(proposedValue, databaseValue)) {
-                                Logger.LogInformation("    {PropertyName}: proposed='{S}' db='{FormatValue1}'", property.Name, FormatValue(proposedValue), FormatValue(databaseValue));
-                            }
-                        }
-
-                        entry.OriginalValues.SetValues(databaseValues);
-                    }
-                } catch (Exception ex) {
-                    Logger.LogError("> Save failed (non-concurrency) CharacterId={CharacterId} attempt={Attempt}\n{Exception}", player.Character.Id, attempt, ex);
-                    return false;
-                }
-            }
-            if (!saved) {
-                Logger.LogError("> Save failed after {MaxAttempts} attempts CharacterId={CharacterId}", maxAttempts, player.Character.Id);
+            try {
+                Context.SaveChanges();
+            } catch (DbUpdateConcurrencyException ex) {
+                Logger.LogWarning(ex, "Rejected stale player snapshot for character {CharacterId}; reload is required", player.Character.Id);
+                return false;
+            } catch (Exception ex) {
+                Logger.LogError(ex, "Failed to save player {CharacterId}", player.Character.Id);
                 return false;
             }
 
@@ -434,34 +365,6 @@ public partial class GameStorage {
 
             Logger.LogInformation("> Save complete {ContextId}:{CharacterId}", Context.ContextId, player.Character.Id);
             return true;
-        }
-
-        // Added helper methods for JSON diff suppression & formatting
-        private static readonly HashSet<string> JsonNoiseProperties = new(StringComparer.OrdinalIgnoreCase) {
-            "Cooldown",
-            "Currency",
-            "Experience",
-            "Mastery",
-            "Profile",
-        };
-
-        private static bool IsJsonStructurallyEqual(string propertyName, object? proposed, object? database) {
-            if (!JsonNoiseProperties.Contains(propertyName)) return false;
-            if (proposed == null && database == null) return true;
-            if (proposed == null || database == null) return false;
-            try {
-                string p = JsonSerializer.Serialize(proposed);
-                string d = JsonSerializer.Serialize(database);
-                return string.Equals(p, d, StringComparison.Ordinal);
-            } catch { return false; }
-        }
-
-        private static string FormatValue(object? value) {
-            if (value == null) return "<null>";
-            if (value is DateTime dt) return dt.ToString("O");
-            Type t = value.GetType();
-            if (t.IsPrimitive || value is string) return value.ToString() ?? string.Empty;
-            return t.Name;
         }
 
         public bool SaveCharacter(Character character) {
@@ -577,15 +480,10 @@ public partial class GameStorage {
 
         #region Create
         public Account CreateAccount(Account account, string password) {
+            using var transaction = Context.Database.CurrentTransaction == null ? Context.Database.BeginTransaction() : null;
             Model.Account model = account;
             model.Id = 0;
             model.Password = BCrypt.Net.BCrypt.HashPassword(password, 13);
-#if DEBUG
-            model.Currency = new AccountCurrency {
-                Meret = 9_999_999,
-            };
-            model.Permissions = AdminPermissions.Admin.ToString();
-#endif
             Context.Account.Add(model);
             Context.SaveChanges(); // Exception if failed.
 
@@ -600,6 +498,7 @@ public partial class GameStorage {
             });
             Context.SaveChanges(); // Exception if failed.
 
+            transaction?.Commit();
             return model;
         }
 
@@ -607,11 +506,6 @@ public partial class GameStorage {
             Model.Character model = character;
             model.Id = 0;
             model.Channel = -1;
-#if DEBUG
-            model.Currency = new CharacterCurrency {
-                Meso = 999999999,
-            };
-#endif
             Context.Character.Add(model);
             return Context.TrySaveChanges() ? model : null;
         }

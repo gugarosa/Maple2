@@ -175,7 +175,11 @@ public class GotoCommand : GameCommand {
                 return;
             }
 
-            session.MigrationSave();
+            if (!session.MigrationSave()) {
+                session.Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
+                ctx.ExitCode = 1;
+                return;
+            }
             try {
                 var request = new MigrateOutRequest {
                     AccountId = session.AccountId,

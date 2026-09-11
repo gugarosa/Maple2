@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using Grpc.Core;
 using Maple2.Model.Enum;
+using Maple2.Model.Error;
 using Maple2.Model.Game;
 using Maple2.PacketLib.Tools;
 using Maple2.Server.Core.Constants;
@@ -24,7 +25,10 @@ public class ChannelHandler : PacketHandler<GameSession> {
 
     public override void Handle(GameSession session, IByteReader packet) {
         short channel = packet.ReadShort();
-        session.MigrationSave();
+        if (!session.MigrationSave()) {
+            session.Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
+            return;
+        }
         try {
             var request = new MigrateOutRequest {
                 AccountId = session.AccountId,

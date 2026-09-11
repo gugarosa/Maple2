@@ -120,10 +120,6 @@ public class DungeonManager {
             record.UnionSubClears = 0;
             record.ExtraSubClears = 0;
         }
-        using GameStorage.Request db = session.GameStorage.Context();
-        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
-        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
-        session.Send(DungeonRoomPacket.Load(Records));
     }
 
     public void ResetWeeklyClears() {
@@ -132,19 +128,14 @@ public class DungeonManager {
             record.ExtraClears = 0;
         }
         DungeonRankRewardSelector.RemoveExpired(RankRewards, DateTimeOffset.Now.ToUnixTimeSeconds());
+    }
 
-        using GameStorage.Request db = session.GameStorage.Context();
-        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
-        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
-        DateTime? lastModified = db.SaveDungeonRankRewards(session.CharacterId, RankRewards);
-        if (lastModified == null) {
-            logger.Error("Failed to reset dungeon rank rewards for character {CharacterId}", session.CharacterId);
-        } else {
-            session.Player.Value.Unlock.LastModified = lastModified.Value;
-        }
-
+    public void NotifyReset(bool weekly) {
         session.Send(DungeonRoomPacket.Load(Records));
-        session.Send(DungeonRoomPacket.RankRewards(RankRewards));
+        if (weekly) {
+            UpdateDungeonEnterLimit();
+            session.Send(DungeonRoomPacket.RankRewards(RankRewards));
+        }
     }
 
     public void LoadField() {
@@ -910,7 +901,10 @@ public class DungeonManager {
             return;
         }
 
-        session.MigrationSave();
+        if (!session.MigrationSave()) {
+            session.Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
+            return;
+        }
         try {
             var request = new MigrateOutRequest {
                 AccountId = session.AccountId,
@@ -934,8 +928,8 @@ public class DungeonManager {
         }
     }
 
-    public void Save(GameStorage.Request db) {
-        db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray());
-        db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
+    public bool Save(GameStorage.Request db) {
+        return db.SaveDungeonRecords(session.CharacterId, accountWide: false, CharacterRecords.Values.ToArray()) &&
+               db.SaveDungeonRecords(session.AccountId, accountWide: true, AccountRecords.Values.ToArray());
     }
 }

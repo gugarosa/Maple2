@@ -6,7 +6,6 @@ using Maple2.Model.Game;
 using Maple2.Model.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Z.EntityFramework.Plus;
 using Home = Maple2.Model.Game.Home;
 using InteractCube = Maple2.Model.Game.InteractCube;
 using HomeLayout = Maple2.Model.Game.HomeLayout;
@@ -65,7 +64,7 @@ public partial class GameStorage {
             ugcMap.ExpiryTime = DateTime.UtcNow + days;
             ugcMap.Name = characterName;
             Context.UgcMap.Update(ugcMap);
-            Context.UgcMapCube.Where(cube => cube.UgcMapId == ugcMap.Id).Delete();
+            Context.UgcMapCube.Where(cube => cube.UgcMapId == ugcMap.Id).ExecuteDelete();
 
             return Context.TrySaveChanges() ? ToPlotInfo(ugcMap) : null;
         }
@@ -105,7 +104,7 @@ public partial class GameStorage {
             model.OwnerId = 0;
             model.Name = string.Empty;
             model.ExpiryTime = DateTimeOffset.UtcNow;
-            Context.UgcMapCube.Where(cube => cube.UgcMapId == model.Id).Delete();
+            Context.UgcMapCube.Where(cube => cube.UgcMapId == model.Id).ExecuteDelete();
             Context.UgcMap.Update(model);
 
             return Context.TrySaveChanges() ? ToPlotInfo(model) : null;

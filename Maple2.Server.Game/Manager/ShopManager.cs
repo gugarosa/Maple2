@@ -315,6 +315,17 @@ public sealed class ShopManager {
     }
 
     public void InstantRestock() {
+        var notifications = new List<Action>();
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
+            }
+            InstantRestockInternal(notifications);
+        }
+        notifications.ForEach(session.Item.AfterUnlock);
+    }
+
+    private void InstantRestockInternal(List<Action> notifications) {
         if (activeShop?.RestockData.DisableInstantRestock != false) {
             return;
         }
@@ -328,7 +339,7 @@ public sealed class ShopManager {
             cost = multiplierCost.Cost;
             currencyType = multiplierCost.CurrencyType;
         }
-        if (!Pay(new ShopCost { Amount = cost, Type = currencyType }, activeShop.RestockData.Price)) {
+        if (!PayInternal(new ShopCost { Amount = cost, Type = currencyType }, cost, notifications)) {
             session.Send(ShopPacket.Error(ShopError.s_err_lack_shopitem)); // not neccessarily the right error.
             return;
         }
@@ -340,9 +351,13 @@ public sealed class ShopManager {
         }
         data.RestockCount++;
         activeShop = CreateInstancedShop(shop.Metadata, data, data.RestockTime);
-        session.Send(ShopPacket.InstantRestock());
-        session.Send(ShopPacket.Open(activeShop, shopNpcId));
-        session.Send(ShopPacket.LoadItems(activeShop.Items.Values));
+        Shop restocked = activeShop;
+        int npcId = shopNpcId;
+        notifications.Add(() => {
+            session.Send(ShopPacket.InstantRestock());
+            session.Send(ShopPacket.Open(restocked, npcId));
+            session.Send(ShopPacket.LoadItems(restocked.Items.Values));
+        });
     }
 
     public void Refresh() {
@@ -411,7 +426,23 @@ public sealed class ShopManager {
 
 
     public void Buy(int shopItemId, int quantity) {
+        var notifications = new List<Action>();
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
+            }
+            BuyInternal(shopItemId, quantity, notifications);
+        }
+        notifications.ForEach(session.Item.AfterUnlock);
+    }
+
+    private void BuyInternal(int shopItemId, int quantity, List<Action> notifications) {
         if (activeShop == null) {
+            return;
+        }
+
+        if (quantity <= 0) {
+            session.Send(ShopPacket.Error(ShopError.s_err_invalid_item));
             return;
         }
 
@@ -473,22 +504,41 @@ public sealed class ShopManager {
             return;
         }
 
-        int price = shopItem.Metadata.Cost.SaleAmount > 0 ? shopItem.Metadata.Cost.SaleAmount * quantity : shopItem.Metadata.Cost.Amount * quantity;
-        if (!Pay(shopItem.Metadata.Cost, price)) {
+        int price;
+        try {
+            int unitPrice = shopItem.Metadata.Cost.SaleAmount > 0 ? shopItem.Metadata.Cost.SaleAmount : shopItem.Metadata.Cost.Amount;
+            price = checked(unitPrice * quantity);
+        } catch (OverflowException) {
+            session.Send(ShopPacket.Error(ShopError.s_err_invalid_item));
+            return;
+        }
+        if (!PayInternal(shopItem.Metadata.Cost, price, notifications)) {
             return;
         }
 
         if (activeShop.Metadata.EnableReset && shopItem.StockCount > 0) {
             UpdateStockCount(activeShop.Id, shopItem, quantity);
-            session.Send(ShopPacket.Update(shopItem.Id, shopItem.StockPurchased * shopItem.Metadata.SellUnit));
+            int stockPurchased = shopItem.StockPurchased * shopItem.Metadata.SellUnit;
+            notifications.Add(() => session.Send(ShopPacket.Update(shopItem.Id, stockPurchased)));
         }
 
-        session.Item.Inventory.Add(item, true);
-        session.Send(ShopPacket.Buy(shopItem, shopItem.Metadata.SellUnit * quantity, price));
-        session.ConditionUpdate(ConditionType.shop_buy, counter: quantity, codeLong: shopItem.Item.Id);
+        session.Item.Inventory.Add(item, true, notifications: notifications);
+        notifications.Add(() => session.Send(ShopPacket.Buy(shopItem, shopItem.Metadata.SellUnit * quantity, price)));
+        notifications.Add(() => session.ConditionUpdate(ConditionType.shop_buy, counter: quantity, codeLong: shopItem.Item.Id));
     }
 
     public void PurchaseBuyBack(int id) {
+        var notifications = new List<Action>();
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
+            }
+            PurchaseBuyBackInternal(id, notifications);
+        }
+        notifications.ForEach(session.Item.AfterUnlock);
+    }
+
+    private void PurchaseBuyBackInternal(int id, List<Action> notifications) {
         if (activeShop == null) {
             return;
         }
@@ -503,7 +553,7 @@ public sealed class ShopManager {
             return;
         }
 
-        if (!Pay(new ShopCost { Type = ShopCurrencyType.Meso, Amount = (int) buyBackItem.Price }, (int) buyBackItem.Price)) {
+        if (!PayInternal(new ShopCost { Type = ShopCurrencyType.Meso }, buyBackItem.Price, notifications)) {
             return;
         }
 
@@ -511,62 +561,101 @@ public sealed class ShopManager {
             logger.Error("Failed to remove buyback item {Id}", id);
             return;
         }
-        session.Item.Inventory.Add(buyBackItem.Item, true);
-        session.Send(ShopPacket.RemoveBuyBackItem(id));
+        session.Item.Inventory.Add(buyBackItem.Item, true, notifications: notifications);
+        notifications.Add(() => session.Send(ShopPacket.RemoveBuyBackItem(id)));
     }
 
     public void Sell(long itemUid, int quantity) {
-        if (activeShop == null) {
-            return;
+        var notifications = new List<Action>();
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
+            }
+            if (activeShop == null) {
+                return;
+            }
+
+            if (activeShop.Metadata.IsOnlySell) {
+                session.Send(ShopPacket.Error(ShopError.s_msg_cant_sell_to_only_sell_shop));
+                return;
+            }
+
+            Item? item = session.Item.Inventory.Get(itemUid);
+            if (item == null || !item.Metadata.Limit.ShopSell) {
+                return;
+            }
+
+            int amount = quantity == -1 ? item.Amount : quantity;
+            if (amount <= 0 || amount > item.Amount) {
+                session.Send(ShopPacket.Error(ShopError.s_msg_cant_sell));
+                return;
+            }
+
+            long sellPrice;
+            try {
+                sellPrice = checked(Core.Formulas.Shop.SellPrice(item.Metadata, item.Type, item.Rarity) * amount);
+            } catch (OverflowException) {
+                session.Send(ShopPacket.Error(ShopError.s_msg_cant_sell));
+                return;
+            }
+            if (sellPrice < 0 || session.Currency.CanAddMeso(sellPrice) != sellPrice) {
+                session.Send(ShopPacket.Error(ShopError.s_msg_cant_sell));
+                return;
+            }
+
+            if (!session.Item.Inventory.Remove(item.Uid, out item, amount)) {
+                logger.Error("Failed to remove item {Uid} from inventory", itemUid);
+                return;
+            }
+
+            session.Player.Value.Currency.Meso += sellPrice;
+            notifications.Add(() => session.Currency.NotifyChanges(meso: sellPrice));
+
+            if (buyBackItems.Count >= Constant.MaxBuyBackItems && !RemoveBuyBackItem(notifications)) {
+                return;
+            }
+
+            int entryId = NextEntryId();
+            buyBackItems[entryId] = new BuyBackItem {
+                Id = entryId,
+                Item = item,
+                AddedTime = DateTime.Now.ToEpochSeconds(),
+                Price = sellPrice,
+            };
+
+            BuyBackItem buyback = buyBackItems[entryId];
+            notifications.Add(() => session.Send(ShopPacket.LoadBuyBackItem(buyback)));
+            int soldAmount = item.Amount;
+            int soldItemId = item.Id;
+            notifications.Add(() => session.ConditionUpdate(ConditionType.shop_sell, counter: soldAmount, codeLong: soldItemId));
         }
-
-        if (activeShop.Metadata.IsOnlySell) {
-            session.Send(ShopPacket.Error(ShopError.s_msg_cant_sell_to_only_sell_shop));
-            return;
-        }
-
-        Item? item = session.Item.Inventory.Get(itemUid);
-        if (item == null || !item.Metadata.Limit.ShopSell) {
-            return;
-        }
-
-        if (!session.Item.Inventory.Remove(item.Uid, out item, quantity)) {
-            logger.Error("Failed to remove item {Uid} from inventory", itemUid);
-            return;
-        }
-
-        long sellPrice = Core.Formulas.Shop.SellPrice(item.Metadata, item.Type, item.Rarity);
-        if (session.Currency.CanAddMeso(sellPrice) != sellPrice) {
-            logger.Error("Could not add {sellPrice} meso(s) to player {CharacterId}", sellPrice, session.CharacterId);
-            return;
-        }
-
-        session.Currency.Meso += sellPrice;
-
-        if (buyBackItems.Count >= Constant.MaxBuyBackItems && !RemoveBuyBackItem()) {
-            return;
-        }
-
-        int entryId = NextEntryId();
-        buyBackItems[entryId] = new BuyBackItem {
-            Id = entryId,
-            Item = item,
-            AddedTime = DateTime.Now.ToEpochSeconds(),
-            Price = sellPrice,
-        };
-
-        session.Send(ShopPacket.LoadBuyBackItem(buyBackItems[entryId]));
-        session.ConditionUpdate(ConditionType.shop_sell, counter: item.Amount, codeLong: item.Id);
+        notifications.ForEach(session.Item.AfterUnlock);
     }
 
-    private bool Pay(ShopCost cost, int price) {
+    internal bool Pay(ShopCost cost, long price) {
+        var notifications = new List<Action>();
+        bool paid;
+        lock (session.Item) {
+            paid = !session.PersistenceAborted && PayInternal(cost, price, notifications);
+        }
+        notifications.ForEach(session.Item.AfterUnlock);
+        return paid;
+    }
+
+    private bool PayInternal(ShopCost cost, long price, List<Action> notifications) {
+        if (price < 0) {
+            session.Send(ShopPacket.Error(ShopError.s_err_invalid_item));
+            return false;
+        }
+
         switch (cost.Type) {
             case ShopCurrencyType.Meso:
                 if (session.Currency.CanAddMeso(-price) != -price) {
                     session.Send(ShopPacket.Error(ShopError.s_err_lack_meso));
                     return false;
                 }
-                session.Currency.Meso -= price;
+                session.Player.Value.Currency.Meso -= price;
+                notifications.Add(() => session.Currency.NotifyChanges(meso: -price));
                 break;
             case ShopCurrencyType.Meret:
             case ShopCurrencyType.EventMeret:
@@ -575,7 +664,8 @@ public sealed class ShopManager {
                     return false;
                 }
 
-                session.Currency.Meret -= price;
+                session.Player.Value.Currency.Meret -= price;
+                notifications.Add(() => session.Currency.NotifyChanges(meret: -price));
                 break;
             case ShopCurrencyType.GameMeret:
                 if (session.Currency.CanAddGameMeret(-price) != -price) {
@@ -583,13 +673,18 @@ public sealed class ShopManager {
                     return false;
                 }
 
-                session.Currency.Meret -= price;
+                session.Player.Value.Currency.GameMeret -= price;
+                notifications.Add(() => session.Currency.NotifyChanges(gameMeret: -price));
                 break;
             case ShopCurrencyType.Item:
-                var ingredient = new ItemComponent(cost.ItemId, -1, price, ItemTag.None);
+                if (price > int.MaxValue) {
+                    session.Send(ShopPacket.Error(ShopError.s_err_lack_payment_item, 0, cost.ItemId));
+                    return false;
+                }
+                var ingredient = new ItemComponent(cost.ItemId, -1, (int) price, ItemTag.None);
                 if (!session.Item.Inventory.ConsumeItemComponents([
                         ingredient,
-                    ])) {
+                    ], notifications: notifications)) {
                     session.Send(ShopPacket.Error(ShopError.s_err_lack_payment_item, 0, cost.ItemId));
                     return false;
                 }
@@ -612,13 +707,13 @@ public sealed class ShopManager {
                     return false;
                 }
 
-                session.Currency[currencyType] -= cost.Amount;
+                session.Currency.Set(currencyType, session.Currency[currencyType] - price, notifications);
                 break;
         }
         return true;
     }
 
-    private bool RemoveBuyBackItem() {
+    private bool RemoveBuyBackItem(ICollection<Action> notifications) {
         while (buyBackItems.Count >= Constant.MaxBuyBackItems) {
             BuyBackItem? item = buyBackItems.Values.MinBy(entry => entry.AddedTime);
             if (item == null) {
@@ -627,7 +722,7 @@ public sealed class ShopManager {
             }
 
             buyBackItems.Remove(item.Id);
-            session.Item.Inventory.Discard(item.Item);
+            session.Item.Inventory.Discard(item.Item, notifications: notifications);
             session.Send(ShopPacket.RemoveBuyBackItem(item.Id));
         }
         return true;
@@ -667,8 +762,10 @@ public sealed class ShopManager {
         }
     }
 
-    public void Save(GameStorage.Request db) {
-        db.SaveItems(0, buyBackItems.Values.Select(item => item.Item).ToArray());
+    public bool Save(GameStorage.Request db) {
+        if (!db.SaveItems(0, buyBackItems.Values.Select(item => item.Item).ToArray())) {
+            return false;
+        }
 
         Dictionary<int, CharacterShopData> saveAccountShops = accountShopData.Values
             .Where(data => data.Interval != ResetType.Default)
@@ -678,15 +775,13 @@ public sealed class ShopManager {
             .Where(data => data.Interval != ResetType.Default)
             .ToDictionary(data => data.ShopId);
 
-        db.SaveCharacterShopData(session.AccountId, saveAccountShops.Values.ToList());
-        db.SaveCharacterShopData(session.CharacterId, saveCharacterShops.Values.ToList());
-
-        db.SaveCharacterShopItemData(session.AccountId, accountShopItemData
+        return db.SaveCharacterShopData(session.AccountId, saveAccountShops.Values.ToList()) &&
+              db.SaveCharacterShopData(session.CharacterId, saveCharacterShops.Values.ToList()) &&
+              db.SaveCharacterShopItemData(session.AccountId, accountShopItemData
             .Where(kvp => saveAccountShops.ContainsKey(kvp.Key))
             .SelectMany(kvp => kvp.Value.Values)
-            .ToList());
-
-        db.SaveCharacterShopItemData(session.CharacterId, characterShopItemData
+            .ToList()) &&
+              db.SaveCharacterShopItemData(session.CharacterId, characterShopItemData
             .Where(kvp => saveCharacterShops.ContainsKey(kvp.Key))
             .SelectMany(kvp => kvp.Value.Values)
             .ToList());

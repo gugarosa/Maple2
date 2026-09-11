@@ -1,170 +1,82 @@
 #!/usr/bin/env pwsh
+#Requires -Version 5.1
 
 <#
 .SYNOPSIS
-  Start Maple2 servers via Docker Compose.
-
+Build and start the Docker stack, or restart its game channels.
 .DESCRIPTION
-  Builds and starts the Maple2 Docker services. By default starts everything
-  (mysql, world, login, web, game-ch0, game-ch1). Use -GameOnly to restart
-  just the game channel containers without touching infrastructure services.
-
+Requires configured .env and previously ingested metadata. Never runs ingestion
+or removes database volumes. Docker owns the detached containers after this
+script exits. Any build, startup, or readiness failure is an error.
 .PARAMETER NonInstancedChannels
-  Channel numbers whose game-chN services are defined in compose.yml.
-  Default: 1 (game-ch1).
-
+Normal channels defined in compose.yml; the supplied topology provides channel 1.
 .PARAMETER NoInstanced
-  Skip the instanced-content channel (game-ch0).
-
+Skip game-ch0. Omit this for the complete playable topology.
 .PARAMETER NoBuild
-  Skip the Docker image build step. Uses whatever images already exist.
-
+Use existing application images without building them.
 .PARAMETER GameOnly
-  Only restart game channel containers. Skips mysql/world/login/web and
-  uses --no-deps --force-recreate to swap game channels in-place.
-
+Recreate only the selected game channels; infrastructure must already be healthy.
 .EXAMPLE
-  # Start everything (default)
-  pwsh ./scripts/start_servers.ps1
-
+pwsh .\scripts\start_servers.ps1
 .EXAMPLE
-  # Rebuild and restart only game channels
-  pwsh ./scripts/start_servers.ps1 -GameOnly
-
-.EXAMPLE
-  # Start only the configured normal channel
-  pwsh ./scripts/start_servers.ps1 -NoInstanced
-
-.EXAMPLE
-  # Restart game channels without rebuilding
-  pwsh ./scripts/start_servers.ps1 -GameOnly -NoBuild
+pwsh .\scripts\start_servers.ps1 -GameOnly -NoBuild
 #>
-
 param(
-  [int[]]$NonInstancedChannels = @(1),
-  [switch]$NoInstanced,
-  [switch]$NoBuild,
-  [switch]$GameOnly
+    [ValidateRange(1, 99)][int[]]$NonInstancedChannels = @(1),
+    [switch]$NoInstanced,
+    [switch]$NoBuild,
+    [switch]$GameOnly
 )
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-# Require Docker Compose v2
-try { $null = & docker compose version 2>$null } catch { }
-if ($LASTEXITCODE -ne 0) {
-  Write-Error "Docker Compose v2 is required. Install it from https://docs.docker.com/compose/install/"
-  exit 1
-}
-
-function Compose {
-  param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
-  & docker compose @Args
-}
-
-function Wait-Healthy {
-  param(
-    [Parameter(Mandatory=$true)][string]$Service,
-    [int]$TimeoutSec = 300,
-    [switch]$Soft
-  )
-  Write-Host "Waiting for $Service to be healthy (timeout ${TimeoutSec}s)..."
-  $start = Get-Date
-  while ($true) {
-    $cid = Compose ps -q $Service 2>$null | Select-Object -First 1
-    if ([string]::IsNullOrWhiteSpace($cid)) { Start-Sleep -Seconds 2; continue }
-
-    $statusRaw = docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' $cid 2>$null
-    $status = ("$statusRaw" | Out-String).Trim().ToLowerInvariant()
-
-    if ($status -match 'healthy') {
-      Write-Host "$Service is healthy"
-      return $true
-    } elseif ($status -match '^(running|starting|created)$') {
-    } elseif ($status -match 'exited') {
-      Write-Warning "$Service exited unexpectedly. Showing last logs:"
-      try { Compose logs --no-color --tail=200 $Service } catch { }
-      if ($Soft) { return $false } else { throw "$Service exited" }
-    }
-
-    if ((Get-Date) - $start -gt [TimeSpan]::FromSeconds($TimeoutSec)) {
-      Write-Warning "Timeout waiting for $Service to be healthy. Logs:"
-      try { Compose logs --no-color --tail=200 $Service } catch { }
-      if ($Soft) { return $false } else { throw "Timeout waiting for $Service" }
-    }
-    Start-Sleep -Seconds 2
-  }
-}
-
-function Get-DotEnv {
-  param([string]$Path = ".env")
-  $map = @{}
-  if (Test-Path $Path) {
-    foreach ($line in Get-Content $Path) {
-      if ($line -match '^(\s*#|\s*$)') { continue }
-      $kv = $line -split '=',2
-      if ($kv.Count -eq 2) { $map[$kv[0].Trim()] = $kv[1].Trim() }
-    }
-  }
-  return $map
-}
-
-$envMap = Get-DotEnv
-$gameIp = $envMap['GAME_IP']
-if (-not $gameIp) {
-  Write-Warning "GAME_IP is not set in .env. Clients may receive 127.0.0.1 and fail to connect."
-} elseif ($gameIp -match '^(127\.0\.0\.1|localhost)$') {
-  Write-Warning "GAME_IP is set to $gameIp. External clients will fail. Set GAME_IP to your host/LAN IP in .env."
-}
+. (Join-Path $PSScriptRoot 'compose.ps1')
 
 $gameServices = @()
-if (-not $NoInstanced) { $gameServices += 'game-ch0' }
-foreach ($ch in $NonInstancedChannels) { $gameServices += "game-ch$ch" }
-if ($gameServices.Count -eq 0) { $gameServices = @('game-ch0') }
+if (-not $NoInstanced) {
+    $gameServices += 'game-ch0'
+}
+foreach ($channel in ($NonInstancedChannels | Sort-Object -Unique)) {
+    $gameServices += "game-ch$channel"
+}
+if ($gameServices.Count -eq 0) {
+    throw 'Select at least one game channel.'
+}
+
+$definedServices = @(Invoke-Compose config --services)
+foreach ($service in $gameServices) {
+    if ($service -notin $definedServices) {
+        throw "$service is not defined in compose.yml. The supplied topology has game-ch0 and game-ch1."
+    }
+}
+
+$infrastructure = @('mysql', 'world', 'login', 'web')
+if ($GameOnly) {
+    $states = @(Invoke-Compose ps --all --format '{{.Service}} {{.State}} {{.Health}}' @infrastructure)
+    foreach ($service in $infrastructure) {
+        if ("$service running healthy" -notin $states) {
+            throw "Game-only restart requires healthy $service. Run a full startup first; no containers were changed."
+        }
+    }
+}
 
 if (-not $NoBuild) {
-  if ($GameOnly) {
-    Write-Host "Building game images only: $($gameServices -join ', ')"
-    Compose (@('build') + $gameServices)
-  } else {
-    Write-Host "Building all images..."
-    Compose @('build')
-  }
+    # Both game services use the same image; build it once, before changing containers.
+    $buildServices = @($gameServices[0])
+    if (-not $GameOnly) {
+        $buildServices += @('world', 'login', 'web')
+    }
+    Invoke-Compose build @buildServices
 }
 
 if (-not $GameOnly) {
-  Write-Host "Starting database..."
-  Compose @('up','--detach','mysql')
-  Wait-Healthy -Service mysql -TimeoutSec 300
-
-  Write-Host "Starting world, login, and web..."
-  Compose @('up','--detach','world','login','web')
-  Wait-Healthy -Service world -TimeoutSec 300
-  Wait-Healthy -Service login -TimeoutSec 300
-} else {
-  Write-Host "Game-only mode: skipping database/world/login/web startup."
+    Invoke-Compose up --detach --no-build --wait --wait-timeout 300 @infrastructure
 }
 
-Write-Host "Starting game channels..."
-$started = @()
-
-$upArgs = @('up','--detach')
-if ($GameOnly) { $upArgs += @('--no-deps','--force-recreate') }
-if (-not $NoBuild) { $upArgs += '--build' }
-
-foreach ($svc in $gameServices) {
-  if ($GameOnly) {
-    try { Compose @('rm','-s','-f', $svc) } catch { }
-    Start-Sleep -Seconds 2
-  }
-  Compose ($upArgs + $svc)
-  $null = Wait-Healthy -Service $svc -TimeoutSec 300 -Soft
-  $started += $svc
+# Recreate games even on full startup: a replaced World has lost its registrations.
+# Compose stops each old container gracefully; no rm/sleep race or dependency restart.
+foreach ($service in $gameServices) {
+    Invoke-Compose up --detach --no-deps --no-build --pull never --force-recreate --wait --wait-timeout 300 $service
 }
 
-Write-Host
-Compose ps
-Write-Host
-$joined = ($GameOnly ? $started : ($started + @('world','login'))) -join ' '
-Write-Host "All services started. Tail logs with:"
-Write-Host "  docker compose logs -f $joined"
+Invoke-Compose ps
+Write-Host 'Containers passed their readiness checks. Client login remains a separate end-to-end check.'
+Write-Host "Tail logs from $ComposeRoot with: docker compose logs -f world login $($gameServices -join ' ')"

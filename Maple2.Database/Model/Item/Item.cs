@@ -46,6 +46,7 @@ internal class Item {
 
         var item = new Item {
             Id = other.Uid,
+            OwnerId = other.OwnerId,
             ItemId = other.Id,
             Rarity = other.Rarity,
             Slot = other.Slot,
@@ -97,6 +98,7 @@ internal class Item {
     public Maple2.Model.Game.Item Convert(ItemMetadata metadata) {
         var item = new Maple2.Model.Game.Item(metadata, Rarity, Amount, false) {
             Uid = Id,
+            OwnerId = OwnerId,
             Slot = Slot,
             Group = Group,
             CreationTime = CreationTime.ToEpochSeconds(),

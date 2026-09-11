@@ -54,6 +54,13 @@ public sealed partial class GameSession : Core.Network.Session {
     public string PlayerName => Player.Value.Character.Name;
     public Guid MachineId { get; private set; }
     private bool preMigrationSaved;
+    private readonly object saveSync = new();
+    private readonly object resetSync = new();
+    private bool resetInitialized;
+    private int pendingResetPeriods;
+    private int persistenceAborted;
+    private static readonly TimeSpan LockRpcTimeout = TimeSpan.FromSeconds(2);
+    public bool PersistenceAborted => Volatile.Read(ref persistenceAborted) != 0;
 
     #region Autofac Autowired
     // ReSharper disable MemberCanBePrivate.Global
@@ -124,6 +131,8 @@ public sealed partial class GameSession : Core.Network.Session {
         Clubs = new ConcurrentDictionary<long, ClubManager>();
     }
 
+    public override bool CanProcessPackets => base.CanProcessPackets && State != SessionState.Disconnected && !PersistenceAborted;
+
     public bool FindSession(long characterId, [NotNullWhen(true)] out GameSession? other) {
         return server.GetSession(characterId, out other);
     }
@@ -148,26 +157,36 @@ public sealed partial class GameSession : Core.Network.Session {
         MachineId = machineId;
 
         State = SessionState.ChangeMap;
-        server.OnConnected(this);
-
-        using GameStorage.Request db = GameStorage.Context();
-        db.BeginTransaction();
         int objectId = FieldManager.NextGlobalId();
-        Player? player;
+        GameStorage.Request? loadRequest = null;
+        (LockRequest Request, long ExpiresAt)? lease = null;
+        Player? player = null;
         try {
-            AcquireLock(AccountId, 5);
-            player = db.LoadPlayer(AccountId, CharacterId, objectId, GameServer.GetChannel());
-            db.Commit();
-        } finally {
-            ReleaseLock(AccountId);
-        }
-        if (player == null) {
-            Logger.Warning("Failed to load player from database: {AccountId}, {CharacterId}", AccountId, CharacterId);
+            lease = AcquireLock(AccountId, 5);
+            loadRequest = GameStorage.Context();
+            loadRequest.BeginTransaction();
+            player = loadRequest.LoadPlayer(AccountId, CharacterId, objectId, GameServer.GetChannel());
+            if (player == null) {
+                throw new InvalidOperationException("Player data could not be loaded.");
+            }
+            EnsureLockValid(lease.Value.ExpiresAt);
+            if (!loadRequest.Commit()) {
+                throw new InvalidOperationException("Player loading could not be committed.");
+            }
+        } catch (Exception ex) {
+            loadRequest?.Dispose();
+            Logger.Error(ex, "Failed to load player from database: {AccountId}, {CharacterId}", AccountId, CharacterId);
             Send(MigrationPacket.MoveResult(MigrationError.s_move_err_default));
             return false;
+        } finally {
+            if (lease is { } acquired) {
+                ReleaseLock(acquired.Request);
+            }
         }
 
+        using GameStorage.Request db = loadRequest!;
         Player = new FieldPlayer(this, player);
+        server.OnConnected(this);
         Animation = new AnimationManager(this);
         Currency = new CurrencyManager(this);
         Mastery = new MasteryManager(this);
@@ -196,6 +215,10 @@ public sealed partial class GameSession : Core.Network.Session {
         Dungeon = new DungeonManager(this);
         Ride = new RideManager(this);
         Mentoring = new MentoringManager(this);
+        if (!CompleteResetInitialization()) {
+            Send(MigrationPacket.MoveResult(MigrationError.s_move_err_default));
+            return false;
+        }
         CommandHandler.RegisterCommands(); // Refresh commands with proper permissions
         GroupChatInfoResponse groupChatInfoRequest = World.GroupChatInfo(new GroupChatInfoRequest {
             CharacterId = CharacterId,
@@ -381,6 +404,9 @@ public sealed partial class GameSession : Core.Network.Session {
     private void LeaveField(FieldManager? nextField = null) {
         FieldManager? previousField = Field;
         try {
+            if (!PersistenceAborted && !DrainPostCommitCallbacks()) {
+                throw new InvalidOperationException("Pending progression could not be applied before leaving the field.");
+            }
             Array.Clear(ItemLockStaging);
             Array.Clear(DismantleStaging);
             DismantleOpened = false;
@@ -394,15 +420,41 @@ public sealed partial class GameSession : Core.Network.Session {
             NpcScript = null;
             MiniGameRecord = null;
 
-            Buffs?.LeaveField();
-
-            if (previousField != null) {
-                Scheduler.Stop();
-                previousField.RemovePlayer(Player.ObjectId, out _);
+            if (!PersistenceAborted) {
+                Buffs?.LeaveField();
+                if (!DrainPostCommitCallbacks()) {
+                    throw new InvalidOperationException("Field cleanup progression could not be applied.");
+                }
             }
+        } catch {
+            AbortPersistence("Field departure cleanup did not complete.");
+            throw;
         } finally {
-            if (previousField != nextField) {
-                previousField?.ReleaseAdmission(this);
+            if (PersistenceAborted) {
+                try {
+                    Trade?.Dispose();
+                } catch (Exception ex) {
+                    Logger.Error(ex, "Failed to detach a quarantined trade for character {CharacterId}", CharacterId);
+                }
+                Trade = null;
+                Storage = null;
+                Pet = null;
+            }
+            try {
+                if (previousField != null) {
+                    try {
+                        previousField.RemovePlayer(Player.ObjectId, out _);
+                        if (!PersistenceAborted && !DrainPostCommitCallbacks()) {
+                            throw new InvalidOperationException("Field departure progression could not be applied.");
+                        }
+                    } finally {
+                        Scheduler.Stop();
+                    }
+                }
+            } finally {
+                if (previousField != nextField) {
+                    previousField?.ReleaseAdmission(this);
+                }
             }
         }
     }
@@ -540,7 +592,10 @@ public sealed partial class GameSession : Core.Network.Session {
         ConditionUpdate(ConditionType.map, codeLong: Player.Value.Character.MapId);
         ConditionUpdate(ConditionType.job_change, codeLong: (int) Player.Value.Character.Job.Code());
 
-        SessionSave();
+        if (!SessionSave()) {
+            Send(NoticePacket.Disconnect(new InterfaceText("Your character could not be saved. Please reconnect.")));
+            return false;
+        }
 
         // Update the client with the latest channel list.
         ChannelsResponse response = World.Channels(new ChannelsRequest());
@@ -603,6 +658,9 @@ public sealed partial class GameSession : Core.Network.Session {
     /// <param name="codeString">condition code parameter in string.</param>
     /// <param name="codeLong">condition code parameter in long.</param>
     public void ConditionUpdate(ConditionType conditionType, long counter = 1, string targetString = "", long targetLong = 0, string codeString = "", long codeLong = 0) {
+        if (PersistenceAborted) {
+            return;
+        }
         Achievement.Update(conditionType, counter, targetString, targetLong, codeString, codeLong);
         Quest.Update(conditionType, counter, targetString, targetLong, codeString, codeLong);
     }
@@ -681,51 +739,130 @@ public sealed partial class GameSession : Core.Network.Session {
         server.Broadcast(packet);
     }
 
-    public void DailyReset() {
-        // Gathering counts reset
-        Config.GatheringCounts.Clear();
-        Send(UserEnvPacket.GatheringCounts(Config.GatheringCounts));
-        // Death Counter
-        Config.AddInstantReviveCount(-1);
-        // Premium Rewards Claimed
-        Player.Value.Account.PremiumRewardsClaimed.Clear();
-        Send(PremiumCubPacket.LoadItems(Player.Value.Account.PremiumRewardsClaimed));
-        // Prestige
-        Player.Value.Account.PrestigeExp = Player.Value.Account.PrestigeCurrentExp;
-        Player.Value.Account.PrestigeLevelsGained = 0;
-        foreach (PrestigeMission mission in Player.Value.Account.PrestigeMissions) {
-            mission.GainedLevels = 0;
-            mission.Awarded = false;
+    public bool DailyReset() {
+        return Reset(ResetType.Day);
+    }
+
+    public bool WeeklyReset() {
+        return Reset(ResetType.Week);
+    }
+
+    public bool MonthlyReset() {
+        return Reset(ResetType.Month);
+    }
+
+    private bool CompleteResetInitialization() {
+        int pending;
+        lock (resetSync) {
+            resetInitialized = true;
+            pending = pendingResetPeriods;
+            pendingResetPeriods = 0;
         }
-        Send(PrestigePacket.Load(Player.Value.Account));
-        // Home
-        Player.Value.Home.DecorationRewardTimestamp = 0;
-        Send(CubePacket.DesignRankReward(Player.Value.Home));
-        // Meso Market
-        Player.Value.Account.MesoMarketListed = 0;
-        Send(MesoMarketPacket.Quota(Player.Value.Account.MesoMarketListed, Player.Value.Account.MesoMarketPurchased));
-        // Shop restock
-        Shop.DailyReset();
-        // Dungeon daily clears
-        Dungeon.ResetDailyClears();
+
+        bool success = true;
+        foreach (ResetType type in new[] { ResetType.Day, ResetType.Week, ResetType.Month }) {
+            if ((pending & (1 << (int) type)) != 0) {
+                success &= Reset(type);
+            }
+        }
+        return success;
     }
 
-    public void WeeklyReset() {
-        // Prestige Rewards
-        Player.Value.Account.PrestigeRewardsClaimed.Clear();
-        Send(PrestigePacket.Load(Player.Value.Account));
-        // Dungeon enter limits
-        Dungeon.UpdateDungeonEnterLimit();
-        // Dungeon weekly clears
-        Dungeon.ResetWeeklyClears();
-        // Shop restock
-        Shop.WeeklyReset();
-    }
+    private bool Reset(ResetType type) {
+        // Do not acquire Item under this gate; initialization drains queued resets before gameplay.
+        lock (resetSync) {
+            if (!resetInitialized) {
+                pendingResetPeriods |= 1 << (int) type;
+                Logger.Information("Deferring {Reset} reset until character {CharacterId} finishes loading", type, CharacterId);
+                return false;
+            }
+        }
+        if (Item == null || Player == null || Config == null || Shop == null || Dungeon == null) {
+            Logger.Warning("Cannot apply {Reset} reset before character {CharacterId} finishes loading", type, CharacterId);
+            return false;
+        }
+        if (!DrainPostCommitCallbacks()) {
+            return false;
+        }
 
-    public void MonthlyReset() {
-        // Meso Market
-        Player.Value.Account.MesoMarketPurchased = 0;
-        Send(MesoMarketPacket.Quota(Player.Value.Account.MesoMarketListed, Player.Value.Account.MesoMarketPurchased));
+        var packets = new List<ByteWriter>();
+        lock (Item) {
+            lock (saveSync) {
+                if (PersistenceAborted || preMigrationSaved) {
+                    Logger.Warning("Cannot apply {Reset} reset to unavailable character {CharacterId}", type, CharacterId);
+                    return false;
+                }
+                (LockRequest Request, long ExpiresAt)? lease = null;
+                try {
+                    lease = AcquireLock(AccountId, 5);
+                    switch (type) {
+                        case ResetType.Day:
+                            Config.GatheringCounts.Clear();
+                            Config.InstantReviveCount = 0;
+                            Player.Value.Account.PremiumRewardsClaimed.Clear();
+                            Player.Value.Account.PrestigeExp = Player.Value.Account.PrestigeCurrentExp;
+                            Player.Value.Account.PrestigeLevelsGained = 0;
+                            foreach (PrestigeMission mission in Player.Value.Account.PrestigeMissions) {
+                                mission.GainedLevels = 0;
+                                mission.Awarded = false;
+                            }
+                            Player.Value.Home.DecorationRewardTimestamp = 0;
+                            Player.Value.Account.MesoMarketListed = 0;
+                            Shop.DailyReset();
+                            Dungeon.ResetDailyClears();
+                            break;
+                        case ResetType.Week:
+                            Player.Value.Account.PrestigeRewardsClaimed.Clear();
+                            Dungeon.ResetWeeklyClears();
+                            Shop.WeeklyReset();
+                            break;
+                        case ResetType.Month:
+                            Player.Value.Account.MesoMarketPurchased = 0;
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown reset period.");
+                    }
+
+                    Save(lease.Value.ExpiresAt);
+                    if (PersistenceAborted) {
+                        return false;
+                    }
+                    if (type == ResetType.Day) {
+                        packets.Add(UserEnvPacket.GatheringCounts(Config.GatheringCounts));
+                        packets.Add(RevivalPacket.RevivalCount(Config.InstantReviveCount));
+                        packets.Add(PremiumCubPacket.LoadItems(Player.Value.Account.PremiumRewardsClaimed));
+                        packets.Add(CubePacket.DesignRankReward(Player.Value.Home));
+                    }
+                    if (type is ResetType.Day or ResetType.Week) {
+                        packets.Add(PrestigePacket.Load(Player.Value.Account));
+                    }
+                    if (type is ResetType.Day or ResetType.Month) {
+                        packets.Add(MesoMarketPacket.Quota(Player.Value.Account.MesoMarketListed, Player.Value.Account.MesoMarketPurchased));
+                    }
+                } catch (Exception ex) {
+                    if (lease != null) {
+                        AbortPersistence("Scheduled reset could not be committed; reload is required.");
+                    }
+                    Logger.Error(ex, "Failed {Reset} reset for account {AccountId}, character {CharacterId}", type, AccountId, CharacterId);
+                    return false;
+                } finally {
+                    if (lease is { } acquired) {
+                        ReleaseLock(acquired.Request);
+                    }
+                }
+            }
+        }
+        foreach (ByteWriter packet in packets) {
+            Send(packet);
+        }
+        if (type is ResetType.Day or ResetType.Week) {
+            try {
+                Dungeon.NotifyReset(type == ResetType.Week);
+            } catch (RpcException ex) {
+                Logger.Warning(ex, "{Reset} reset committed but dungeon notification failed for character {CharacterId}", type, CharacterId);
+            }
+        }
+        return true;
     }
 
     public void RefreshClubBuffs() {
@@ -783,6 +920,10 @@ public sealed partial class GameSession : Core.Network.Session {
     }
 
     public void MigrateToPlanner(PlotMode plotMode) {
+        if (!MigrationSave()) {
+            Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
+            return;
+        }
         try {
             var request = new MigrateOutRequest {
                 AccountId = AccountId,
@@ -800,7 +941,6 @@ public sealed partial class GameSession : Core.Network.Session {
             var endpoint = new IPEndPoint(IPAddress.Parse(response.IpAddress), response.Port);
             Send(MigrationPacket.GameToGame(endpoint, response.Token, Constant.DefaultHomeMapId));
             State = SessionState.ChangeMap;
-            MigrationSave();
         } catch (RpcException ex) {
             Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
             Send(NoticePacket.Disconnect(new InterfaceText(ex.Message)));
@@ -811,6 +951,20 @@ public sealed partial class GameSession : Core.Network.Session {
 
     public void Migrate(int mapId, long ownerId = 0) {
         bool isInstanced = ServerTableMetadata.InstanceFieldTable.Entries.ContainsKey(mapId);
+        int previousMap = Player.Value.Character.MapId;
+        short previousReturnChannel = Player.Value.Character.ReturnChannel;
+        if (isInstanced) {
+            Player.Value.Character.ReturnChannel = Player.Value.Character.Channel;
+        } else {
+            Player.Value.Character.MapId = mapId;
+            Player.Value.Character.ReturnChannel = 0;
+        }
+        if (!MigrationSave()) {
+            Player.Value.Character.MapId = previousMap;
+            Player.Value.Character.ReturnChannel = previousReturnChannel;
+            Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
+            return;
+        }
 
         try {
             var request = new MigrateOutRequest {
@@ -827,15 +981,7 @@ public sealed partial class GameSession : Core.Network.Session {
             var endpoint = new IPEndPoint(IPAddress.Parse(response.IpAddress), response.Port);
             Send(MigrationPacket.GameToGame(endpoint, response.Token, mapId));
 
-            if (isInstanced) {
-                Player.Value.Character.ReturnChannel = Player.Value.Character.Channel;
-            } else {
-                Player.Value.Character.MapId = mapId;
-                Player.Value.Character.ReturnChannel = 0;
-            }
-
             State = SessionState.ChangeMap;
-            MigrationSave();
         } catch (RpcException ex) {
             Send(MigrationPacket.GameToGameError(MigrationError.s_move_err_default));
             Send(NoticePacket.Disconnect(new InterfaceText(ex.Message)));
@@ -844,36 +990,51 @@ public sealed partial class GameSession : Core.Network.Session {
         }
     }
 
-    private void AcquireLock(long accountId, int maxRetries = 3) {
-        int retryCount = 0;
+    private (LockRequest Request, long ExpiresAt) AcquireLock(long accountId, int maxRetries = 3) {
         const int backoffMs = 500;
-
-        while (retryCount < maxRetries) {
-            LockResponse? response = World.AcquireLock(new LockRequest {
-                AccountId = accountId,
-            });
-
-            if (string.IsNullOrEmpty(response.Error)) {
-                return;
+        var request = new LockRequest {
+            AccountId = accountId,
+            OwnerToken = Guid.NewGuid().ToString("N"),
+        };
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                LockResponse response = World.AcquireLock(request, deadline: DateTime.UtcNow.Add(LockRpcTimeout));
+                if (string.IsNullOrEmpty(response.Error) && response.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) {
+                    return (request, response.ExpiresAt);
+                }
+            } catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded) {
+                Logger.Warning(ex, "Account lock acquisition failed for {AccountId}", accountId);
             }
-
-            retryCount++;
-            Thread.Sleep(backoffMs);
+            if (attempt + 1 < maxRetries) {
+                Thread.Sleep(backoffMs);
+            }
         }
 
         Logger.Error("Failed to acquire lock for account {AccountId} after {MaxRetries} retries", accountId, maxRetries);
+        throw new RpcException(new Status(StatusCode.Unavailable, "Account persistence is busy. Please try again."));
     }
 
-    private void ReleaseLock(long accountId) {
+    private static void EnsureLockValid(long expiresAt) {
+        if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() >= expiresAt) {
+            throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Account persistence lease expired."));
+        }
+    }
+
+    private static void RequireSaveSuccess(bool saved, string component, long leaseExpiresAt) {
+        EnsureLockValid(leaseExpiresAt);
+        if (!saved) {
+            throw new InvalidOperationException($"Failed to save {component} state.");
+        }
+    }
+
+    private void ReleaseLock(LockRequest lease) {
         try {
-            LockResponse response = World.ReleaseLock(new LockRequest {
-                AccountId = accountId,
-            });
+            LockResponse response = World.ReleaseLock(lease, deadline: DateTime.UtcNow.Add(LockRpcTimeout));
             if (!string.IsNullOrEmpty(response.Error)) {
-                Logger.Warning("Failed to release lock for account {AccountId}: {ErrorMessage}", accountId, response.Error);
+                Logger.Warning("Failed to release lock for account {AccountId}: {ErrorMessage}", lease.AccountId, response.Error);
             }
         } catch (RpcException ex) {
-            Logger.Error(ex, "Failed to release lock for account {AccountId}", accountId);
+            Logger.Error(ex, "Failed to release lock for account {AccountId}", lease.AccountId);
         }
     }
 
@@ -894,24 +1055,26 @@ public sealed partial class GameSession : Core.Network.Session {
         // Snapshot values needed after teardown
         long fieldTickSnapshot = Field?.FieldTick ?? Environment.TickCount64;
 
-        if (State == SessionState.Connected) {
-            PlayerInfo.SendUpdate(new PlayerUpdateRequest {
-                AccountId = AccountId,
-                CharacterId = CharacterId,
-                LastOnlineTime = DateTime.UtcNow.ToEpochSeconds(),
-                MapId = 0,
-                Channel = -1,
-                Async = false,
-            });
-
-            Party.CheckDisband();
-        }
-
         try {
-            Scheduler.Stop();
             if (OnLoop != null) OnLoop -= Scheduler.InvokeAll;
+            if (!PersistenceAborted && !DrainPostCommitCallbacks()) {
+                throw new InvalidOperationException("Pending progression could not be applied before disconnect.");
+            }
+            if (State == SessionState.Connected) {
+                PlayerInfo.SendUpdate(new PlayerUpdateRequest {
+                    AccountId = AccountId,
+                    CharacterId = CharacterId,
+                    LastOnlineTime = DateTime.UtcNow.ToEpochSeconds(),
+                    MapId = 0,
+                    Channel = -1,
+                    Async = false,
+                });
+
+                Party.CheckDisband();
+            }
             server.OnDisconnected(this);
             LeaveField();
+            Scheduler.Stop();
             Player.Value.Character.Channel = -1;
             Player.Value.Account.Online = false;
             State = SessionState.Disconnected;
@@ -919,12 +1082,19 @@ public sealed partial class GameSession : Core.Network.Session {
             // Early base dispose to stop further network sends
             base.Dispose(disposing);
 
-            // Cache config & persistence
-            SaveCacheConfig();
-            MigrationSave();
+            if (!PersistenceAborted) {
+                if (MigrationSave()) {
+                    SaveCacheConfig();
+                } else {
+                    Logger.Error("Disconnected session could not be persisted for account {AccountId}, character {CharacterId}", AccountId, CharacterId);
+                }
+            }
         } catch (Exception ex) {
+            AbortPersistence("Session teardown persistence did not complete.");
             Logger.Error(ex, "Error during session cleanup for {Player}", PlayerName);
         } finally {
+            State = SessionState.Disconnected;
+            try { base.Dispose(disposing); } catch (Exception ex) { Logger.Error(ex, "Error closing session for {Player}", PlayerName); }
             SafeDispose(Guild);
             SafeDispose(Buddy);
             SafeDispose(Party);
@@ -995,56 +1165,158 @@ public sealed partial class GameSession : Core.Network.Session {
         return $"GameSession: {Player?.Value?.Character?.Name} ({CharacterId}) [{State}] // Account: {AccountId}, Machine: {MachineId}, Channel: {Player?.Value?.Character?.Channel}, Map: {Player?.Value?.Character?.MapId}]";
     }
 
-    public void MigrationSave() {
-        if (preMigrationSaved) return;
-
-        try {
-            AcquireLock(AccountId, 5);
-            Save();
-            preMigrationSaved = true;
-        } catch (Exception ex) {
-            Logger.Error(ex, "MigrationSave failed AccountId={AccountId} CharacterId={CharacterId}", AccountId, CharacterId);
-        } finally {
-            ReleaseLock(AccountId);
+    public void AbortPersistence(string reason) {
+        if (Interlocked.Exchange(ref persistenceAborted, 1) == 0) {
+            Logger.Error("Persistence aborted for account {AccountId}, character {CharacterId}: {Reason}", AccountId, CharacterId, reason);
+            if (State != SessionState.Disconnected && Scheduler != null && Volatile.Read(ref gameDisposeState) == 0) {
+                _ = Task.Run(() => {
+                    try {
+                        // Wait for the committing operation to release Item, then disconnect without holding it.
+                        if (Item != null) {
+                            lock (Item) { }
+                        }
+                        Send(NoticePacket.Disconnect(new InterfaceText("Session data could not be confirmed. Please log in again.")));
+                        Disconnect();
+                    } catch (Exception ex) {
+                        Logger.Error(ex, "Failed to disconnect quarantined character {CharacterId}", CharacterId);
+                    }
+                });
+            }
         }
     }
 
-    public void SessionSave() {
+    public bool MigrationSave() {
+        if (Item == null) {
+            Logger.Error("Cannot save character {CharacterId} before inventory loading completes", CharacterId);
+            return false;
+        }
+        if (PersistenceAborted) {
+            return false;
+        }
+        if (!DrainPostCommitCallbacks()) {
+            return false;
+        }
         try {
-            AcquireLock(AccountId, 5);
-            Save();
+            // Trade uses its own mutex before participant item locks.
+            Trade?.Dispose();
+            lock (Item) {
+                Storage?.Dispose();
+                Pet?.Dispose();
+            }
         } catch (Exception ex) {
-            Logger.Error(ex, "SessionSave failed AccountId={AccountId} CharacterId={CharacterId}", AccountId, CharacterId);
-        } finally {
-            ReleaseLock(AccountId);
+            AbortPersistence("Item state could not be closed before migration.");
+            Logger.Error(ex, "Failed to close item sessions before migrating character {CharacterId}", CharacterId);
+            return false;
+        }
+        if (!DrainPostCommitCallbacks()) {
+            return false;
+        }
+        lock (Item) {
+            lock (saveSync) {
+                if (PersistenceAborted) {
+                    return false;
+                }
+                if (preMigrationSaved) {
+                    return true;
+                }
+                preMigrationSaved = SessionSave();
+                return preMigrationSaved && !PersistenceAborted;
+            }
+        }
+    }
+
+    private bool DrainPostCommitCallbacks() {
+        if (PersistenceAborted) {
+            return false;
+        }
+        if ((Item != null && Monitor.IsEntered(Item)) || Monitor.IsEntered(saveSync)) {
+            Logger.Warning("Cannot finalize character {CharacterId} while persistence locks are held", CharacterId);
+            return false;
+        }
+        try {
+            Scheduler.DrainImmediate();
+            return !PersistenceAborted;
+        } catch (Exception ex) {
+            AbortPersistence("Deferred progression could not be completed before the final snapshot.");
+            Logger.Error(ex, "Failed to finish pending callbacks for character {CharacterId}", CharacterId);
+            return false;
+        }
+    }
+
+    public bool SessionSave() {
+        if (Item == null) {
+            Logger.Error("Cannot save character {CharacterId} before inventory loading completes", CharacterId);
+            return false;
+        }
+        lock (Item) {
+            lock (saveSync) {
+                if (PersistenceAborted) {
+                    return false;
+                }
+                if (preMigrationSaved) {
+                    Logger.Warning("Save rejected after migration was prepared for character {CharacterId}", CharacterId);
+                    return false;
+                }
+                (LockRequest Request, long ExpiresAt)? lease = null;
+                try {
+                    lease = AcquireLock(AccountId, 5);
+                    Save(lease.Value.ExpiresAt);
+                    return !PersistenceAborted;
+                } catch (Exception ex) {
+                    Logger.Error(ex, "SessionSave failed AccountId={AccountId} CharacterId={CharacterId}", AccountId, CharacterId);
+                    return false;
+                } finally {
+                    if (lease is { } acquired) {
+                        ReleaseLock(acquired.Request);
+                    }
+                }
+            }
         }
     }
 
     // Don't call this directly, since it does not acquire the account lock.
-    private void Save() {
-        using GameStorage.Request db = GameStorage.Context();
-        db.BeginTransaction();
-        db.SavePlayer(Player);
-        TrySaveComponent(UgcMarket.Save);
-        TrySaveComponent(Config.Save);
-        TrySaveComponent(Shop.Save);
-        TrySaveComponent(request => {
-            if (!Item.Save(request)) {
-                throw new InvalidOperationException("Failed to save item state.");
+    private void Save(long leaseExpiresAt) {
+        var timestamps = (Player.Value.Account.LastModified, Player.Value.Character.LastModified,
+            Player.Value.Unlock.LastModified, Player.Value.Home.LastModified);
+        bool committed = false;
+        try {
+            using GameStorage.Request db = GameStorage.Context();
+            db.BeginTransaction();
+            EnsureLockValid(leaseExpiresAt);
+            bool playerSaved = db.SavePlayer(Player);
+            if (!playerSaved) {
+                AbortPersistence("Player snapshot was rejected; reload is required.");
             }
-        });
-        TrySaveComponent(Survival.Save);
-        TrySaveComponent(Housing.Save);
-        TrySaveComponent(GameEvent.Save);
-        TrySaveComponent(Achievement.Save);
-        TrySaveComponent(Quest.Save);
-        TrySaveComponent(Dungeon.Save);
-        db.Commit();
-        db.SaveChanges();
-        return;
-
-        void TrySaveComponent(Action<GameStorage.Request> action) {
-            try { action(db); } catch (Exception ex) { Logger.Error(ex, "Error saving component for {Player}", PlayerName); }
+            RequireSaveSuccess(playerSaved, nameof(Player), leaseExpiresAt);
+            RequireSaveSuccess(UgcMarket.Save(db), nameof(UgcMarket), leaseExpiresAt);
+            RequireSaveSuccess(Config.Save(db), nameof(Config), leaseExpiresAt);
+            RequireSaveSuccess(Shop.Save(db), nameof(Shop), leaseExpiresAt);
+            RequireSaveSuccess(Item.Save(db), nameof(Item), leaseExpiresAt);
+            RequireSaveSuccess(Survival.Save(db), nameof(Survival), leaseExpiresAt);
+            RequireSaveSuccess(Housing.Save(db), nameof(Housing), leaseExpiresAt);
+            RequireSaveSuccess(GameEvent.Save(db), nameof(GameEvent), leaseExpiresAt);
+            RequireSaveSuccess(Achievement.Save(db), nameof(Achievement), leaseExpiresAt);
+            RequireSaveSuccess(Quest.Save(db), nameof(Quest), leaseExpiresAt);
+            RequireSaveSuccess(Dungeon.Save(db), nameof(Dungeon), leaseExpiresAt);
+            RequireSaveSuccess(db.SaveChanges(), "pending changes", leaseExpiresAt);
+            if (PersistenceAborted) {
+                throw new InvalidOperationException("The session was quarantined during persistence.");
+            }
+            EnsureLockValid(leaseExpiresAt);
+            try {
+                if (!db.Commit()) {
+                    throw new InvalidOperationException("Failed to commit session state.");
+                }
+            } catch {
+                AbortPersistence("Session transaction commit could not be confirmed.");
+                throw;
+            }
+            committed = true;
+        } finally {
+            if (!committed) {
+                (Player.Value.Account.LastModified, Player.Value.Character.LastModified,
+                    Player.Value.Unlock.LastModified, Player.Value.Home.LastModified) = timestamps;
+            }
         }
     }
 }

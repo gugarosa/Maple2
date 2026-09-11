@@ -9,6 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace Maple2.Database.Storage;
 
+public enum QuestExpirationResult {
+    Failed,
+    Expired,
+    RewardPending,
+}
+
 public partial class GameStorage {
     public partial class Request {
         public Quest? CreateQuest(long ownerId, Quest quest) {
@@ -22,14 +28,15 @@ public partial class GameStorage {
         public List<Item>? ActivateQuest(long accountId, long characterId, Quest quest, Quest? previous,
                                         IReadOnlyList<Item> additions, Func<Request, bool> saveItems) {
             long ownerId = quest.Metadata.Basic.Account > 0 ? accountId : characterId;
-            if (quest.State != QuestState.Started || quest.StartTime <= 0 ||
-                (previous != null && (previous.Id != quest.Id || previous.State != QuestState.Completed)) ||
+            if (HasFailed || IsTransaction || quest.State != QuestState.Started || quest.StartTime <= 0 ||
+                (previous != null && (previous.Id != quest.Id || previous.State is not (QuestState.None or QuestState.Completed))) ||
                 additions.Any(item => item.Amount <= 0 || item.Slot < 0 ||
                     item.Group is not (ItemGroup.Default or ItemGroup.Furnishing))) {
                 Logger.LogError("Invalid activation of quest {QuestId} for owner {OwnerId}", quest.Id, ownerId);
                 return null;
             }
 
+            bool committing = false;
             try {
                 using IDbContextTransaction transaction = Context.Database.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
                 Context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.TrackAll;
@@ -83,9 +90,10 @@ public partial class GameStorage {
 
                 Context.SaveChanges();
                 List<Item> saved = models.Select((item, index) => item.Convert(additions[index].Metadata)).ToList();
+                committing = true;
                 transaction.Commit();
                 return saved;
-            } catch (Exception ex) when (ex is DbUpdateException || ex.GetBaseException() is DbException) {
+            } catch (Exception ex) when (!committing && (ex is DbUpdateException || ex.GetBaseException() is DbException)) {
                 Logger.LogError(ex, "Failed to activate quest {QuestId} for owner {OwnerId}", quest.Id, ownerId);
                 return null;
             }
@@ -97,6 +105,38 @@ public partial class GameStorage {
                 .Select(ToQuest)
                 .Where(quest => quest != null)
                 .ToDictionary(quest => quest!.Id, quest => quest!);
+        }
+
+        public QuestExpirationResult ExpireQuest(long ownerId, Quest quest, long now) {
+            if (!quest.IsExpired(now)) {
+                Logger.LogWarning("Rejected premature expiration of quest {QuestId} for owner {OwnerId}", quest.Id, ownerId);
+                return QuestExpirationResult.Failed;
+            }
+
+            try {
+                using IDbContextTransaction transaction = Context.Database.BeginTransaction();
+                Model.Quest? model = Context.Quest
+                    .FromSqlInterpolated($"SELECT * FROM `quest` WHERE `OwnerId` = {ownerId} AND `Id` = {quest.Id} FOR UPDATE")
+                    .AsTracking().SingleOrDefault();
+                if (model == null || model.StartTime != quest.StartTime || model.CompletionCount != quest.CompletionCount ||
+                    model.State is not (QuestState.Started or QuestState.None)) {
+                    Logger.LogWarning("Quest {QuestId} changed before expiration for owner {OwnerId}", quest.Id, ownerId);
+                    return QuestExpirationResult.Failed;
+                }
+                if (Context.GuildQuestReward.Any(reward => reward.OwnerId == ownerId &&
+                        reward.QuestId == quest.Id && reward.StartTime == quest.StartTime &&
+                        reward.CompletionCount > quest.CompletionCount)) {
+                    return QuestExpirationResult.RewardPending;
+                }
+
+                model.State = QuestState.None;
+                Context.SaveChanges();
+                transaction.Commit();
+                return QuestExpirationResult.Expired;
+            } catch (Exception ex) when (ex is DbUpdateException || ex.GetBaseException() is DbException) {
+                Logger.LogError(ex, "Failed to expire quest {QuestId} for owner {OwnerId}", quest.Id, ownerId);
+                return QuestExpirationResult.Failed;
+            }
         }
 
         public bool DeleteQuest(long ownerId, int questId) {
@@ -124,14 +164,43 @@ public partial class GameStorage {
         }
 
         public bool SaveQuests(long ownerId, ICollection<Quest> quests) {
-            foreach (Quest quest in quests) {
-                Model.Quest model = quest;
-                model.OwnerId = ownerId;
-
-                Context.Quest.Update(model);
+            try {
+                foreach (Quest quest in quests) {
+                    // Expiration is already durable; a later session save must not resurrect it.
+                    if (quest.State == QuestState.None) {
+                        continue;
+                    }
+                    Model.Quest model = quest;
+                    model.OwnerId = ownerId;
+                    var converter = Context.Model.FindEntityType(typeof(Model.Quest))?
+                        .FindProperty(nameof(Model.Quest.Conditions))?.GetValueConverter();
+                    if (converter?.ConvertToProvider(model.Conditions) is not string conditions) {
+                        throw new InvalidOperationException("Quest conditions JSON conversion is not configured.");
+                    }
+                    // The EF7 provider cannot translate ExecuteUpdate for converted JSON columns.
+                    int updated = Context.Database.ExecuteSqlInterpolated($"""
+                        UPDATE `quest`
+                        SET `State` = {(int) model.State}, `CompletionCount` = {model.CompletionCount},
+                            `EndTime` = {model.EndTime}, `Track` = {model.Track}, `Conditions` = {conditions}
+                        WHERE `OwnerId` = {ownerId} AND `Id` = {model.Id} AND `StartTime` = {model.StartTime}
+                            AND `CompletionCount` <= {model.CompletionCount} AND `State` <> {(int) QuestState.None}
+                            AND ({model.State == QuestState.Completed} OR `State` = {(int) QuestState.Started})
+                        """);
+                    if (updated != 1) {
+                        Logger.LogWarning("Skipped stale quest save {QuestId} for owner {OwnerId}", quest.Id, ownerId);
+                        return false;
+                    }
+                    Model.Quest? tracked = Context.Quest.Local.FirstOrDefault(value => value.OwnerId == ownerId && value.Id == quest.Id);
+                    if (tracked != null) {
+                        Context.Entry(tracked).CurrentValues.SetValues(model);
+                        Context.Entry(tracked).State = EntityState.Unchanged;
+                    }
+                }
+                return true;
+            } catch (Exception ex) when (ex is DbUpdateException || ex.GetBaseException() is DbException) {
+                Logger.LogError(ex, "Failed to save quests for owner {OwnerId}", ownerId);
+                return false;
             }
-
-            return Context.TrySaveChanges();
         }
 
         // Converts model to quest if possible, otherwise returns null.

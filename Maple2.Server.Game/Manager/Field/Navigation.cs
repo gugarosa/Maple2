@@ -7,6 +7,7 @@ using DotRecast.Recast.Toolset;
 using DotRecast.Recast.Toolset.Builder;
 using Maple2.Model.Metadata;
 using Maple2.Server.Game.Model;
+using Maple2.Tools;
 using Maple2.Tools.DotRecast;
 using Serilog;
 
@@ -34,7 +35,7 @@ public sealed class Navigation : IDisposable {
     }
 
     private DtNavMesh LoadNavMesh() {
-        string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Navmeshes", $"{Name}.navmesh");
+        string path = Path.Combine(Paths.NAVMESH_DIR, $"{Name}.navmesh");
         if (!File.Exists(path)) {
             Logger.Warning("Navmesh not found: {Path}. NPCs on this map will not have pathfinding", path);
             var emptyMesh = new DtNavMesh();

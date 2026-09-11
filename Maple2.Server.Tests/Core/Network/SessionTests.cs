@@ -39,6 +39,26 @@ public class SessionTests {
         }
     }
 
+    [Test]
+    public async Task DisconnectDeliversQueuedResponseWithoutResettingThePeer() {
+        (TcpClient server, TcpClient peer) = await ConnectClients();
+        using (server)
+        using (peer)
+        using (var session = new TestSession(server))
+        using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5))) {
+            session.Send([1, 0, 7]);
+            session.Disconnect();
+
+            var received = new byte[128];
+            int total = 0;
+            int count;
+            while ((count = await peer.GetStream().ReadAsync(received, timeout.Token)) > 0) {
+                total += count;
+            }
+            Assert.That(total, Is.GreaterThan(0));
+        }
+    }
+
     private static async Task<(TcpClient, TcpClient)> ConnectClients() {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();

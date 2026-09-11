@@ -5,9 +5,10 @@ An open-source MapleStory2 server emulator written in C# (.NET 8.0). Run your ow
 [![Tests](https://github.com/gugarosa/Maple2/actions/workflows/test.yml/badge.svg)](https://github.com/gugarosa/Maple2/actions/workflows/test.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-Quest progress is protected from client-requested expiry. Public quest replays and
-reputation-grade prerequisites remain gated until their timing/state contracts are
-verified; see [Development Status](DEVELOPMENT_STATUS.md#quest-lifecycle-and-reward-boundaries).
+Quest expiry is checked against server time and retains completion history.
+Replaying completed quests and reputation-grade prerequisites remain gated until
+their separate eligibility/state contracts are verified; see
+[Development Status](DEVELOPMENT_STATUS.md#quest-lifecycle-and-reward-boundaries).
 
 ---
 
@@ -16,14 +17,14 @@ verified; see [Development Status](DEVELOPMENT_STATUS.md#quest-lifecycle-and-rew
 You will need:
 
 - A **MapleStory2 client** installation (provides game data files)
-- **Docker Engine or Docker Desktop** with Compose v2 (recommended) — _or_ the .NET 8 SDK, the `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 8.x runtimes, and MySQL 8 for local development
-- **PowerShell** (Windows PowerShell or [pwsh](https://github.com/PowerShell/PowerShell))
+- **Docker Engine or Docker Desktop** with Compose **2.20 or newer** (recommended) — _or_ the .NET 8 SDK, the `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 8.x runtimes, and MySQL 8 for local development
+- **PowerShell 5.1 or newer** (Windows PowerShell or [pwsh](https://github.com/PowerShell/PowerShell))
 
 Check local runtime availability with `dotnet --list-runtimes`. The repository targets .NET 8; a newer SDK alone is not a substitute for the required 8.x shared runtimes.
 
 `global.json` selects a stable .NET 8 SDK so local builds and GitHub Actions use
-the same formatter/toolchain generation. Install the current .NET 8 SDK, even if
-a newer major SDK is already installed.
+the same formatter/toolchain generation. Local development requires .NET 8 even
+if a newer major SDK is installed; the Docker images include their own toolchain.
 
 ## Quick Start (Docker)
 
@@ -44,10 +45,25 @@ DB_PASSWORD=yourStrongPassword
 # Path to your MapleStory2 client Data folder (for importing game data)
 MS2_DOCKER_DATA_FOLDER=C:/Nexon/Library/maplestory2/Data/
 
-# Your host/LAN IP — clients use this to connect to game channels
-# Use 127.0.0.1 for local play only
-GAME_IP=192.168.1.100
+# Local play
+CLIENT_BIND_IP=127.0.0.1
+GAME_IP=127.0.0.1
+LOGIN_IP=127.0.0.1
 ```
+
+For LAN clients, set `CLIENT_BIND_IP=0.0.0.0` and set both `GAME_IP` and `LOGIN_IP`
+to your server's LAN address. Database, gRPC, and Web host ports remain
+loopback-only. Public registration requires an HTTPS reverse proxy.
+
+**Existing installation:** preserve its Compose project name and MySQL volume.
+If moving or renaming the checkout, set `COMPOSE_PROJECT_NAME` in `.env` to the
+existing project name. Changing that name selects a different volume; it does not
+migrate your characters.
+
+Compose retains three named volumes: `mysql` for databases, `web-data` for uploaded
+images/designs, and `navmeshes` for generated navigation. Back up all three before
+major updates. If an older installation kept Web uploads only inside its container,
+copy those files into `web-data` before removing that container.
 
 ### 2. Import game data
 
@@ -57,14 +73,26 @@ This reads your MapleStory2 client files and populates the database with game me
 docker compose --profile ingest run --build --rm file-ingest
 ```
 
-The ingest service is opt-in and does not run during `docker compose up`. It restores the repository-local EF Core 7.0.20 tool, applies game-database migrations, and updates metadata by checksum.
+The ingest service is opt-in and does not run during `docker compose up`. Its image
+contains the source and pinned tools, applies game-database migrations, and updates
+metadata by checksum. Client archives are mounted read-only; the checkout is not
+mounted into the ingest container. Supply all original `.m2d`/`.m2h` archive pairs
+and the customized `Server.m2d`/`Server.m2h` before starting.
+
+Metadata and player database names must be different. Ingestion rejects overlapping
+or system database targets before running migrations. Connection values are escaped,
+including passwords containing connection-string punctuation.
+
+Full geometry ingestion needs several GiB of memory. It was validated with an
+8 GiB container allowance; a 3 GiB limit was insufficient. Archive/decryption or
+out-of-memory failures are errors, not a successful partial import.
 
 Re-run ingestion after parser, constants, or metadata-model changes. Stop application services first so they do not retain stale metadata caches; keep MySQL running and never delete its volume for a metadata refresh:
 
-```bash
-docker compose stop world login web game-ch0 game-ch1
+```powershell
+.\scripts\stop_servers.ps1 -Service world,login,web,game-ch0,game-ch1
 docker compose --profile ingest run --build --rm file-ingest
-pwsh ./scripts/start_servers.ps1
+pwsh .\scripts\start_servers.ps1
 ```
 
 `--drop-data` recreates the metadata database and is intentionally omitted from normal setup. Back up data and understand the impact before using it.
@@ -74,22 +102,56 @@ pwsh ./scripts/start_servers.ps1
 Navmeshes enable NPC pathfinding and movement. Without them, maps load but NPCs stand still.
 
 ```bash
-docker compose --profile ingest run --build --rm file-ingest -- --run-navmesh
+docker compose --profile ingest run --build --rm file-ingest --run-navmesh
 ```
 
 > **Note:** This processes all maps with walkable surfaces and can take a while on the first run. Subsequent runs skip maps that haven't changed.
 
+Generated files and their hashes are stored in the `navmeshes` volume. Both Game
+channels mount it read-only; generating navigation no longer depends on modifying
+the source checkout or rebuilding Game images afterward. Stop application services
+as above before generating navigation, then start them again: Game caches loaded
+navigation and must restart to use newly generated files.
+
 ### 4. Start the servers
 
 ```bash
-pwsh ./scripts/start_servers.ps1
+pwsh .\scripts\start_servers.ps1
 ```
 
-This builds the application images and starts services in order: MySQL → World → Login/Web → Game channels.
+This builds images before changing containers, then starts MySQL → World →
+Login/Web → instanced Game → normal Game with bounded readiness checks. Build,
+startup, or readiness errors stop the script instead of reporting success.
 
-### 5. Connect
+### 5. Register and sign in
 
-Point your MapleStory2 client at `127.0.0.1` (or your `GAME_IP`) port `20001`.
+Open `http://localhost:4000/account` and register a username and password.
+Usernames use 3-24 letters, numbers, or underscores. Passwords use 8-16 characters
+to fit the existing client's password field. Registration is explicit: an unknown
+or blank login never creates an account.
+
+Point your compatible MapleStory2 launcher at `127.0.0.1` (or your `GAME_IP`),
+port `20001`, then sign in with those credentials. Leave automatic login disabled
+to type them in the client; keep the client's default local/locale login mode
+enabled. The optional debug console is not required for normal play.
+
+If a compatible client is already patched but its launcher shortcut is missing,
+launch it from PowerShell using its own installation as the working directory:
+
+```powershell
+$clientPath = "C:\Games\MapleStory2"
+Start-Process -FilePath "$clientPath\x64\MapleStory2.exe" -WorkingDirectory $clientPath `
+    -ArgumentList "--nxapp=nxl", "--ip=127.0.0.1", "--port=20001"
+```
+
+The legacy client's password field can display its contents. Do not share
+screenshots of populated login fields; use a compatible launcher's masked
+credential prompt/profile when needed. For public registration, put the Web
+service behind HTTPS rather than exposing the HTTP form directly.
+
+Existing accounts and characters are preserved. New registrations have no
+administrator permissions or development currency grants. Empty development
+credentials are no longer accepted.
 
 ### Managing the servers
 
@@ -97,28 +159,28 @@ Point your MapleStory2 client at `127.0.0.1` (or your `GAME_IP`) port `20001`.
 # Tail logs
 docker compose logs -f world login game-ch0 game-ch1
 
-# Stop all services
-docker compose down
+# Stop all services, retaining containers and all three data volumes
+pwsh .\scripts\stop_servers.ps1
 ```
 
-Do not use `docker compose down -v` unless you intentionally want to delete the persistent MySQL volume, including player data.
+Do not use `docker compose down -v` for routine shutdown or updates: it deletes
+player databases, uploaded designs, and generated navigation.
 
-## Quick Start (Local / No Docker)
+## Local debugging (advanced)
 
-If you prefer running without Docker:
+Normal play uses the Docker scripts above. For native debugging, install MySQL 8
+and the .NET 8 SDK/runtimes, configure `.env`, and stop application services first:
 
 ```powershell
-# Interactive setup — checks .NET, restores pinned tools, downloads server files, imports game data
+# Validate local settings/archives and ingest metadata; no downloads or prompts
 .\setup.bat
-
-# Start all servers (World + Login + Web + Game) in separate windows
-.\start.bat
-
-# Or dev mode — World + Login + Web only (no game channel)
-.\dev.bat
 ```
 
-This requires the .NET 8 SDK and 8.x shared runtimes plus a local MySQL 8 instance. `setup.ps1` uses `.config/dotnet-tools.json`; it does not install or replace global EF tools.
+Launch projects under your debugger in World, Login/Web, instanced Game, normal
+Game order. Use `--instanced` for the instanced Game process and leave
+`INSTANCED_CONTENT=false` for the normal process. `setup.ps1` validates inputs and
+uses repository-local EF tools; it never downloads or overwrites client archives.
+The obsolete `start.bat` and `dev.bat` window launchers have been removed.
 
 ## Architecture
 
@@ -136,7 +198,7 @@ World, Login, Game, and Web :4000 ──▶ MySQL :3306
 | **World** | Central coordinator — manages global state (guilds, parties, player info) via gRPC |
 | **Login** | Handles authentication, character selection, and server list |
 | **Game** | Runs actual gameplay. Multiple channel instances per world. `game-ch0` handles instanced content (dungeons) |
-| **Web** | Web-based APIs and utilities |
+| **Web** | Account registration and client APIs for uploaded images/designs and rankings |
 | **MySQL** | Persistent storage for player data and game metadata |
 
 Inter-server communication uses **gRPC (HTTP/2)**. Client connections use a **custom TCP protocol** with MapleCipher encryption.
@@ -176,16 +238,20 @@ When iterating on game logic, you don't need to restart the database or world se
 
 ```bash
 # Rebuild and restart game channels (keeps world/login/web running)
-pwsh ./scripts/start_servers.ps1 -GameOnly
+pwsh .\scripts\start_servers.ps1 -GameOnly
 
 # Restart without rebuilding (if only config changed)
-pwsh ./scripts/start_servers.ps1 -GameOnly -NoBuild
+pwsh .\scripts\start_servers.ps1 -GameOnly -NoBuild
 
 # Restart only the configured normal channel
-pwsh ./scripts/start_servers.ps1 -GameOnly -NoInstanced -NonInstancedChannels 1
+pwsh .\scripts\start_servers.ps1 -GameOnly -NoInstanced -NonInstancedChannels 1
 ```
 
 > **Important:** After a game channel restart, connected clients must re-login from the login screen.
+
+`-GameOnly` requires healthy MySQL, World, Login, and Web services before making
+changes. Use a full startup when shared services, authentication, or registration
+code changes; a Game-only rebuild cannot update World/Login/Web.
 
 ### Building and testing
 
@@ -214,9 +280,11 @@ keeps C# checkout line endings consistent across workstations and CI.
 ### Opt-in persistence tests
 
 `GameStoragePersistenceTests` exercises account-wide migration, rank-mail transactions,
-and club buff persistence
-against MySQL. It creates a uniquely named temporary game database and deletes only
-that database afterward. It does not load connection settings from `.env`.
+club persistence, registration, atomic quest acceptance, expiry, and stale-save
+protection against MySQL. The other explicit fixtures cover guild reward receipts,
+item/mail/trade ownership, black-market transactions, and transaction failure
+handling. Each creates a uniquely named temporary game database and deletes only
+that database afterward. They do not load connection settings from `.env`.
 
 Set `DB_IP`, `DB_PORT`, `DB_USER`, and `DB_PASSWORD` for an isolated MySQL instance,
 and point `DATA_DB_NAME` to an ingested database whose name starts with
@@ -225,10 +293,25 @@ and point `DATA_DB_NAME` to an ingested database whose name starts with
 ```powershell
 $env:MAPLE2_RUN_DB_TESTS = "1"
 dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~GameStoragePersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~GuildQuestRewardPersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~ItemTransferPersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~BlackMarketPersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~DatabaseRequestPersistenceTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~ResetPersistenceTests"
 ```
 
 These tests are explicitly selected, not run against normal development or player
 databases by the default test command.
+They apply the actual game migrations so account, character, and mail identifiers
+use the same separate ranges as a normal installation.
+
+The dependency-free operations checks exercise script argument validation,
+startup ordering, failure propagation, and volume-safe shutdown without running
+Docker or touching real data:
+
+```powershell
+.\scripts\test_operations.ps1
+```
 
 ### Read-only client trigger validation
 
@@ -249,6 +332,8 @@ The same read-only approach covers event carrier patrols and combat-exit AI:
 ```powershell
 dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~EventPatrolArchiveTests"
 dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~AiLifecycleArchiveTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~QuestLifecycleArchiveTests"
+dotnet test Maple2.Server.Tests\Maple2.Server.Tests.csproj --filter "FullyQualifiedName~ParserArchiveCompatibilityTests"
 ```
 
 ### Measuring damage in game
@@ -288,8 +373,21 @@ Copy `.env.example` to `.env` and edit. Key variables:
 | `DATA_DB_NAME` | Database for game metadata | `maple-data` |
 | `GAME_DB_NAME` | Database for player data | `game-server` |
 | `GAME_IP`, `LOGIN_IP` | IPs the client connects to | `127.0.0.1` |
+| `CLIENT_BIND_IP` | Host interface exposing Login and Game client ports | `127.0.0.1` |
+| `COMPOSE_PROJECT_NAME` | Preserve the existing project name when moving a checkout | Checkout directory name |
 | `GRPC_WORLD_IP`, `GRPC_WORLD_PORT` | World server gRPC endpoint | `127.0.0.1:21001` |
 | `LANGUAGE` | Primary language (`EN`, `KR`, `CN`, `JP`, `DE`, `PR`) | `EN` |
+
+The Compose file sets `WEB_DATA_DIR=/app/Data` and `MS2_NAVMESH_DIR=/app/Navmeshes`
+for its persistent asset volumes. Native development resolves assets in the
+checkout; published services resolve them beside the application unless an
+explicit asset-directory override is supplied.
+
+All five service entrypoints apply environment overrides after `appsettings.json`.
+For example, `Serilog__WriteTo__0__Args__restrictedToMinimumLevel=Verbose` enables
+the existing console packet trace in a Debug build. Restart the affected service
+after changing an environment setting. Login credentials and authentication-key
+packets are excluded from packet traces.
 
 ### Game tuning (`config.yaml`)
 
@@ -305,6 +403,17 @@ The repository mounts `config.yaml` read-only into World, Login, and both Game c
 | Game ch1| 20003       | 21003              |
 | Web     | 4000        | —                  |
 | MySQL   | 3306        | —                  |
+
+## Troubleshooting the client
+
+| Symptom | What to check |
+|---------|---------------|
+| Login stays on a loading screen | Check Login and World logs as well as Game health. World must advertise an active **normal** channel; a listening port alone does not prove the login handoff works. Rebuild outdated images after updating server code. |
+| Client console says connection error `10035` | This is `WSAEWOULDBLOCK`, the pending result of a nonblocking connection. The existing client patch labels it as a failure; check whether the client subsequently connects before treating it as a server outage. |
+| Client console says `Failed to load XML file` | This is emitted by the client patch, not metadata ingestion. Some referenced files are absent from the original archive. Do not create empty replacement XML files or reset the player database to suppress the message. Report the exact path and affected gameplay. |
+| Client cannot find its data | Confirm both data-folder settings point to the actual current installation, especially after moving it to another directory. |
+| Correct password works in a launcher but not when typed in the client | The legacy password field truncates after 16 characters. New registrations enforce that limit; existing longer credentials can still be supplied by a compatible launcher without truncation. |
+| Registration returns `400`, `409`, or `429` | Correct the form errors, choose an unused username, or wait a minute after repeated attempts. Reload the page after a Web restart to obtain a fresh form token. |
 
 ## Community
 

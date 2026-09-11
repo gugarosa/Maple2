@@ -288,9 +288,11 @@ public class ItemCollection : IEnumerable<Item> {
                 copy.Group = item.Group;
                 return copy;
             }).ToArray();
+            var incomingUids = new HashSet<long>();
 
             foreach (Item source in additions) {
-                if (source.Amount <= 0) {
+                if (source.Amount <= 0 || source.Uid != 0 &&
+                    (uidToSlot.ContainsKey(source.Uid) || !incomingUids.Add(source.Uid))) {
                     return null;
                 }
 
@@ -319,17 +321,21 @@ public class ItemCollection : IEnumerable<Item> {
                     }
                 }
 
+                bool retainUid = true;
                 while (add.Amount > 0) {
-                    int slot = Array.FindIndex(planned, item => item == null);
+                    int slot = retainUid && ValidSlot(source.Slot) && planned[source.Slot] == null
+                        ? source.Slot : Array.FindIndex(planned, item => item == null);
                     if (slot < 0) {
                         return null;
                     }
-                    Item split = add.Clone();
+                    // A transferred UID belongs to only one output stack; extra stacks are new rows.
+                    Item split = add.Clone(retainUid ? add.Uid : 0);
                     split.Slot = (short) slot;
                     split.Group = add.Group;
                     split.Amount = Math.Min(add.Amount, slotMax);
                     planned[slot] = split;
                     add.Amount -= split.Amount;
+                    retainUid = false;
                 }
             }
 
@@ -362,6 +368,25 @@ public class ItemCollection : IEnumerable<Item> {
             items[saved.Slot] = saved;
             Count++;
             return (saved, saved.Amount);
+        } finally {
+            mutex.ExitWriteLock();
+        }
+    }
+
+    internal void ApplyRemoved(long uid, int amount) {
+        mutex.EnterWriteLock();
+        try {
+            if (!uidToSlot.TryGetValue(uid, out short slot) || items[slot] is not { } item ||
+                amount <= 0 || item.Amount < amount) {
+                throw new InvalidOperationException("Inventory changed during a planned removal.");
+            }
+            if (item.Amount == amount) {
+                items[slot] = null;
+                uidToSlot.Remove(uid);
+                Count--;
+            } else {
+                item.Amount -= amount;
+            }
         } finally {
             mutex.ExitWriteLock();
         }
@@ -406,7 +431,8 @@ public class ItemCollection : IEnumerable<Item> {
     }
 
     private static bool CanStack(Item item, Item stack) {
-        return item.Id == stack.Id
+        return (item.Uid == 0 || item.Uid != stack.Uid)
+               && item.Id == stack.Id
                && item.Rarity == stack.Rarity
                && item.Amount < item.Metadata.Property.SlotMax
                && Equals(item.Transfer, stack.Transfer)

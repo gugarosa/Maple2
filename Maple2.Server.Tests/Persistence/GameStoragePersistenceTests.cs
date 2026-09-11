@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Common;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -13,9 +14,13 @@ using Maple2.Model.Metadata;
 using Maple2.Server.Game.Manager;
 using Maple2.Server.Game.Manager.Items;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using MySqlConnector;
 using GuildQuestRewardsMigration = Maple2.Server.World.Migrations.GuildQuestRewards;
+using AccountService = Maple2.Server.Global.Service.GlobalService;
+using LoginRequest = Maple2.Server.Global.Service.LoginRequest;
+using LoginResponse = Maple2.Server.Global.Service.LoginResponse;
 
 namespace Maple2.Server.Tests.Persistence;
 
@@ -392,6 +397,339 @@ public class GameStoragePersistenceTests {
         await Task.WhenAll(save, activate);
         Assert.That(await activate, Has.Count.EqualTo(1));
     }
+
+    [Test]
+    public void ExpiredQuestRetainsCompletionHistoryAndCanBeReacceptedAtomically() {
+        (Account account, Character character, _) = CreatePlayers();
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Quest quest = StartedQuest(93000123, now - 301);
+        quest.CompletionCount = 3;
+        long ownerId = quest.Metadata.Basic.Account > 0 ? account.Id : character.Id;
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.CreateQuest(ownerId, quest), Is.Not.Null);
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.ExpireQuest(ownerId, quest, now - 2), Is.EqualTo(QuestExpirationResult.Failed));
+            Assert.That(request.ExpireQuest(ownerId, quest, now), Is.EqualTo(QuestExpirationResult.Expired));
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.SaveQuests(ownerId, [quest]), Is.False);
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Quest expired = request.GetQuests(ownerId)[quest.Id];
+            Assert.That(expired.State, Is.EqualTo(QuestState.None));
+            Assert.That(expired.CompletionCount, Is.EqualTo(3));
+            Assert.That(expired.Track, Is.EqualTo(quest.Track));
+            Quest restarted = QuestManager.CreateStartedQuest(expired.Metadata, expired, now);
+            Assert.That(request.ActivateQuest(account.Id, character.Id, restarted, expired,
+                [new Item(itemMetadata) { Slot = 0 }], _ => true), Has.Count.EqualTo(1));
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Quest restarted = request.GetQuests(ownerId)[quest.Id];
+            Assert.That(restarted.State, Is.EqualTo(QuestState.Started));
+            Assert.That(restarted.CompletionCount, Is.EqualTo(3));
+            Assert.That(restarted.StartTime, Is.EqualTo(now));
+        }
+    }
+
+    [Test]
+    public void ExpiryCannotOverwriteACompletedOrNewerActivation() {
+        (_, Character character, _) = CreatePlayers();
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Quest stale = StartedQuest(93000123, now - 301);
+        Quest completed = StartedQuest(93000123, now - 301);
+        completed.State = QuestState.Completed;
+        completed.CompletionCount = 1;
+        completed.EndTime = now;
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.CreateQuest(character.Id, completed), Is.Not.Null);
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.ExpireQuest(character.Id, stale, now), Is.EqualTo(QuestExpirationResult.Failed));
+            Assert.That(request.GetQuests(character.Id)[stale.Id].State, Is.EqualTo(QuestState.Completed));
+        }
+        Quest restarted = QuestManager.CreateStartedQuest(completed.Metadata, completed, now);
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.ActivateQuest(character.AccountId, character.Id, restarted, completed, [], _ => true), Is.Not.Null);
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.ExpireQuest(character.Id, stale, now), Is.EqualTo(QuestExpirationResult.Failed));
+            Assert.That(request.SaveQuests(character.Id, [completed]), Is.False);
+            Assert.That(request.GetQuests(character.Id)[stale.Id].StartTime, Is.EqualTo(now));
+        }
+    }
+
+    [Test]
+    public async Task UnknownLoginCannotCreateAnAccount() {
+        string username = "unknown" + Guid.NewGuid().ToString("N")[..8];
+        using var service = new AccountService(storage);
+        LoginResponse response = await service.Login(new LoginRequest {
+            Username = username,
+            Password = Guid.NewGuid().ToString("N"),
+            MachineId = Guid.NewGuid().ToString(),
+            ClientIp = "127.0.0.1",
+        }, null!);
+        Assert.That(response.Code, Is.EqualTo(LoginResponse.Types.Code.ErrorPassword));
+        using GameStorage.Request request = storage.Context();
+        Assert.That(request.GetAccount(username), Is.Null);
+    }
+
+    [Test]
+    public async Task ExplicitRegistrationCreatesAnOrdinaryAccountWithExactPasswordVerification() {
+        string username = "registered" + Guid.NewGuid().ToString("N")[..8];
+        string password = " " + Guid.NewGuid().ToString("N")[..12] + " ";
+        using (GameStorage.Request request = storage.Context()) {
+            Assert.That(request.RegisterAccount(" " + username.ToUpperInvariant() + " ", password),
+                Is.EqualTo(AccountRegistrationResult.Registered));
+        }
+        using (GameStorage.Request request = storage.Context()) {
+            Account? account = request.GetAccount(username);
+            Assert.That(account, Is.Not.Null);
+            Assert.That(account!.AdminPermissions, Is.EqualTo(AdminPermissions.None));
+            Assert.That(request.VerifyPassword(account.Id, password), Is.True);
+            Assert.That(request.VerifyPassword(account.Id, password.Trim()), Is.False);
+            Assert.That(request.VerifyPassword(account.Id, ""), Is.False);
+            Assert.That(request.VerifyPassword(long.MaxValue, password), Is.False);
+            Assert.That(request.RegisterAccount(username, password), Is.EqualTo(AccountRegistrationResult.UsernameTaken));
+        }
+        using var service = new AccountService(storage);
+        LoginResponse login = await service.Login(new LoginRequest {
+            Username = username,
+            Password = password,
+            MachineId = Guid.NewGuid().ToString(),
+            ClientIp = "127.0.0.1",
+        }, null!);
+        Assert.That(login.Code, Is.EqualTo(LoginResponse.Types.Code.Ok));
+        Assert.That(login.AccountId, Is.GreaterThan(0));
+    }
+
+    [Test]
+    public async Task ConcurrentRegistrationsUseTheDatabaseUsernameConstraint() {
+        string username = "unique" + Guid.NewGuid().ToString("N")[..8];
+        string password = Guid.NewGuid().ToString("N")[..16];
+        Task<AccountRegistrationResult>[] attempts = Enumerable.Range(0, 2).Select(index => Task.Run(() => {
+            using GameStorage.Request request = storage.Context();
+            return request.RegisterAccount(index == 0 ? username : username.ToUpperInvariant(), password);
+        })).ToArray();
+        AccountRegistrationResult[] results = await Task.WhenAll(attempts);
+        Assert.That(results, Is.EquivalentTo(new[] {
+            AccountRegistrationResult.Registered, AccountRegistrationResult.UsernameTaken,
+        }));
+    }
+
+    [Test]
+    public void FailedHomeCreationRollsBackAccountRegistration() {
+        string username = "rollback" + Guid.NewGuid().ToString("N")[..8];
+        DbContextOptions options = new DbContextOptionsBuilder(gameOptions)
+            .AddInterceptors(new RejectSecondAccountSave()).Options;
+        using (var context = new Ms2Context(options))
+        using (var request = new GameStorage.Request(storage, context, NullLogger<GameStorage>.Instance)) {
+            Assert.That(request.RegisterAccount(username, Guid.NewGuid().ToString("N")[..16]), Is.EqualTo(AccountRegistrationResult.Failed));
+        }
+        using GameStorage.Request verify = storage.Context();
+        Assert.That(verify.GetAccount(username), Is.Null);
+    }
+
+    [Test]
+    public void RegistrationCannotReportSuccessInsideABorrowedOrFailedRequest() {
+        string username = "outer" + Guid.NewGuid().ToString("N")[..8];
+        using (GameStorage.Request request = storage.Context()) {
+            request.BeginTransaction();
+            Assert.That(request.RegisterAccount(username, "valid-password"), Is.EqualTo(AccountRegistrationResult.Failed));
+            request.Rollback();
+            Assert.That(request.RegisterAccount(username, "valid-password"), Is.EqualTo(AccountRegistrationResult.Failed));
+        }
+        using GameStorage.Request verify = storage.Context();
+        Assert.That(verify.GetAccount(username), Is.Null);
+    }
+
+    [Test]
+    public void UnconfirmedQuestCommitCannotBeReportedAsARetryableRejection() {
+        (Account account, Character character, _) = CreatePlayers();
+        Quest quest = StartedQuest(93000123, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        DbContextOptions options = new DbContextOptionsBuilder(gameOptions)
+            .AddInterceptors(new LoseQuestCommitAcknowledgement()).Options;
+        using (var context = new Ms2Context(options))
+        using (var db = new GameStorage.Request(storage, context, NullLogger<GameStorage>.Instance)) {
+            Assert.Throws<QuestCommitAcknowledgementException>(() =>
+                db.ActivateQuest(account.Id, character.Id, quest, null, [new Item(itemMetadata) { Slot = 0 }], _ => true));
+        }
+        using GameStorage.Request verify = storage.Context();
+        long ownerId = quest.Metadata.Basic.Account > 0 ? account.Id : character.Id;
+        Assert.That(verify.GetQuests(ownerId)[quest.Id].State, Is.EqualTo(QuestState.Started));
+        Assert.That(verify.GetAllItems(character.Id), Has.Count.EqualTo(1));
+        Assert.That(verify.ActivateQuest(account.Id, character.Id, quest, null,
+            [new Item(itemMetadata) { Slot = 1 }], _ => true), Is.Null);
+        Assert.That(verify.GetAllItems(character.Id), Has.Count.EqualTo(1));
+    }
+
+    private sealed class QuestCommitAcknowledgementException() : DbException("Injected lost quest commit acknowledgement.");
+
+    private sealed class LoseQuestCommitAcknowledgement : DbTransactionInterceptor {
+        public override void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData) {
+            throw new QuestCommitAcknowledgementException();
+        }
+    }
+
+    private sealed class RejectSecondAccountSave : SaveChangesInterceptor {
+        private int saves;
+        public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result) {
+            if (++saves == 2) {
+                throw new DbUpdateException("Injected failure while creating account home rows.");
+            }
+            return result;
+        }
+    }
+
+    [Test]
+    public void NativeGuildDeletesRespectRowScopeAndRollback() {
+        (_, Character first, Character member) = CreatePlayers();
+        (_, Character other, Character otherMember) = CreatePlayers();
+        var provider = new PlayerInfos([Info(first), Info(member), Info(other), Info(otherMember)]);
+        long firstGuild;
+        long otherGuild;
+        using (GameStorage.Request db = storage.Context()) {
+            firstGuild = db.CreateGuild("Guild" + Guid.NewGuid().ToString("N")[..8], first.Id)!.Id;
+            otherGuild = db.CreateGuild("Guild" + Guid.NewGuid().ToString("N")[..8], other.Id)!.Id;
+            Assert.That(db.CreateGuildMember(firstGuild, Info(member)), Is.Not.Null);
+            Assert.That(db.CreateGuildMember(otherGuild, Info(otherMember)), Is.Not.Null);
+        }
+        using (var context = new Ms2Context(gameOptions))
+        using (var transaction = context.Database.BeginTransaction())
+        using (var db = new GameStorage.Request(storage, context, NullLogger<GameStorage>.Instance)) {
+            Assert.That(db.DeleteGuildMember(firstGuild, member.Id), Is.True);
+            transaction.Rollback();
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.GetGuildMembers(provider, firstGuild), Has.Count.EqualTo(2));
+            Assert.That(db.DeleteGuildMember(firstGuild, member.Id), Is.True);
+            Assert.That(db.DeleteGuildMember(firstGuild, member.Id), Is.False);
+            Assert.That(db.GetGuildMembers(provider, otherGuild), Has.Count.EqualTo(2));
+        }
+
+        long application;
+        using (var context = new Ms2Context(gameOptions)) {
+            context.Database.ExecuteSqlInterpolated($"""
+                INSERT INTO `guild-application` (`GuildId`, `ApplicantId`, `CreationTime`) VALUES
+                ({firstGuild}, {member.Id}, UTC_TIMESTAMP()), ({otherGuild}, {member.Id}, UTC_TIMESTAMP()),
+                ({otherGuild}, {otherMember.Id}, UTC_TIMESTAMP())
+                """);
+            application = context.Database.SqlQuery<long>($"""
+                SELECT `Id` AS `Value` FROM `guild-application` WHERE `GuildId`={firstGuild} AND `ApplicantId`={member.Id}
+                """).Single();
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.DeleteGuildApplication(application), Is.True);
+            Assert.That(db.DeleteGuildApplication(application), Is.False);
+            Assert.That(db.DeleteGuildApplications(member.Id), Is.True);
+            Assert.That(db.DeleteGuildApplications(member.Id), Is.False);
+        }
+        using (var context = new Ms2Context(gameOptions)) {
+            Assert.That(context.Database.SqlQuery<long>($"""
+                SELECT COUNT(*) AS `Value` FROM `guild-application` WHERE `GuildId`={otherGuild}
+                """).Single(), Is.EqualTo(1));
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.DeleteGuild(firstGuild), Is.True);
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.GetGuild(firstGuild), Is.Null);
+            Assert.That(db.GetGuildMembers(provider, firstGuild), Is.Empty);
+            Assert.That(db.GetGuild(otherGuild), Is.Not.Null);
+            Assert.That(db.GetGuildMembers(provider, otherGuild), Has.Count.EqualTo(2));
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.DeleteGuild(otherGuild), Is.True);
+        }
+        using (var context = new Ms2Context(gameOptions)) {
+            Assert.That(context.Database.SqlQuery<long>($"""
+                SELECT COUNT(*) AS `Value` FROM `guild-application` WHERE `GuildId`={otherGuild}
+                """).Single(), Is.Zero);
+        }
+    }
+
+    [Test]
+    public void NativeClubDeletesKeepUnrelatedMemberships() {
+        (_, Character first, Character member) = CreatePlayers();
+        (_, Character other, Character otherMember) = CreatePlayers();
+        var provider = new PlayerInfos([Info(first), Info(member), Info(other), Info(otherMember)]);
+        long firstClub;
+        long otherClub;
+        using (GameStorage.Request db = storage.Context()) {
+            firstClub = db.CreateClub(provider, "Club" + Guid.NewGuid().ToString("N")[..8],
+                first.Id, [Info(first), Info(member)])!.Id;
+            otherClub = db.CreateClub(provider, "Club" + Guid.NewGuid().ToString("N")[..8],
+                other.Id, [Info(other), Info(otherMember)])!.Id;
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.DeleteClubMember(firstClub, member.Id), Is.True);
+            Assert.That(db.DeleteClubMember(firstClub, member.Id), Is.False);
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.DeleteClub(firstClub), Is.True);
+        }
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.GetClub(provider, firstClub), Is.Null);
+            Assert.That(db.GetClub(provider, otherClub), Is.Not.Null);
+        }
+        using (var context = new Ms2Context(gameOptions)) {
+            Assert.That(context.Database.SqlQuery<long>($"""
+                SELECT COUNT(*) AS `Value` FROM `club-member` WHERE `ClubId`={otherClub}
+                """).Single(), Is.EqualTo(2));
+        }
+    }
+
+    [Test]
+    public void BuyingAndForfeitingPlotsDeleteOnlyTheirOwnCubes() {
+        (Account account, Character character, _) = CreatePlayers();
+        UgcMapMetadata metadata = metadataContext.UgcMapMetadata.AsEnumerable().First(map =>
+            map.Id != Constant.DefaultHomeMapId && map.Plots.Values.Count(plot => plot.ApartmentNumber == 0) >= 2);
+        Plot[] plots;
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.InitUgcMap([metadata]), Is.True);
+            plots = db.LoadPlotsForMap(metadata.Id).Where(plot => metadata.Plots[plot.Number].ApartmentNumber == 0).Take(2).ToArray();
+        }
+        Assert.That(plots, Has.Length.EqualTo(2));
+        AddCube(plots[0].Id);
+        AddCube(plots[1].Id);
+        PlotInfo purchased;
+        using (GameStorage.Request db = storage.Context()) {
+            purchased = db.BuyPlot(character.Name, account.Id, plots[0], TimeSpan.FromDays(1))!;
+            Assert.That(purchased, Is.Not.Null);
+            Assert.That(purchased.OwnerId, Is.EqualTo(account.Id));
+        }
+        Assert.That(CubeCount(plots[0].Id), Is.Zero);
+        Assert.That(CubeCount(plots[1].Id), Is.EqualTo(1));
+        AddCube(plots[0].Id);
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.ForfeitPlot(account.Id + 1, purchased), Is.Null);
+        }
+        Assert.That(CubeCount(plots[0].Id), Is.EqualTo(1));
+        using (GameStorage.Request db = storage.Context()) {
+            Assert.That(db.ForfeitPlot(account.Id, purchased)?.OwnerId, Is.Zero);
+        }
+        Assert.That(CubeCount(plots[0].Id), Is.Zero);
+        Assert.That(CubeCount(plots[1].Id), Is.EqualTo(1));
+
+        void AddCube(long plotId) {
+            using var context = new Ms2Context(gameOptions);
+            context.Database.ExecuteSqlInterpolated($"""
+                INSERT INTO `ugcmap-cube` (`UgcMapId`, `X`, `Y`, `Z`, `Rotation`, `ItemId`)
+                VALUES ({plotId}, 0, 0, 0, 0, 50200094)
+                """);
+        }
+
+        long CubeCount(long plotId) {
+            using var context = new Ms2Context(gameOptions);
+            return context.Database.SqlQuery<long>($"""
+                SELECT COUNT(*) AS `Value` FROM `ugcmap-cube` WHERE `UgcMapId`={plotId}
+                """).Single();
+        }
+    }
+
+    private static PlayerInfo Info(Character character) => new(
+        new CharacterInfo(character.AccountId, character.Id, character.Name, "", "",
+            character.Gender, character.Job, character.Level), "Test home", default, []);
 
     private Quest StartedQuest(int questId, long now) {
         Assert.That(questMetadata.TryGet(questId, out QuestMetadata? metadata), Is.True);

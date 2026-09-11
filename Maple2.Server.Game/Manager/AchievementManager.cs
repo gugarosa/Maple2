@@ -303,8 +303,8 @@ public sealed class AchievementManager {
         }
     }
 
-    public void Save(GameStorage.Request db) {
-        db.SaveAchievements(session.AccountId, accountValues.Values.ToList());
-        db.SaveAchievements(session.CharacterId, characterValues.Values.ToList());
+    public bool Save(GameStorage.Request db) {
+        return db.SaveAchievements(session.AccountId, accountValues.Values.ToList()) &&
+               db.SaveAchievements(session.CharacterId, characterValues.Values.ToList());
     }
 }

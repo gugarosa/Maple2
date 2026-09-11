@@ -119,10 +119,10 @@ public class BuddyManager : IDisposable {
                 return;
             }
             BuddyEntry? entry = db.CreateBuddy(session.CharacterId, receiverId, BuddyType.OutRequest, message);
-            db.CreateBuddy(receiverId, session.CharacterId, BuddyType.InRequest, message); // Intentionally ignored result
-            db.Commit();
-
-            if (entry == null || !session.PlayerInfo.GetOrFetch(entry.BuddyId, out PlayerInfo? info)) {
+            if (entry == null ||
+                db.CreateBuddy(receiverId, session.CharacterId, BuddyType.InRequest, message) == null ||
+                !session.PlayerInfo.GetOrFetch(entry.BuddyId, out PlayerInfo? info) ||
+                !db.Commit()) {
                 session.Send(BuddyPacket.Invite(error: s_buddy_err_miss_id));
                 return;
             }

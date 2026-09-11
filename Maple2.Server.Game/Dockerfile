@@ -7,6 +7,7 @@ WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
+COPY ["global.json", "./"]
 COPY ["Maple2.Server.Game/Maple2.Server.Game.csproj", "Maple2.Server.Game/"]
 COPY ["Maple2.Tools/Maple2.Tools.csproj", "Maple2.Tools/"]
 COPY ["Maple2.Model/Maple2.Model.csproj", "Maple2.Model/"]

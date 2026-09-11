@@ -159,7 +159,7 @@ public sealed class GameEventManager {
         return eventValues[eventId][type];
     }
 
-    public void Save(GameStorage.Request db) {
+    public bool Save(GameStorage.Request db) {
         // Update certain values upon log off
         // TODO: Maybe update this to handle a list of other types that need to be updated upon logoff?
         IEnumerable<GameEventUserValue> accumulatedTimeValues =
@@ -167,6 +167,6 @@ public sealed class GameEventManager {
         foreach (GameEventUserValue userValue in accumulatedTimeValues) {
             userValue.SetValue((DateTime.Now.AddSeconds(userValue.Long()) - session.Player.Value.Character.LastModified).Seconds.ToString());
         }
-        db.SaveGameEventUserValues(session.CharacterId, eventValues.Values.SelectMany(value => value.Values).ToList());
+        return db.SaveGameEventUserValues(session.CharacterId, eventValues.Values.SelectMany(value => value.Values).ToList());
     }
 }

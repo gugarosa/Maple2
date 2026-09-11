@@ -1,23 +1,26 @@
 #!/usr/bin/env pwsh
+#Requires -Version 5.1
 
+<#
+.SYNOPSIS
+Gracefully stop this checkout's Docker services without deleting containers or volumes.
+.PARAMETER Service
+Optional Compose service names. Omit to stop everything, including MySQL.
+.EXAMPLE
+pwsh .\scripts\stop_servers.ps1
+.EXAMPLE
+.\scripts\stop_servers.ps1 -Service world,login,web,game-ch0,game-ch1
+#>
 param([string[]]$Service)
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-
-function Test-ComposeV2 {
-  try { $null = & docker compose version 2>$null; return $LASTEXITCODE -eq 0 } catch { return $false }
-}
-$UseV2 = Test-ComposeV2
-function Compose { param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args) if ($UseV2) { & docker compose @Args } else { & docker-compose @Args } }
+. (Join-Path $PSScriptRoot 'compose.ps1')
 
 if ($Service -and $Service.Count -gt 0) {
-  Write-Host "Stopping services: $($Service -join ', ')"
-  Compose stop @Service
+    Write-Host "Stopping services: $($Service -join ', ')"
+    Invoke-Compose stop @Service
 } else {
-  Write-Host "Stopping all services in compose project..."
-  Compose stop
+    Write-Host 'Stopping all services in this Compose project; persistent data is retained.'
+    Invoke-Compose stop
 }
 
-Write-Host
-Compose ps
+Invoke-Compose ps --all

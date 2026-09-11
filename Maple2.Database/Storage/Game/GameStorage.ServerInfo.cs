@@ -33,29 +33,48 @@ public partial class GameStorage {
 
         public void DailyReset() {
             lock (Context) {
-                ServerInfo serverInfo = Context.ServerInfo.Find("DailyReset")!;
-                serverInfo.LastModified = DateTime.Now;
-                Context.Update(serverInfo);
+                using var transaction = Context.Database.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
+                ServerInfo? serverInfo = Context.ServerInfo.Find("DailyReset");
+                if (serverInfo == null) {
+                    serverInfo = new ServerInfo { Key = "DailyReset", LastModified = DateTime.Now };
+                    Context.ServerInfo.Add(serverInfo);
+                } else {
+                    serverInfo.LastModified = DateTime.Now;
+                    Context.Update(serverInfo);
+                }
                 Context.SaveChanges();
 
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeExp` = `PrestigeCurrentExp`");
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeLevelsGained` = DEFAULT");
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PremiumRewardsClaimed` = DEFAULT");
-                Context.Database.ExecuteSqlRaw("UPDATE `character-config` SET `GatheringCounts` = DEFAULT");
-                Context.Database.ExecuteSqlRaw("UPDATE `character-config` SET `InstantRevivalCount` = 0");
+                // Online accounts reset through their session's checked save, including its concurrency tokens.
+                Context.Database.ExecuteSqlRaw("""
+                    UPDATE `account`
+                    SET `PrestigeExp` = `PrestigeCurrentExp`, `PrestigeLevelsGained` = 0,
+                        `PremiumRewardsClaimed` = '[]', `MarketLimits` = JSON_SET(`MarketLimits`, '$.MesoListed', 0)
+                    WHERE `Online` = 0
+                    """);
+                Context.Database.ExecuteSqlRaw("""
+                    UPDATE `character-config` config
+                    JOIN `character` c ON c.`Id` = config.`CharacterId`
+                    JOIN `account` a ON a.`Id` = c.`AccountId`
+                    SET config.`GatheringCounts` = JSON_OBJECT(), config.`InstantRevivalCount` = 0
+                    WHERE a.`Online` = 0 OR c.`Channel` < 0
+                    """);
                 Context.Database.ExecuteSqlRaw("UPDATE `nurturing` SET `PlayedBy` = '[]'");
-                Context.Database.ExecuteSqlRaw("UPDATE `home` SET `DecorationRewardTimestamp` = 0");
-                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-data` SET `RestockCount` = 0 WHERE `Interval` = 1");
-                // Reset shop item stock purchased for daily shops
-                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-item-data` SET `StockPurchased` = 0 WHERE `ShopId` IN (SELECT `ShopId` FROM `character-shop-data` WHERE `Interval` = 1)");
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `MarketLimits` = JSON_SET(MarketLimits, '$.MesoListed', 0)");
-                // Dungeon daily clears
-                Context.Database.ExecuteSqlRaw("UPDATE `dungeon-record` SET `CurrentSubClears` = 0, `ExtraCurrentSubClears` = 0");
+                Context.Database.ExecuteSqlRaw("UPDATE `home` SET `DecorationRewardTimestamp` = 0 WHERE `AccountId` IN (SELECT `Id` FROM `account` WHERE `Online` = 0)");
+                ResetOfflineShops(1);
+                Context.Database.ExecuteSqlRaw("""
+                    UPDATE `dungeon-record` record
+                    LEFT JOIN `character` c ON NOT record.`AccountWide` AND c.`Id` = record.`OwnerId`
+                    JOIN `account` a ON a.`Id` = IF(record.`AccountWide`, record.`OwnerId`, c.`AccountId`)
+                    SET record.`CurrentSubClears` = 0, record.`ExtraCurrentSubClears` = 0
+                    WHERE a.`Online` = 0 OR (NOT record.`AccountWide` AND c.`Channel` < 0)
+                    """);
+                transaction.Commit();
             }
         }
 
         public void WeeklyReset() {
             lock (Context) {
+                using var transaction = Context.Database.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
                 ServerInfo? serverInfo = Context.ServerInfo.Find("WeeklyReset");
                 if (serverInfo == null) {
                     serverInfo = new ServerInfo { Key = "WeeklyReset", LastModified = DateTime.Now };
@@ -67,17 +86,22 @@ public partial class GameStorage {
                 Context.SaveChanges();
 
                 Context.Database.ExecuteSqlRaw("UPDATE `guild-member` SET `WeeklyContribution` = 0");
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeRewardsClaimed` = DEFAULT");
-                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-data` SET `RestockCount` = 0 WHERE `Interval` = 2");
-                // Reset shop item stock purchased for weekly shops
-                Context.Database.ExecuteSqlRaw("UPDATE `character-shop-item-data` SET `StockPurchased` = 0 WHERE `ShopId` IN (SELECT `ShopId` FROM `character-shop-data` WHERE `Interval` = 2)");
-                // Dungeon weekly clears
-                Context.Database.ExecuteSqlRaw("UPDATE `dungeon-record` SET `CurrentClears` = 0, `ExtraCurrentClears` = 0");
+                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `PrestigeRewardsClaimed` = '[]' WHERE `Online` = 0");
+                ResetOfflineShops(2);
+                Context.Database.ExecuteSqlRaw("""
+                    UPDATE `dungeon-record` record
+                    LEFT JOIN `character` c ON NOT record.`AccountWide` AND c.`Id` = record.`OwnerId`
+                    JOIN `account` a ON a.`Id` = IF(record.`AccountWide`, record.`OwnerId`, c.`AccountId`)
+                    SET record.`CurrentClears` = 0, record.`ExtraCurrentClears` = 0
+                    WHERE a.`Online` = 0 OR (NOT record.`AccountWide` AND c.`Channel` < 0)
+                    """);
+                transaction.Commit();
             }
         }
 
         public void MonthlyReset() {
             lock (Context) {
+                using var transaction = Context.Database.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
                 ServerInfo? serverInfo = Context.ServerInfo.Find("MonthlyReset");
                 if (serverInfo == null) {
                     serverInfo = new ServerInfo { Key = "MonthlyReset", LastModified = DateTime.Now };
@@ -88,8 +112,29 @@ public partial class GameStorage {
                 }
                 Context.SaveChanges();
 
-                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `MarketLimits` = JSON_SET(MarketLimits, '$.MesoPurchased', 0)");
+                Context.Database.ExecuteSqlRaw("UPDATE `account` SET `MarketLimits` = JSON_SET(MarketLimits, '$.MesoPurchased', 0) WHERE `Online` = 0");
+                transaction.Commit();
             }
+        }
+
+        private void ResetOfflineShops(int interval) {
+            Context.Database.ExecuteSqlInterpolated($"""
+                UPDATE `character-shop-data` shops
+                SET shops.`RestockCount` = 0
+                WHERE shops.`Interval` = {interval} AND shops.`OwnerId` NOT IN (
+                    SELECT `Id` FROM `account` WHERE `Online` = 1
+                    UNION SELECT c.`Id` FROM `character` c JOIN `account` a ON a.`Id` = c.`AccountId`
+                    WHERE a.`Online` = 1 AND c.`Channel` >= 0)
+                """);
+            Context.Database.ExecuteSqlInterpolated($"""
+                UPDATE `character-shop-item-data` items
+                JOIN `character-shop-data` shops ON shops.`ShopId` = items.`ShopId` AND shops.`OwnerId` = items.`OwnerId`
+                SET items.`StockPurchased` = 0
+                WHERE shops.`Interval` = {interval} AND shops.`OwnerId` NOT IN (
+                    SELECT `Id` FROM `account` WHERE `Online` = 1
+                    UNION SELECT c.`Id` FROM `character` c JOIN `account` a ON a.`Id` = c.`AccountId`
+                    WHERE a.`Online` = 1 AND c.`Channel` >= 0)
+                """);
         }
     }
 }

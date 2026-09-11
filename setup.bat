@@ -1,2 +1,3 @@
-powershell.exe -ExecutionPolicy Bypass -File setup.ps1
-pause
+@echo off
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1" %*
+exit /b %errorlevel%

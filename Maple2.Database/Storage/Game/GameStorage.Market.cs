@@ -3,8 +3,6 @@ using Maple2.Database.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Metadata;
 using Microsoft.EntityFrameworkCore;
-using BlackMarketListing = Maple2.Model.Game.BlackMarketListing;
-using Item = Maple2.Model.Game.Item;
 using MesoListing = Maple2.Model.Game.MesoListing;
 using PremiumMarketItem = Maple2.Model.Game.PremiumMarketItem;
 using SoldUgcMarketItem = Maple2.Model.Game.SoldUgcMarketItem;
@@ -231,96 +229,5 @@ public partial class GameStorage {
             return Context.TrySaveChanges();
         }
 
-        public BlackMarketListing? CreateBlackMarketingListing(BlackMarketListing listing) {
-            Model.BlackMarketListing model = listing;
-            model.Id = 0;
-            Context.BlackMarketListing.Add(model);
-            if (!SaveChanges()) {
-                return null;
-            }
-
-            BlackMarketListing? created = ToBlackMarketingListing(model);
-            if (created == null) {
-                return null;
-            }
-            SaveItems(created.Id, created.Item);
-            return Context.TrySaveChanges() ? created : null;
-        }
-
-        public IEnumerable<BlackMarketListing> GetBlackMarketListings(long characterId) {
-            Model.BlackMarketListing[] models = Context.BlackMarketListing.Where(listing => listing.CharacterId == characterId)
-                .AsEnumerable()
-                .ToArray();
-
-
-            foreach (Model.BlackMarketListing model in models) {
-                BlackMarketListing? listing = ToBlackMarketingListing(model);
-                if (listing != null) {
-                    yield return listing;
-                }
-            }
-        }
-
-        public BlackMarketListing? GetBlackMarketListing(long listingId) {
-            Model.BlackMarketListing? model = Context.BlackMarketListing.Find(listingId);
-            return ToBlackMarketingListing(model);
-        }
-
-        public IEnumerable<BlackMarketListing> GetBlackMarketListings(params long[] listingIds) {
-            Model.BlackMarketListing[] models = Context.BlackMarketListing.Where(listing => listingIds.Contains(listing.Id))
-                .AsEnumerable()
-                .ToArray();
-
-            foreach (Model.BlackMarketListing model in models) {
-                BlackMarketListing? listing = ToBlackMarketingListing(model);
-                if (listing != null) {
-                    yield return listing;
-                }
-            }
-        }
-
-        public IEnumerable<BlackMarketListing> GetAllBlackMarketListings() {
-            Model.BlackMarketListing[] models = Context.BlackMarketListing
-                .AsEnumerable()
-                .ToArray();
-
-            foreach (Model.BlackMarketListing model in models) {
-                BlackMarketListing? listing = ToBlackMarketingListing(model);
-                if (listing != null) {
-                    yield return listing;
-                }
-            }
-        }
-
-        public bool DeleteBlackMarketListing(long listingId) {
-            Model.BlackMarketListing? listing = Context.BlackMarketListing.Find(listingId);
-            if (listing == null) {
-                return false;
-            }
-
-            Context.BlackMarketListing.Remove(listing);
-            return Context.TrySaveChanges();
-        }
-
-        public bool SaveBlackMarketListing(BlackMarketListing listing) {
-            Model.BlackMarketListing model = listing;
-
-            Context.BlackMarketListing.Update(model);
-            return Context.TrySaveChanges();
-        }
-
-        private BlackMarketListing? ToBlackMarketingListing(Model.BlackMarketListing? model) {
-            if (model == null) {
-                return null;
-            }
-
-            Model.Item? itemModel = Context.Item.Find(model.ItemUid);
-            if (itemModel == null) {
-                return null;
-            }
-
-            Item? item = ToItem(itemModel);
-            return item == null ? null : model.Convert(item);
-        }
     }
 }

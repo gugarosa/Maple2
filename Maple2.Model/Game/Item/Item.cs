@@ -12,6 +12,7 @@ public class Item : IByteSerializable, IByteDeserializable {
     public readonly ItemType Type;
 
     public long Uid { get; init; }
+    public long OwnerId { get; init; }
     public int Rarity { get; init; }
     public short Slot = -1;
     public ItemGroup Group = ItemGroup.Default;
@@ -89,9 +90,10 @@ public class Item : IByteSerializable, IByteDeserializable {
         }
     }
 
-    public Item Clone() {
+    public Item Clone(long? uid = null) {
         return new Item(Metadata, Rarity, Amount, false) {
-            Uid = Uid,
+            Uid = uid ?? Uid,
+            OwnerId = OwnerId,
             CreationTime = CreationTime,
             ExpiryTime = ExpiryTime,
             TimeChangedOption = TimeChangedOption,
@@ -119,6 +121,7 @@ public class Item : IByteSerializable, IByteDeserializable {
     public Item Mutate(ItemMetadata metadata, int? rarity = null) {
         return new Item(metadata, rarity ?? Rarity, Amount, false) {
             Uid = Uid,
+            OwnerId = OwnerId,
             CreationTime = CreationTime,
             ExpiryTime = ExpiryTime,
             TimeChangedOption = TimeChangedOption,

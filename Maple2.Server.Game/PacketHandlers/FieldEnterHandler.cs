@@ -12,6 +12,8 @@ public class FieldEnterHandler : FieldPacketHandler {
     public override void Handle(GameSession session, IByteReader packet) {
         Debug.Assert(packet.ReadInt() == GameSession.FIELD_KEY);
 
-        session.EnterField();
+        if (!session.EnterField()) {
+            session.Disconnect();
+        }
     }
 }

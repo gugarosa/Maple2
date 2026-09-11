@@ -1,5 +1,4 @@
-﻿using System.Collections.Generic;
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Text;
 using ICSharpCode.SharpZipLib.Zip.Compression;
 using Maple2.PacketLib.Tools;
@@ -49,27 +48,6 @@ public static class PacketExtensions {
         writer.Seek(endIndex);
     }
 
-    public static T WriteHexString<T>(this T writer, string value) where T : IByteWriter {
-        byte[] bytes = value.ToByteArray();
-        writer.WriteBytes(bytes);
-        return writer;
-    }
-
-    public static void WriteArray<T>(this IByteWriter writer, in T[] values) where T : struct {
-        foreach (T value in values) {
-            writer.Write<T>(value);
-        }
-    }
-
-    public static T[] ReadArray<T>(this IByteReader packet, int size) where T : struct {
-        var result = new T[size];
-        for (int i = 0; i < size; i++) {
-            result[i] = packet.Read<T>();
-        }
-
-        return result;
-    }
-
     // Allows writing packet generically from class
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void WriteClass<T>(this IByteWriter writer, T type) where T : IByteSerializable {
@@ -88,51 +66,6 @@ public static class PacketExtensions {
         var type = new T();
         type.ReadFrom(packet);
         return type;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void WriteCollection<T>(this IByteWriter writer, ICollection<T>? collection)
-        where T : struct {
-        if (collection == null) {
-            writer.WriteInt(); // 0 items
-            return;
-        }
-
-        writer.WriteInt(collection.Count);
-        foreach (T type in collection) {
-            writer.Write<T>(type);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ICollection<T> ReadCollection<T>(this IByteReader packet) where T : struct {
-        if (packet.Available < INT_SIZE) {
-            return [];
-        }
-
-        int count = packet.ReadInt();
-        List<T> result = new List<T>(count);
-        for (int i = 0; i < count; i++) {
-            result.Add(packet.Read<T>());
-        }
-
-        return result;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static TCollection ReadCollection<TCollection, T>(this IByteReader packet)
-        where TCollection : ICollection<T>, new() where T : struct {
-        var result = new TCollection();
-        if (packet.Available < INT_SIZE) {
-            return result;
-        }
-
-        int count = packet.ReadInt();
-        for (int i = 0; i < count; i++) {
-            result.Add(packet.Read<T>());
-        }
-
-        return result;
     }
 
     private static void WriteIntBigEndian(this IByteWriter writer, int value) {

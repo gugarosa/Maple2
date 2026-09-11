@@ -175,8 +175,8 @@ public sealed class SurvivalManager {
         session.Send(SurvivalPacket.LoadMedals(inventory, equip));
     }
 
-    public void Save(GameStorage.Request db) {
+    public bool Save(GameStorage.Request db) {
         var medals = inventory.Values.SelectMany(dict => dict.Values).ToArray();
-        db.SaveMedals(session.CharacterId, medals);
+        return db.SaveMedals(session.CharacterId, medals);
     }
 }

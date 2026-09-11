@@ -22,15 +22,15 @@ that selection merely because a newer SDK is installed.
 ### Initial Setup
 
 ```powershell
-# Windows - Run the interactive setup script
+# Configure .env and supply client/custom server archive pairs first.
+# MySQL must be running; application services must be stopped.
 .\setup.bat
 # This will:
-# - Check for a .NET SDK version that can build net8.0
+# - Validate database targets and every required .m2d/.m2h archive
+# - Check the repository-selected .NET 8 SDK and shared runtimes
 # - Restore the repository-local EF Core 7.0.20 tool
-# - Create .env from .env.example
-# - Prompt for MapleStory2 client path
-# - Download customized server files
 # - Run Maple2.File.Ingest to import game data
+# It never downloads or overwrites client archives.
 ```
 
 ### Building
@@ -48,26 +48,19 @@ dotnet build Maple2.Server.Game/Maple2.Server.Game.csproj
 
 ### Running Servers
 
-Development mode (World, Login, Web servers only):
+Canonical full stack (Docker Compose 2.20+, PowerShell 5.1+):
 
-```bash
-dev.bat  # Uses Windows Terminal if available
+```powershell
+pwsh .\scripts\start_servers.ps1
+pwsh .\scripts\stop_servers.ps1
 ```
 
-Full stack (all servers including Game):
+The removed `start.bat`/`dev.bat` window launchers are not supported alternatives.
+The scripts pin this checkout's Compose file and `.env`; preserve
+`COMPOSE_PROJECT_NAME` to keep an existing MySQL volume.
 
-```bash
-start.bat
-```
-
-Individual servers:
-
-```bash
-cd Maple2.Server.World && dotnet run
-cd Maple2.Server.Login && dotnet run
-cd Maple2.Server.Game && dotnet run
-cd Maple2.Server.Web && dotnet run
-```
+For native debugging, launch World, Login/Web, instanced Game (`--instanced`),
+then normal Game as separate debugger processes after local ingestion.
 
 ### Testing
 
@@ -99,13 +92,19 @@ dotnet format whitespace --verify-no-changes --exclude 'Maple2.Server.World\Migr
 docker compose --profile ingest run --build --rm file-ingest
 
 # Start the custom topology in readiness order
-pwsh ./scripts/start_servers.ps1
+pwsh .\scripts\start_servers.ps1
 
 # Rebuild/restart only game channels
-pwsh ./scripts/start_servers.ps1 -GameOnly
+pwsh .\scripts\start_servers.ps1 -GameOnly
 ```
 
 The Docker topology is intentionally `game-ch0` for instanced content and `game-ch1` for normal content. Do not replace it with upstream channel layouts. World, Login, and Game services mount `config.yaml` read-only.
+
+Ingestion uses a self-contained image and read-only client archives. Never run
+metadata ingestion against the player schema or bypass its distinct-schema guard.
+Database/gRPC/Web host ports bind loopback; only client ports use `CLIENT_BIND_IP`.
+Container health is not a substitute for checking World channel registration and
+real client login after a restart.
 
 ### Database Migrations
 
@@ -365,6 +364,8 @@ Key .env variables:
 - `DATA_DB_NAME`, `GAME_DB_NAME` - Database names
 - `GRPC_WORLD_IP`, `GRPC_WORLD_PORT` - World server gRPC endpoint
 - `LANGUAGE` - Primary language (EN, KR, CN, JP, DE, PR)
+- `CLIENT_BIND_IP` - Host interface for Login/Game client ports; loopback by default
+- `COMPOSE_PROJECT_NAME` - Existing project/volume identity; preserve it across moves
 
 ### Metadata and constants
 
@@ -372,6 +373,12 @@ Key .env variables:
 - `Constant` is intended for code-owned emulator invariants and defaults. The remaining NPC sight defaults and `ContentRewards` dictionary are documented cleanup candidates in `DEVELOPMENT_STATUS.md`; do not add more parsed server data there.
 - Metadata parser/model changes require an explicit re-ingest. Stop application services, keep MySQL running, run `docker compose --profile ingest run --build --rm file-ingest`, then restart. Never delete the MySQL volume for a metadata refresh.
 - Item-option value distributions are incomplete in source data. Preserve the working client-defined range path for IDs without server distributions and keep the limitation documented.
+- Parser 2.4.24 supports read-only archives. Preserve the nested effect/level key
+  for fishing lures and the explicit Battle/BattleEnd entry wrappers.
+- Account registration is explicit at Web `/account`; never restore Debug login
+  bypasses, auto-registration, or automatic administrator grants. New passwords
+  fit the verified 16-character client field; authentication must not truncate
+  existing launcher-supplied passwords.
 
 ## Important Implementation Notes
 

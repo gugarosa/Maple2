@@ -6,22 +6,35 @@ This document describes the current implementation. It does not imply that every
 2026-09-06 review snapshot, with per-issue implementation and evidence status.
 An upstream issue remaining open does not establish that its original defect is
 still present in this fork.
+The 2026-09-11 recheck found no new upstream commits or open-issue updates since
+that snapshot.
 
-## Validated integration baseline (2026-09-07)
+## Validated integration baseline (2026-09-11)
 
 The following checks completed against isolated real client metadata and an isolated database:
 
 - All 11 solution projects, including `Maple2.Server.DebugGame`, compile.
-- The regular Release NUnit suite passes: 343 tests. Thirteen additional explicitly
+- The regular Release NUnit suite passes: 505 tests. Another 116 explicitly
   selected MySQL persistence tests pass in throwaway game databases using the actual
   migrations, including the disjoint account/character/mail identifier ranges.
+  These cover accounts/quests (22), guild rewards (2), transaction failures (6),
+  item/mail/trade/blueprint ownership (45), market/shop behavior (24), and resets (17).
 - Read-only client archive checks cover all normalized trigger definitions and the
   actual Horus carrier patrol references. The quest archive regression checks all
   4,903 timing/faction mappings and the item/portal/furnishing/guild reward examples
   without changing client assets.
-- Full ingestion completed all metadata and processed 1,183 maps and 235,082 map entities.
+- Full read-only ingestion with parser 2.4.24 completed 28,620 NIFs, 2,518 physics
+  meshes, 1,183 processed maps, 1,869 map-data records, and 235,082 map entities.
 - SQL verification confirmed merged client/server constants, client pet slots, premium potion `90000409` `useItem`, 20 Toxic Garden weapons, 11 Henesys bombs, and Frey recovery metadata.
 - The Docker World, Login, Web, `game-ch0`, and `game-ch1` stack starts successfully. Both Game health endpoints report `Healthy`, and Login plus both Game client ports return 25-byte handshakes.
+- Canonical Game-only recreation preserves the running World container and its
+  normal channel ID 1. The actual v12 client authenticates a registered ordinary
+  account, creates a character, enters the world, moves, and exits normally.
+- HTTP registration checks verify invalid/mismatched input, antiforgery rejection,
+  successful atomic registration, duplicate rejection, and rate limiting.
+- Web uploads and all 1,181 existing navigation files survive forced container
+  recreation. Game navigation mounts are read-only. Original client executable
+  hashes remain unchanged; no administrator elevation or binary patch was needed.
 - The refreshed service images shut down with exit code 0. MySQL has a one-minute
   stop grace period so volume flushing is not cut short by Docker's default timeout.
 - The account-wide dungeon migration completed an upgrade, rollback, and re-upgrade
@@ -42,12 +55,62 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - Metadata ingestion is an explicit Compose profile and uses the repository-local EF Core 7.0.20 tool manifest.
 - GitHub test and format workflows target .NET 8, use least-privilege read permissions, support fork pull requests, and never auto-commit.
 - Login and Game session registries are concurrent and reconnect-safe. Shutdown stops listeners, notifies active/connecting clients, drains session sends, and disposes fields after disconnect begins.
+- Normal TCP disconnect no longer uses abortive `SO_LINGER(true, 0)`, which could
+  reset the client before its final login/migration response was consumed. A
+  network regression reproduces the reset before the fix; actual client login,
+  character selection, world entry, and directional movement work after it.
+- Environment variables override `appsettings.json` in all five logging entrypoints.
+  Authentication payloads are excluded from verbose packet traces.
+- Re-registering a Game endpoint creates a fresh gRPC transport/monitor while
+  retaining its channel ID and ports. Retired monitors cannot invalidate a
+  replacement, and only active channels are admitted or advertised.
+- Session persistence is serialized with item/currency operations. Failed component
+  saves roll back instead of committing partial state; migration requires a
+  confirmed save. Account leases carry owner tokens, expired holders cannot
+  release replacements, and uncertain commits quarantine stale session state.
+  Quarantine fences immediate and already-queued packet dispatch, disconnects after
+  item operations unlock, and removes field/pet state without saving stale plots.
+  Committed one-shot progression callbacks drain before field departure, final
+  saves, and migration handoffs, outside item/save/lease locks. Timers are not
+  replayed during this drain; callback failures prevent an unsafe handoff.
+- Daily, weekly, and monthly resets update online accounts through checked session
+  saves and retain the resulting concurrency tokens. Bulk account updates only
+  affect offline accounts; resets cannot refresh a stale token over an unrelated
+  database change. Login locks the account snapshot against bulk resets, and
+  connecting sessions retain pending reset periods until initialization finishes.
+  World and channel reset RPCs report failed session resets.
+- Published asset paths no longer climb to the filesystem root. Web uploads and
+  generated navmeshes use retained named volumes; Game mounts navigation read-only.
+- Registration is explicit through the Web `/account` form, with input validation,
+  antiforgery protection, request throttling, and a database-enforced unique
+  username. Account/home creation commits together. Game login requires a
+  registered account and verifies its BCrypt password in Debug and Release;
+  empty credentials and implicit registration are removed.
+- Newly created accounts have ordinary permissions and no Debug currency grants.
+  Existing accounts are not rewritten. Registration passwords fit the observed
+  16-character native client field; existing longer launcher-supplied passwords
+  remain verifiable within BCrypt's 72-byte boundary without truncation.
 - Missing user-stat metadata now fails explicitly. The obsolete level/job fallback and its hard-coded base-stat table were removed.
 
 ### Combat and items
 
 - `damage start [object-id]`, `damage show`, and `damage stop` measure observed player, pet, and damage-over-time hits without changing combat.
 - Enchant stat increases accumulate across enchant levels. Pre-enchanted generated gear receives the cumulative deltas for its current enchant level.
+- Bank, pet, trade, and mail transfers persist destination stacks and source
+  retirement together. Capacity failures do not destroy source items; canceled
+  trades can return goods by durable mail when bags are full. Ownership/version
+  checks reject stale cleanup writes and uncertain commits are not retried as
+  ordinary delivery failures.
+- Blueprint creation stages the actual persisted inventory UID, and publication
+  preserves its owner. Shop stack sales pay for the actual quantity and retain the
+  same buyback total; GameMeret prices debit GameMeret rather than regular Meret.
+- Black-market purchase and cancellation use the same database stock claim.
+  Buyer debit, stock/attachment ownership and seller payout commit together before
+  in-memory receipts and cache notifications are applied.
+- Standalone mail, trade, and blueprint currency transactions first checkpoint the
+  full session, including the inventory and progress backing pending earnings.
+  Monetary writes compare both saved versions and balances and preserve unrelated
+  currency fields. Notifications run outside the outer item-operation lock.
 - Random item-option selection uses `Server.m2d` category weights, excludes explicit zero-probability options, preserves locked attributes, and prevents duplicate attribute lines.
 - Server value distributions are used where present. Coverage is partial: 6,306 item-option IDs have client-defined value ranges but no server value distribution, so those values continue to use the existing range-based selection with a runtime warning.
 
@@ -92,6 +155,16 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 ### Metadata
 
 - Feature/locale-filtered client `Xml.m2d` `table/constants.xml` values are merged with `Server.m2d` overrides into one required typed `ConstantsTable`, then validated and stored.
+- Parser 2.4.24 uses read-only archive streams, including Linux crypto/NIF fixes
+  absent from 2.3.7. The self-contained ingest image no longer mounts the checkout
+  writable. Full read-only ingestion retains 28,620 NIFs and 235,082 map entities;
+  failures reading geometry now stop ingestion instead of omitting failed models.
+- Fishing lure metadata retains all 57 effect/level definitions across 55 effect
+  codes. AI Battle/BattleEnd wrappers and raw numeric dungeon-mission operands are
+  adapted to the current parser without inventing new runtime feature behavior.
+- Database target validation precedes migrations and rejects metadata/player schema
+  overlap or system schemas. Connection strings use escaped values; transient
+  schema-read errors no longer authorize metadata recreation.
 - The merged typed `ConstantsTable` is canonical for parsed constants. `Constant` is intended for code-owned emulator invariants; remaining exceptions are listed below.
 - Item-option probability, selection, and variation data are joined from the server tables. Verified source coverage is 5,696 category-matched weights plus four entries that provide explicit random weights without probability rows; all 5,700 referenced variation entries resolve.
 - Skill metadata includes a focused correction that enables the existing `useItem` behavior for premium potion `90000409` level 1; no separate consumption handler was added.
@@ -102,19 +175,29 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 ## Quest lifecycle and reward boundaries
 
 Client expiry lists are reconciliation requests, not deletion authority. The server
-resends known quest states and acknowledges no unverified expirations. Completed
-quests cannot be abandoned, and failed database deletion cannot remove live progress.
-The previous type-based daily deletion and unrestricted player replays are disabled.
-Trusted server/admin restarts still run the complete acceptance path; this is not
-an implementation of a retail repeat schedule.
+checks the persisted activation and its deadline before acknowledging expiry.
+Expired active quests become inactive without losing their completion count or
+tracking preference. Reacceptance uses the same atomic quest/item transaction.
+Completed quests cannot expire or be abandoned, stale saves cannot resurrect an
+expired activation or overwrite a newer start, and a pending guild-reward receipt
+protects its activation from expiry.
 
 The inspected NA/Live archive contains 4,903 quests. `repeatable` has values 0–3;
-`usePeriod` includes empty, `5`, `1440`, `10080`, and `fri`. Numeric periods also
-occur on nonrepeatable definitions. Neither these values nor the v12 packet
-decoders establish the period unit/anchor, active-versus-completed expiry rules,
-or Friday cutoff/timezone. Completion `EndTime` is not treated as an inferred
-expiration deadline. Public replay eligibility remains blocked until those
-contracts are established, rather than permitting repeatable reward farming.
+`usePeriod` includes empty, `5`, `1440`, `10080`, and `fri`. Controlled observations
+with the existing v12 client establish active-quest expiry:
+
+- Numeric periods are minutes from `StartTime`, including nonrepeatable quests.
+  Two five-minute controls first requested expiry at exactly 300 seconds.
+  Daily controls distinguish 24 elapsed hours from merely crossing midnight.
+- Weekly `repeatable=3/usePeriod=fri` controls expire at the next Friday midnight
+  in server UTC: a Thursday 23:59 start expired, while Friday 00:01 did not.
+- A future `EndTime` did not prevent an old active quest from expiring. Completed
+  controls did not request expiry, including old five-minute and daily records.
+
+These rules now drive server-side expiry at loading, acceptance, completion, and
+client reconciliation. Blank/unknown periods are not guessed. **Completed-quest
+replay eligibility is a separate unresolved contract**; public replay remains
+gated, while trusted server/admin restarts retain the complete acceptance path.
 
 The five Alliance weapon-test quests `93000123`–`93000127` have acceptance items
 and summoned portals. The acceptance transaction also covers the eight furnishing
@@ -148,8 +231,13 @@ The full reputation subsystem remains unimplemented.
 - Rested EXP credit is fixed, but the `restExp.xml` accumulation time unit and exact official offline/home timing remain unverified.
 - Reverse-engineered packet structures must be confirmed against the client before adding fields or enabling incomplete flows.
 - Faction acceptance has an NPC request path with explicit failure replies and
-  atomic acceptance rewards. The reputation award/state and quest reset clocks
-  remain blocked as described above; NPC-specific client scenarios are not claimed fixed.
+  atomic acceptance rewards. Active expiry clocks are client-observed; reputation
+  awards/state and completed-quest replay eligibility remain unresolved.
+- The existing client patch prints missing-XML diagnostics for some references
+  absent from the original archive, including the nine paths in the investigated
+  screenshot. Those messages still occur with successful login/world entry and
+  are not evidence that resetting the server database will help. Its Winsock
+  `10035` message describes an asynchronous connection still in progress.
 - Encounter reports are not attributed to a generic trigger fix without evidence.
   The reviewed carrier, NPC-task, physical-jump, and summon paths are tracked
   separately in the issue ledger; source command counts are not simultaneous spawn counts.
@@ -169,6 +257,28 @@ hard-coded base-stat fallback, and the unused graphics-interface project are rem
 Application processes load local environment files once outside containers; containers use
 their supplied environment.
 
+The repository-wide cleanup also removes the orphan translation loader/CSV,
+unreachable debug windows/shaders, obsolete movement routines, and unused generic
+serialization helpers. EF Plus bulk deletes are replaced by EF's native
+`ExecuteDelete`; DebugGame references the Silk input/windowing bindings it uses
+instead of the umbrella package. Necessary migrations and active rendering
+pipelines remain intact.
+
+### Audit resolution overview
+
+| Priority | Confirmed problem | Implemented resolution |
+|---|---|---|
+| 1 | Login responses could be reset; recreated Game endpoints left no playable channel | Graceful TCP close, fresh channel transports/monitors, stable endpoint registrations |
+| 2 | Session, item, mail, trade, and market writes could partially commit or overwrite a new owner | Explicit transactions, checked saves, version/ownership guards, confirmed receipts, quarantine |
+| 3 | Shop quantities and GameMeret debits were inconsistent | Checked stack totals, matching buyback prices, correct currency wallet |
+| 4 | Implicit registration and Debug authentication/privilege shortcuts | Explicit validated registration and the same BCrypt authentication in every build |
+| 5 | Ingestion and published assets depended on writable source paths | Read-only parser/archives, schema guards, self-contained ingestion, retained asset volumes |
+| 6 | Unused translation data, debug code, utility methods, and broad dependencies remained | Delete unreachable code/data; use native EF deletes and specific Silk bindings |
+
+This ranking describes the confirmed audit findings, not proof that the emulator
+has no further defects. The protocol and source-data limitations above remain
+explicitly outside the implemented coverage.
+
 Code-owned NPC pursuit defaults and trigger reward aliases remain intentional server policies
 where a verified replacement source is not available. Client-defined item variation ranges
 remain necessary where server distributions are absent; they are not claimed to reproduce
@@ -187,10 +297,10 @@ ordinary quest progression; do not clear them to work around a rejected reward.
 
 Metadata-model, parser, typed-constants, room, or item-option table changes require re-ingestion. This updates metadata and applies migrations; it does not require deleting the MySQL volume or resetting players.
 
-```bash
-docker compose stop world login web game-ch0 game-ch1
+```powershell
+.\scripts\stop_servers.ps1 -Service world,login,web,game-ch0,game-ch1
 docker compose --profile ingest run --build --rm file-ingest
-pwsh ./scripts/start_servers.ps1
+pwsh .\scripts\start_servers.ps1
 ```
 
 Rebuild application images when source or parser versions changed; starting old images against

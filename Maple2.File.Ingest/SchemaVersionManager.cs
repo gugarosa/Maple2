@@ -1,13 +1,24 @@
-﻿using System.Text;
+﻿using System.Data.Common;
+using System.Text;
 using Force.Crc32;
+using Maple2.Database.Context;
 using Maple2.Database.Model.Metadata;
+using Maple2.Tools;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace Maple2.File.Ingest;
 
 public static class SchemaVersionManager {
-    public static bool ShouldRecreateDatabase(DbContext context) {
+    public static void ValidateDatabaseNames(string? metadataDatabase, string? gameDatabase) {
+        DatabaseConnectionString.ValidateDatabaseName(metadataDatabase);
+        DatabaseConnectionString.ValidateDatabaseName(gameDatabase);
+        if (string.Equals(metadataDatabase, gameDatabase, StringComparison.OrdinalIgnoreCase)) {
+            throw new ArgumentException("DATA_DB_NAME and GAME_DB_NAME must be different. Metadata refresh cannot target player data.");
+        }
+    }
+
+    public static bool ShouldRecreateDatabase(MetadataContext context) {
         string currentSchemaHash = GenerateSchemaHash(context);
 
         try {
@@ -24,8 +35,8 @@ public static class SchemaVersionManager {
             }
 
             return false;
-        } catch {
-            // Table doesn't exist or there was an error
+        } catch (Exception ex) when (ex.GetBaseException() is DbException { SqlState: "42S02" }) {
+            Console.WriteLine("Metadata schema version table is missing; initialization is required.");
             return true;
         }
     }

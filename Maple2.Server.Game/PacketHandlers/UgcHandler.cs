@@ -294,30 +294,45 @@ public class UgcHandler : FieldPacketHandler {
         int itemId = packet.ReadInt();
         string name = packet.ReadUnicodeString();
 
-        Item? item = session.StagedUgcItem;
-        if (item is null || item.Uid != itemUid || item.Id != itemId) {
-            Logger.Error("Failed to find staged item for UGC {ItemUid} {ItemId}", itemUid, itemId);
-            return;
+        lock (session.Item) {
+            if (session.PersistenceAborted) return;
+            Item? item = session.StagedUgcItem;
+            if (itemUid <= 0 || item == null || item.Uid != itemUid || item.Id != Constant.BlueprintId || item.Id != itemId ||
+                item.Blueprint?.BlueprintUid != blueprintUid || session.Item.Inventory.Get(itemUid) != item) {
+                Logger.Error("Failed to find staged blueprint {BlueprintUid}/{ItemUid}/{ItemId}", blueprintUid, itemUid, itemId);
+                return;
+            }
+
+            using WebStorage.Request request = WebStorage.Context();
+            UgcResource? resource = request.CreateUgc(UgcType.LayoutBlueprint, session.CharacterId);
+            if (resource == null) {
+                Logger.Fatal("Failed to create UGC resource for layout blueprint for character {CharacterId}", session.CharacterId);
+                return;
+            }
+            Item update = item.Clone();
+            update.Slot = item.Slot;
+            update.Group = item.Group;
+            update.Template = new UgcItemLook {
+                Id = resource.Id,
+                AccountId = session.AccountId,
+                Author = session.PlayerName,
+                CharacterId = session.CharacterId,
+                CreationTime = DateTime.Now.ToEpochSeconds(),
+                Name = name,
+            };
+            using GameStorage.Request gameRequest = session.GameStorage.Context();
+            try {
+                if (!gameRequest.UpdateItem(session.CharacterId, update)) {
+                    return;
+                }
+            } catch {
+                session.Item.AbortPersistence("Blueprint upload commitment could not be confirmed.");
+                throw;
+            }
+
+            item.Template = update.Template;
+            session.Send(UgcPacket.Upload(resource));
         }
-
-        using WebStorage.Request request = WebStorage.Context();
-        UgcResource? resource = request.CreateUgc(UgcType.LayoutBlueprint, session.CharacterId);
-        if (resource == null) {
-            Logger.Fatal("Failed to create UGC resource for layout blueprint for character {CharacterId}", session.CharacterId);
-            return;
-        }
-
-        item.Template = new UgcItemLook {
-            Id = resource.Id,
-            AccountId = session.AccountId,
-            Author = session.PlayerName,
-            CharacterId = session.CharacterId,
-            CreationTime = DateTime.Now.ToEpochSeconds(),
-            Name = name,
-        };
-
-        session.StagedUgcItem = item;
-        session.Send(UgcPacket.Upload(resource));
     }
 
     private void HandleConfirmation(GameSession session, IByteReader packet) {
@@ -353,7 +368,9 @@ public class UgcHandler : FieldPacketHandler {
                 ConfirmGuildEmblem();
                 break;
             case UgcType.LayoutBlueprint:
-                ConfirmLayoutBlueprint();
+                if (!ConfirmLayoutBlueprint(session, resource)) {
+                    return;
+                }
                 break;
             default:
                 Logger.Warning("Unhandled Confirmation for UGC Type {UgcType}", info.Type);
@@ -470,22 +487,36 @@ public class UgcHandler : FieldPacketHandler {
             session.Send(UgcPacket.UpdatePath(resource));
         }
 
-        void ConfirmLayoutBlueprint() {
+    }
+
+    internal static bool ConfirmLayoutBlueprint(GameSession session, UgcResource resource) {
+        lock (session.Item) {
+            if (session.PersistenceAborted) return false;
             Item? item = session.StagedUgcItem;
-            if (item?.Template is null || item.Blueprint is null) {
-                return;
+            if (resource.Id <= 0 || resource.Type != UgcType.LayoutBlueprint || string.IsNullOrEmpty(resource.Path) ||
+                item is not { Uid: > 0, Template: { }, Blueprint: { BlueprintUid: > 0 } } || item.Id != Constant.BlueprintId ||
+                item.Template.Id != resource.Id || item.Template.CharacterId != session.CharacterId ||
+                item.Template.AccountId != session.AccountId || session.Item.Inventory.Get(item.Uid) != item) {
+                return false;
+            }
+            Item update = item.Clone();
+            update.Slot = item.Slot;
+            update.Group = item.Group;
+            update.Template!.Url = resource.Path;
+            using GameStorage.Request gameRequest = session.GameStorage.Context();
+            try {
+                if (!gameRequest.UpdateItem(session.CharacterId, update)) {
+                    return false;
+                }
+            } catch {
+                session.Item.AbortPersistence("Blueprint confirmation commitment could not be confirmed.");
+                throw;
             }
 
             item.Template.Url = resource.Path;
-
-            using GameStorage.Request gameRequest = session.GameStorage.Context();
-            if (!gameRequest.UpdateItem(item)) {
-                Logger.Fatal("Failed to update UGC Item {ugcUid}", ugcUid);
-                return;
-            }
-
             session.Send(UgcPacket.UpdateLayoutBlueprint(session.Player.ObjectId, item));
             session.Send(UgcPacket.UpdatePath(resource));
+            return true;
         }
     }
 

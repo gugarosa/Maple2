@@ -13,12 +13,14 @@ using ChannelClient = Maple2.Server.Channel.Service.Channel.ChannelClient;
 
 namespace Maple2.Server.World.Containers;
 
-public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
+public class ChannelClientLookup : IEnumerable<(int, ChannelClient)>, IDisposable {
 #if DEBUG
     private static readonly TimeSpan MonitorInterval = TimeSpan.FromSeconds(1);
 #else
     private static readonly TimeSpan MonitorInterval = TimeSpan.FromSeconds(5);
 #endif
+    private static readonly TimeSpan RpcTimeout = TimeSpan.FromSeconds(5);
+    private const int MaxNormalChannels = 100;
 
     private WorldServer worldServer = null!;
     private PlayerInfoLookup playerInfoLookup = null!;
@@ -35,6 +37,9 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
     }
 
     private readonly ConcurrentDictionary<int, Channel> channels = [];
+    // ponytail: serialize registration/status changes; split per slot only if channel churn warrants it.
+    private readonly object sync = new();
+    private bool disposed;
 
     private readonly ILogger logger = Log.ForContext<ChannelClientLookup>();
 
@@ -49,19 +54,53 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
     }
 
     public (ushort gamePort, int grpcPort, int channel) FindOrCreateChannelByIp(string gameIp, string grpcGameIp, bool instancedContent) {
-        // find the first channel that matches the ip, status and instanced content, but only if not Pending
-        Channel? activeChannel = channels.Values.FirstOrDefault(channel =>
-            channel.Endpoint.Address.ToString() == gameIp &&
-            channel.Status is ChannelStatus.Inactive &&
-            channel.InstancedContent == instancedContent);
-
-        if (activeChannel is not null) {
-            // Mark as pending before returning
-            activeChannel.Status = ChannelStatus.Pending;
-            return (activeChannel.GamePort, activeChannel.GrpcPort, activeChannel.Id);
+        if (!IPAddress.TryParse(gameIp, out IPAddress? gameAddress) || Uri.CheckHostName(grpcGameIp) is UriHostNameType.Unknown) {
+            logger.Warning("Invalid channel registration: game IP {GameIp}, gRPC host {GrpcGameIp}", gameIp, grpcGameIp);
+            throw new RpcException(new Status(StatusCode.InvalidArgument, "A game IP address and a gRPC hostname or IP address are required."));
         }
 
-        return AddChannel(gameIp, grpcGameIp, instancedContent);
+        string grpcHost = new UriBuilder(Uri.UriSchemeHttp, grpcGameIp).Uri.IdnHost;
+        Channel? previous;
+        Channel channel;
+        lock (sync) {
+            if (disposed) {
+                throw new RpcException(new Status(StatusCode.Unavailable, "World channel registry is shutting down."));
+            }
+
+            previous = channels.Values.FirstOrDefault(entry =>
+                entry.Endpoint.Address.Equals(gameAddress) &&
+                string.Equals(entry.GrpcHost, grpcHost, StringComparison.OrdinalIgnoreCase) &&
+                entry.InstancedContent == instancedContent);
+
+            int channelId = previous?.Id ?? (instancedContent ? 0 : 1);
+            if (previous is null) {
+                while (!instancedContent && channelId <= MaxNormalChannels && channels.ContainsKey(channelId)) {
+                    channelId++;
+                }
+                if (channels.ContainsKey(channelId) || channelId > MaxNormalChannels) {
+                    logger.Error("No channel slot available for gRPC host {GrpcHost} (instanced: {InstancedContent})", grpcHost, instancedContent);
+                    throw new RpcException(new Status(instancedContent ? StatusCode.AlreadyExists : StatusCode.ResourceExhausted,
+                        instancedContent ? "Instanced channel ID 0 is registered to another endpoint." : "No game channel slots available."));
+                }
+            }
+
+            ushort gamePort = previous?.GamePort ?? (ushort) (Target.BaseGamePort + channelId);
+            int grpcPort = previous?.GrpcPort ?? Target.BaseGrpcChannelPort + channelId;
+            channel = new Channel(channelId, instancedContent, new IPEndPoint(gameAddress, gamePort),
+                new UriBuilder(Uri.UriSchemeHttp, grpcHost, grpcPort).Uri);
+
+            PlayerInfo[] offlinePlayers = previous is null ? [] : TakePlayersOffline(previous.Id);
+            if (previous is not null) {
+                previous.Status = ChannelStatus.Inactive;
+                logger.Information("Replacing registration for channel {Channel} at {GrpcHost}, retaining ports {GamePort}/{GrpcPort}",
+                    channelId, grpcHost, gamePort, grpcPort);
+            }
+            channels[channelId] = channel;
+            channel.MonitorTask = Task.Run(() => MonitorChannel(channel, offlinePlayers));
+        }
+
+        previous?.Dispose();
+        return (channel.GamePort, channel.GrpcPort, channel.Id);
     }
 
     /// Gets the ID of the first active, non-instanced content channel.
@@ -87,21 +126,21 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
     }
 
     public bool ValidChannel(int channel) {
-        return channel >= 0 && channels.ContainsKey(channel);
+        return channels.TryGetValue(channel, out Channel? entry) && entry.Status is ChannelStatus.Active;
     }
 
     public bool TryGetClient(int channel, [NotNullWhen(true)] out ChannelClient? client) {
-        if (!ValidChannel(channel)) {
+        if (!channels.TryGetValue(channel, out Channel? entry) || entry.Status is not ChannelStatus.Active) {
             client = null;
             return false;
         }
 
-        client = channels[channel].Client;
+        client = entry.Client;
         return true;
     }
 
     public bool TryGetActiveEndpoint(int channelId, [NotNullWhen(true)] out IPEndPoint? endpoint) {
-        if (!ValidChannel(channelId) || !channels.TryGetValue(channelId, out Channel? channel) || channel.Status is ChannelStatus.Inactive) {
+        if (!channels.TryGetValue(channelId, out Channel? channel) || channel.Status is not ChannelStatus.Active) {
             endpoint = null;
             return false;
         }
@@ -110,123 +149,49 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
         return true;
     }
 
-    private (ushort gamePort, int grpcPort, int channel) AddChannel(string gameIp, string grpcGameIp, bool instancedContent) {
-        int candidate = instancedContent ? 0 : 1;
-        int attempts = 0;
-
-        while (true) {
-            attempts++;
-            int channelId = candidate;
-            int newGamePort = Target.BaseGamePort + channelId;
-            int newGrpcChannelPort = Target.BaseGrpcChannelPort + channelId;
-
-            // If a channel entry for this ID already exists and matches the same IP/content type,
-            // prefer reusing it instead of allocating a new ID. Wait briefly for it to go Inactive.
-            if (channels.TryGetValue(channelId, out Channel? existing) &&
-                existing.InstancedContent == instancedContent &&
-                existing.Endpoint.Address.ToString() == gameIp) {
-                const int maxWaitMs = 8000; // keep short to avoid blocking startup too long
-                const int sleepMs = 200;
-                int waited = 0;
-                while (existing.Status is ChannelStatus.Active or ChannelStatus.Pending && waited < maxWaitMs) {
-                    Thread.Sleep(sleepMs);
-                    waited += sleepMs;
-                }
-                if (existing.Status is ChannelStatus.Inactive) {
-                    existing.Status = ChannelStatus.Pending;
-                    return ((ushort) newGamePort, newGrpcChannelPort, channelId);
-                }
-            }
-
-            IPAddress ipAddress = IPAddress.Parse(gameIp);
-            IPEndPoint gameEndpoint = new IPEndPoint(ipAddress, newGamePort);
-
-            Uri grpcUri;
-
-            bool isDocker = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
-            if (isDocker) {
-                // When running in Docker, use the provided grpcGameIp as hostnames
-                grpcUri = new Uri($"http://{grpcGameIp}:{newGrpcChannelPort}");
-            } else {
-                // Outside of Docker, parse the IP addresses normally
-                IPAddress grpcIpAddress = IPAddress.Parse(grpcGameIp);
-                grpcUri = new Uri($"http://{grpcIpAddress}:{newGrpcChannelPort}");
-            }
-
-            GrpcChannel grpcChannel = GrpcChannel.ForAddress(grpcUri);
-            var client = new ChannelClient(grpcChannel);
-            var healthClient = new Health.HealthClient(grpcChannel);
-            var activeChannel = new Channel(ChannelStatus.Pending, channelId, instancedContent, gameEndpoint, client, healthClient, (ushort) newGamePort, newGrpcChannelPort);
-
-            if (channels.TryAdd(channelId, activeChannel)) {
-                var cancel = new CancellationTokenSource();
-                Task.Factory.StartNew(() => MonitorChannel(activeChannel, cancel), cancellationToken: cancel.Token);
-                return ((ushort) newGamePort, newGrpcChannelPort, channelId);
-            }
-
-            // If instanced content, id=0 is unique; no alternative available
-            if (instancedContent) {
-                logger.Error("Failed to add instanced channel (ID 0) due to conflict.");
-                return (0, 0, -1);
-            }
-
-            // Try next available ID to avoid races when multiple game channels start concurrently
-            candidate++;
-            if (attempts > 100) {
-                logger.Error("Failed to allocate a channel after {Attempts} attempts", attempts);
-                return (0, 0, -1);
-            }
+    private bool IsCurrent(Channel channel) {
+        lock (sync) {
+            return !disposed && channels.TryGetValue(channel.Id, out Channel? current) && ReferenceEquals(current, channel);
         }
     }
 
-    private async Task MonitorChannel(Channel channel, CancellationTokenSource cancellationTokenSource) {
-        CancellationToken cancellationToken = cancellationTokenSource.Token;
+    private async Task MonitorChannel(Channel channel, PlayerInfo[] offlinePlayers) {
+        CancellationToken cancellationToken = channel.CancellationToken;
         logger.Information("Begin monitoring game channel: {Channel} for {EndPoint}", channel.Id, channel.Endpoint);
 
-        do {
-            try {
-                HealthCheckResponse response = await channel.Health.CheckAsync(new HealthCheckRequest(), deadline: DateTime.UtcNow.AddSeconds(5),
-                    cancellationToken: cancellationToken);
-                switch (response.Status) {
-                    case HealthCheckResponse.Types.ServingStatus.Serving:
-                        if (channel.Status is ChannelStatus.Inactive || channel.Status is ChannelStatus.Pending) {
-                            logger.Information("Channel {Channel} has become active", channel.Id);
-                            Active(channel);
-                        }
-                        break;
-                    default:
-                        if (channel.Status is ChannelStatus.Active || channel.Status is ChannelStatus.Pending) {
-                            Inactive(channel);
-                            logger.Information("Channel {Channel} has become inactive due to {Status}", channel.Id, response.Status);
-#if !DEBUG
-                            await cancellationTokenSource.CancelAsync();
-#endif
-                        }
-                        break;
-                }
-            } catch (RpcException ex) {
-                if (ex.Status.StatusCode != StatusCode.Unavailable) {
-                    logger.Warning("{Error} monitoring channel {Channel}", ex.Message, channel.Id);
-                }
-                if (channel.Status is ChannelStatus.Active) {
-                    logger.Information("Channel {Channel} has become inactive", channel.Id);
+        try {
+            UpdateAllPlayersToOffline(channel, offlinePlayers);
+            UpdateChannels(channel);
+            while (!cancellationToken.IsCancellationRequested && IsCurrent(channel)) {
+                try {
+                    using AsyncUnaryCall<HealthCheckResponse> check = channel.Health.CheckAsync(new HealthCheckRequest(),
+                        deadline: DateTime.UtcNow.Add(RpcTimeout), cancellationToken: cancellationToken);
+                    HealthCheckResponse response = await check.ResponseAsync;
+                    if (response.Status is HealthCheckResponse.Types.ServingStatus.Serving) {
+                        Active(channel);
+                    } else {
+                        Inactive(channel);
+                    }
+                } catch (RpcException ex) when (!cancellationToken.IsCancellationRequested) {
+                    if (ex.StatusCode != StatusCode.Unavailable) {
+                        logger.Warning(ex, "Health check failed for channel {Channel}", channel.Id);
+                    }
                     Inactive(channel);
-#if !DEBUG
-                    await cancellationTokenSource.CancelAsync();
-#endif
                 }
-                channel.Status = ChannelStatus.Inactive;
-            }
 
-            try {
                 await Task.Delay(MonitorInterval, cancellationToken);
-            } catch (OperationCanceledException) {
-                // Handle cancellation gracefully
-                break;
             }
-        } while (!cancellationToken.IsCancellationRequested);
-        logger.Warning("End monitoring game channel: {Channel} for {EndPoint}", channel.Id, channel.Endpoint);
-        channels.TryRemove(channel.Id, out _);
+        } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+        } catch (RpcException) when (cancellationToken.IsCancellationRequested) {
+        } catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) {
+        } catch (Exception ex) {
+            logger.Error(ex, "Monitor failed for channel {Channel}", channel.Id);
+            Inactive(channel);
+        } finally {
+            // Inactive slots remain reserved for the same endpoint; a retired monitor never removes its replacement.
+            channel.Dispose();
+            logger.Information("End monitoring game channel: {Channel} for {EndPoint}", channel.Id, channel.Endpoint);
+        }
     }
 
     public IEnumerator<(int, ChannelClient)> GetEnumerator() {
@@ -240,60 +205,112 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
     }
 
     private void Inactive(Channel channel) {
-        channel.Status = ChannelStatus.Inactive;
-        UpdateAllPlayersToOffline(channel.Id);
-        UpdateChannels(channel.Id);
+        PlayerInfo[] offlinePlayers;
+        lock (sync) {
+            if (!IsCurrent(channel) || channel.Status is ChannelStatus.Inactive) {
+                return;
+            }
+            channel.Status = ChannelStatus.Inactive;
+            offlinePlayers = TakePlayersOffline(channel.Id);
+            logger.Information("Channel {Channel} has become inactive", channel.Id);
+        }
+        UpdateAllPlayersToOffline(channel, offlinePlayers);
+        UpdateChannels(channel);
     }
 
     private void Active(Channel channel) {
-        channel.Status = ChannelStatus.Active;
-        UpdateChannels(channel.Id);
+        lock (sync) {
+            if (!IsCurrent(channel) || channel.Status is ChannelStatus.Active) {
+                return;
+            }
+            channel.Status = ChannelStatus.Active;
+            logger.Information("Channel {Channel} has become active", channel.Id);
+        }
+        UpdateChannels(channel);
         // Load custom string boards
         foreach ((int id, string message) in worldServer.GetCustomStringBoards()) {
-            channel.Client.Admin(new AdminRequest {
+            Notify(channel, channel, (client, options) => client.Admin(new AdminRequest {
                 AddStringBoard = new AdminRequest.Types.AddStringBoard {
                     Id = id,
                     Message = message,
                 },
-            });
+            }, options));
         }
     }
 
-    private void UpdateAllPlayersToOffline(int channelId) {
-        foreach (PlayerInfo playerInfo in playerInfoLookup.GetPlayersOnChannel(channelId)) {
-            playerInfo.Channel = -1;
-            foreach ((int id, ChannelClient channelClient) in this) {
-                if (id == channelId) {
+    private PlayerInfo[] TakePlayersOffline(int channelId) {
+        PlayerInfo[] players = playerInfoLookup.GetPlayersOnChannel(channelId);
+        foreach (PlayerInfo player in players) {
+            player.Channel = -1;
+        }
+        return players;
+    }
+
+    private void UpdateAllPlayersToOffline(Channel source, PlayerInfo[] offlinePlayers) {
+        foreach (PlayerInfo playerInfo in offlinePlayers) {
+            foreach (Channel channel in channels.Values) {
+                if (channel.Id == source.Id) {
                     continue;
                 }
-                channelClient.UpdatePlayer(new PlayerUpdateRequest {
+                Notify(source, channel, (client, options) => client.UpdatePlayer(new PlayerUpdateRequest {
                     AccountId = playerInfo.AccountId,
                     CharacterId = playerInfo.CharacterId,
                     LastOnlineTime = DateTime.UtcNow.ToEpochSeconds(),
                     Channel = -1,
                     Async = true,
-                });
+                }, options));
             }
         }
     }
 
-    private void UpdateChannels(int exclueChannelBroadcast = -1) {
-        foreach ((int id, ChannelClient channelClient) in this) {
-            if (id == exclueChannelBroadcast) {
+    private void UpdateChannels(Channel source) {
+        foreach (Channel channel in channels.Values) {
+            if (channel.Id == source.Id) {
                 continue;
             }
-
-            List<int> channelList = channels.Values.Where(ch => ch.Status is ChannelStatus.Active && !ch.InstancedContent).Select(ch => ch.Id).ToList();
-            channelClient.UpdateChannels(new Maple2.Server.Channel.Service.ChannelsUpdateRequest {
+            Notify(source, channel, (client, options) => client.UpdateChannels(new Maple2.Server.Channel.Service.ChannelsUpdateRequest {
                 Channels = {
-                    channelList,
+                    Keys,
                 },
-            });
+            }, options));
         }
     }
 
-    private class Channel {
-        public ChannelStatus Status { get; set; }
+    private void Notify(Channel source, Channel target, Action<ChannelClient, CallOptions> notify) {
+        if (!IsCurrent(source) || !IsCurrent(target) || target.Status is not ChannelStatus.Active || source.CancellationToken.IsCancellationRequested) {
+            return;
+        }
+        try {
+            notify(target.Client, new CallOptions(deadline: DateTime.UtcNow.Add(RpcTimeout), cancellationToken: source.CancellationToken));
+        } catch (RpcException ex) {
+            if (!source.CancellationToken.IsCancellationRequested) {
+                logger.Warning(ex, "Failed to notify channel {Channel} about channel {SourceChannel}", target.Id, source.Id);
+            }
+        } catch (ObjectDisposedException) {
+            logger.Debug("Channel {Channel} was replaced during a notification from channel {SourceChannel}", target.Id, source.Id);
+        }
+    }
+
+    public void Dispose() {
+        Channel[] snapshot;
+        lock (sync) {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            snapshot = channels.Values.ToArray();
+            foreach (Channel channel in snapshot) {
+                channel.Status = ChannelStatus.Inactive;
+            }
+            channels.Clear();
+        }
+        foreach (Channel channel in snapshot) {
+            channel.Dispose();
+        }
+    }
+
+    private sealed class Channel : IDisposable {
+        public volatile ChannelStatus Status = ChannelStatus.Pending;
 
         public readonly int Id;
         public readonly bool InstancedContent;
@@ -301,19 +318,36 @@ public class ChannelClientLookup : IEnumerable<(int, ChannelClient)> {
         public readonly IPEndPoint Endpoint;
         public readonly ushort GamePort;
         public readonly int GrpcPort;
+        public readonly string GrpcHost;
 
+        public readonly GrpcChannel Transport;
         public readonly ChannelClient Client;
         public readonly Health.HealthClient Health;
+        private readonly CancellationTokenSource cancellation = new();
+        public readonly CancellationToken CancellationToken;
+        public Task MonitorTask = Task.CompletedTask;
+        private int disposed;
 
-        public Channel(ChannelStatus status, int id, bool instancedContent, IPEndPoint endpoint, ChannelClient client, Health.HealthClient health, ushort gamePort, int grpcPort) {
-            Status = status;
+        public Channel(int id, bool instancedContent, IPEndPoint endpoint, Uri grpcUri) {
             Id = id;
             InstancedContent = instancedContent;
             Endpoint = endpoint;
-            Client = client;
-            Health = health;
-            GamePort = gamePort;
-            GrpcPort = grpcPort;
+            GamePort = (ushort) endpoint.Port;
+            GrpcPort = grpcUri.Port;
+            GrpcHost = grpcUri.IdnHost;
+            Transport = GrpcChannel.ForAddress(grpcUri);
+            Client = new ChannelClient(Transport);
+            Health = new Health.HealthClient(Transport);
+            CancellationToken = cancellation.Token;
+        }
+
+        public void Dispose() {
+            if (Interlocked.Exchange(ref disposed, 1) != 0) {
+                return;
+            }
+            cancellation.Cancel();
+            Transport.Dispose();
+            cancellation.Dispose();
         }
     }
 }

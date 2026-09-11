@@ -61,37 +61,45 @@ public partial class FieldManager {
     }
 
     private void CommitPlot(GameSession session) {
-        Home home = session.Player.Value.Home;
-        using GameStorage.Request db = GameStorage.Context();
-        if (this is HomeFieldManager homeField) {
-            if (session.AccountId == homeField.OwnerId && home.Indoor.MapId == MapId && Plots.TryGetValue(home.Indoor.Number, out Plot? indoorPlot) && !indoorPlot.IsPlanner) {
-                SavePlot(indoorPlot);
+        if (session.PersistenceAborted) {
+            return;
+        }
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
             }
-        }
-
-        if (home.Outdoor != null && home.Outdoor.MapId == MapId && Plots.TryGetValue(home.Outdoor.Number, out Plot? outdoorPlot)) {
-            SavePlot(outdoorPlot);
-        }
-
-        void SavePlot(Plot plot) {
-            lock (Plots) {
-                ICollection<PlotCube>? results = db.SaveCubes(plot, plot.Cubes.Values);
-                if (results == null) {
-                    logger.Fatal("Failed to save plot cubes: {PlotId}", plot.Id);
-                    return;
+            Home home = session.Player.Value.Home;
+            using GameStorage.Request db = GameStorage.Context();
+            if (this is HomeFieldManager homeField) {
+                if (session.AccountId == homeField.OwnerId && home.Indoor.MapId == MapId && Plots.TryGetValue(home.Indoor.Number, out Plot? indoorPlot) && !indoorPlot.IsPlanner) {
+                    SavePlot(indoorPlot);
                 }
+            }
 
-                List<PlotCube> portalCubes = plot.Cubes.Values.Where(c => c.Interact?.PortalSettings is not null).ToList();
+            if (home.Outdoor != null && home.Outdoor.MapId == MapId && Plots.TryGetValue(home.Outdoor.Number, out Plot? outdoorPlot)) {
+                SavePlot(outdoorPlot);
+            }
 
-                plot.Cubes.Clear();
-                foreach (PlotCube result in results) {
-                    if (result.Interact?.PortalSettings is not null) {
-                        PlotCube? existingCube = portalCubes.Find(x => x.Position == result.Position && x.ItemId == result.ItemId);
-                        if (existingCube is not null) {
-                            result.Interact = existingCube.Interact;
-                        }
+            void SavePlot(Plot plot) {
+                lock (Plots) {
+                    ICollection<PlotCube>? results = db.SaveCubes(plot, plot.Cubes.Values);
+                    if (results == null) {
+                        logger.Fatal("Failed to save plot cubes: {PlotId}", plot.Id);
+                        return;
                     }
-                    plot.Cubes.Add(result.Position, result);
+
+                    List<PlotCube> portalCubes = plot.Cubes.Values.Where(c => c.Interact?.PortalSettings is not null).ToList();
+
+                    plot.Cubes.Clear();
+                    foreach (PlotCube result in results) {
+                        if (result.Interact?.PortalSettings is not null) {
+                            PlotCube? existingCube = portalCubes.Find(x => x.Position == result.Position && x.ItemId == result.ItemId);
+                            if (existingCube is not null) {
+                                result.Interact = existingCube.Interact;
+                            }
+                        }
+                        plot.Cubes.Add(result.Position, result);
+                    }
                 }
             }
         }

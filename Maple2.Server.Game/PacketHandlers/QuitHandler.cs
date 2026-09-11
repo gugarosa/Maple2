@@ -22,6 +22,7 @@ public class QuitHandler : PacketHandler<GameSession> {
 
     public override void Handle(GameSession session, IByteReader packet) {
         bool quitGame = packet.ReadBool();
+        int previousMap = session.Player.Value.Character.MapId;
 
         // Reset map to return map
         if (session.Player.Value.Character.ReturnMaps.Peek() is not 0) {
@@ -34,7 +35,11 @@ public class QuitHandler : PacketHandler<GameSession> {
             return;
         }
 
-        session.MigrationSave();
+        if (!session.MigrationSave()) {
+            session.Player.Value.Character.MapId = previousMap;
+            session.Send(MigrationPacket.GameToLoginError(s_move_err_default));
+            return;
+        }
         try {
             var request = new MigrateOutRequest {
                 AccountId = session.AccountId,

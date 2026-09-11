@@ -7,7 +7,6 @@ using Maple2.Tools.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
-using Z.EntityFramework.Plus;
 
 namespace Maple2.Database.Storage;
 
@@ -168,29 +167,29 @@ public partial class GameStorage {
         public bool DeleteGuild(long guildId) {
             BeginTransaction();
 
-            int count = Context.Guild.Where(guild => guild.Id == guildId).Delete();
+            int count = Context.Guild.Where(guild => guild.Id == guildId).ExecuteDelete();
             if (count == 0) {
                 return false;
             }
 
-            Context.GuildMember.Where(member => member.GuildId == guildId).Delete();
-            Context.GuildApplication.Where(app => app.GuildId == guildId).Delete();
+            Context.GuildMember.Where(member => member.GuildId == guildId).ExecuteDelete();
+            Context.GuildApplication.Where(app => app.GuildId == guildId).ExecuteDelete();
 
             return Commit();
         }
 
         public bool DeleteGuildMember(long guildId, long characterId) {
-            int count = Context.GuildMember.Where(member => member.GuildId == guildId && member.CharacterId == characterId).Delete();
+            int count = Context.GuildMember.Where(member => member.GuildId == guildId && member.CharacterId == characterId).ExecuteDelete();
             return SaveChanges() && count > 0;
         }
 
         public bool DeleteGuildApplication(long applicationId) {
-            int count = Context.GuildApplication.Where(app => app.Id == applicationId).Delete();
+            int count = Context.GuildApplication.Where(app => app.Id == applicationId).ExecuteDelete();
             return SaveChanges() && count > 0;
         }
 
         public bool DeleteGuildApplications(long characterId) {
-            int count = Context.GuildApplication.Where(app => app.ApplicantId == characterId).Delete();
+            int count = Context.GuildApplication.Where(app => app.ApplicantId == characterId).ExecuteDelete();
             return SaveChanges() && count > 0;
         }
 
