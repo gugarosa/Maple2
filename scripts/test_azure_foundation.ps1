@@ -24,7 +24,7 @@ $state = @{
     Location = 'brazilsouth'
     Failure = ''
 }
-$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue | Select-Object Value
 function Assert {
     param([bool]$Condition, [string]$Message)
     if (-not $Condition) { throw $Message }

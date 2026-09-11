@@ -35,7 +35,7 @@ $state = @{
     Failure = ''
     Unhealthy = ''
 }
-$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue | Select-Object Value
 Push-Location -LiteralPath $root
 $fixture = $null
 try {

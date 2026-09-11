@@ -26,8 +26,11 @@ jobs:
       - name: Test operations and client setup
         shell: pwsh
         run: |
+          $global:LASTEXITCODE = 0
           .\scripts\test_operations.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\scripts\test_client_setup.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate Azure foundation without deploying
         shell: pwsh
         run: |
