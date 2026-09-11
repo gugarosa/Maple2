@@ -16,12 +16,10 @@ public class ItemManager {
     public readonly EquipManager Equips;
     public readonly InventoryManager Inventory;
     public FurnishingManager Furnishing { get; private set; }
-    internal Func<bool> PrepareCurrencyTransfer { get; init; }
 
     public ItemManager(GameStorage.Request db, GameSession session, ItemStatsCalculator itemStatsCalc) {
         this.session = session;
         this.itemStatsCalc = itemStatsCalc;
-        PrepareCurrencyTransfer = session.SessionSave;
 
         Equips = new EquipManager(db, session);
         Inventory = new InventoryManager(db, session);

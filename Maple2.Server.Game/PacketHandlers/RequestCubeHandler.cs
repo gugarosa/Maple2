@@ -701,7 +701,7 @@ public class RequestCubeHandler : FieldPacketHandler {
                 session.Send(ItemInventoryPacket.Error(ItemInventoryError.s_err_inventory));
                 return null;
             }
-            if (!session.Item.PrepareCurrencyTransfer()) {
+            if (!session.SessionSave()) {
                 session.Send(CubePacket.Error(UgcMapError.s_ugcmap_db));
                 return null;
             }

@@ -14,11 +14,11 @@ that snapshot.
 The following checks completed against isolated real client metadata and an isolated database:
 
 - All 11 solution projects, including `Maple2.Server.DebugGame`, compile.
-- The regular Release NUnit suite passes: 505 tests. Another 116 explicitly
+- The regular Release NUnit suite passes: 505 tests. Another 121 explicitly
   selected MySQL persistence tests pass in throwaway game databases using the actual
   migrations, including the disjoint account/character/mail identifier ranges.
   These cover accounts/quests (22), guild rewards (2), transaction failures (6),
-  item/mail/trade/blueprint ownership (45), market/shop behavior (24), and resets (17).
+  item/mail/trade/blueprint ownership (50), market/shop behavior (24), and resets (17).
 - Read-only client archive checks cover all normalized trigger definitions and the
   actual Horus carrier patrol references. The quest archive regression checks all
   4,903 timing/faction mappings and the item/portal/furnishing/guild reward examples
@@ -110,7 +110,10 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 - Standalone mail, trade, and blueprint currency transactions first checkpoint the
   full session, including the inventory and progress backing pending earnings.
   Monetary writes compare both saved versions and balances and preserve unrelated
-  currency fields. Notifications run outside the outer item-operation lock.
+  currency fields. These paths call the real session save directly; persistence
+  regressions cover sold-item retirement, failed participant checkpoints, and
+  queued progression at final saves. Notifications run outside the outer
+  item-operation lock.
 - Random item-option selection uses `Server.m2d` category weights, excludes explicit zero-probability options, preserves locked attributes, and prevents duplicate attribute lines.
 - Server value distributions are used where present. Coverage is partial: 6,306 item-option IDs have client-defined value ranges but no server value distribution, so those values continue to use the existing range-based selection with a runtime warning.
 
