@@ -28,3 +28,10 @@ jobs:
         run: |
           .\scripts\test_operations.ps1
           .\scripts\test_client_setup.ps1
+      - name: Validate Azure foundation without deploying
+        shell: pwsh
+        run: |
+          $template = Join-Path $env:RUNNER_TEMP 'maple2-foundation.json'
+          az bicep build --file .\deploy\azure\foundation.bicep --outfile $template --only-show-errors
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\test_azure_foundation.ps1 -CompiledTemplate $template

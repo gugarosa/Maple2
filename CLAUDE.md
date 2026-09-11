@@ -33,6 +33,16 @@ launching, native client add-ons, or distribution.
   redistribution require separate evidence; local readiness does not prove them.
 - Do not launch/focus a game while another MapleStory session is in use.
 
+## Azure isolation
+
+Read [deploy/azure/README.md](deploy/azure/README.md) before cloud changes.
+The foundation script defaults to what-if, pins an explicitly supplied
+subscription, and owns only the Maple2 group/network/NSG/DNS child zone.
+Do not repurpose the existing Cosmic resource group, VM, identities, budgets, or
+data. Do not change the parent Porkbun nameservers, existing portal bindings, or
+mail records as part of Maple2 setup. DNS creation is not delegation or an
+HTTPS/game-service deployment; keep those readiness claims separate.
+
 ## Build and Development Commands
 
 ### Initial Setup

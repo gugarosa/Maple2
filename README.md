@@ -196,6 +196,17 @@ Game order. Use `--instanced` for the instanced Game process and leave
 uses repository-local EF tools; it never downloads or overwrites client archives.
 The obsolete `start.bat` and `dev.bat` window launchers have been removed.
 
+## Azure foundation
+
+Maple2 has an isolated `rg-maple2-brazilsouth` foundation with a private network
+and an Azure DNS child zone for `ms2.mapletime.dev`. This does not change the
+existing MapleTime deployment or provision a remote game server.
+
+See [Azure foundation](deploy/azure/README.md) for preview/apply commands, the
+pending Porkbun subdomain delegation, cost boundaries, and the prerequisites for
+publishing `ms.mapletime.dev` / `ms2.mapletime.dev` without breaking the existing
+site. No compute or public application endpoint is created by this phase.
+
 ## Architecture
 
 ```
