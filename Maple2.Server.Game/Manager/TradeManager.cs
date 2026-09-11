@@ -288,7 +288,7 @@ public class TradeManager : IDisposable {
                     receiver.Session.Send(TradePacket.Error(s_trade_error_meso));
                     return false;
                 }
-                if (success && (!first.Item.PrepareCurrencyTransfer() || !second.Item.PrepareCurrencyTransfer())) {
+                if (success && (!first.SessionSave() || !second.SessionSave())) {
                     sender.Session.Send(TradePacket.Error(s_trade_error_system));
                     receiver.Session.Send(TradePacket.Error(s_trade_error_system));
                     return false;

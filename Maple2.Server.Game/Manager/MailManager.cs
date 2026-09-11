@@ -176,7 +176,7 @@ public sealed class MailManager {
         if (!collectMeso && !collectMeret && !collectGameMeret && mail.Items.Count == 0) {
             return MailError.s_mail_error_receiveitem_to_inven;
         }
-        if ((collectMeso || collectMeret || collectGameMeret) && !session.Item.PrepareCurrencyTransfer()) {
+        if ((collectMeso || collectMeret || collectGameMeret) && !session.SessionSave()) {
             return MailError.s_mail_error;
         }
 

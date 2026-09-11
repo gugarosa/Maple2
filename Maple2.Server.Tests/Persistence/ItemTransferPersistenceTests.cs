@@ -15,14 +15,19 @@ using Maple2.Model;
 using Maple2.Model.Enum;
 using Maple2.Model.Error;
 using Maple2.Model.Game;
+using Maple2.Model.Game.Dungeon;
+using Maple2.Model.Game.Event;
+using Maple2.Model.Game.Shop;
 using Maple2.Model.Game.Ugc;
 using Maple2.Model.Metadata;
 using Maple2.Server.Core.Constants;
 using Maple2.Server.Game.Manager;
+using Maple2.Server.Game.Manager.Config;
 using Maple2.Server.Game.Manager.Items;
 using Maple2.Server.Game.Model;
 using Maple2.Server.Game.PacketHandlers;
 using Maple2.Server.Game.Session;
+using Maple2.Server.World.Service;
 using Maple2.Tools.Scheduler;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -205,12 +210,7 @@ public class ItemTransferPersistenceTests {
 
     [Test]
     public void BlueprintExpenditureFirstPersistsTheProgressBehindPendingEarnings() {
-        using SessionData data = NewSession(prepareCurrency: session => {
-            using GameStorage.Request request = storage.Context();
-            request.BeginTransaction();
-            return request.SavePlayer(session.Player.Value) && session.Item.Save(request) &&
-                   session.Quest.Save(request) && request.Commit();
-        });
+        using SessionData data = NewSession();
         GameSession session = data.Session;
         session.Player.Value.Currency.Meret += 50;
         session.Player.Value.Character.Exp = 77;
@@ -225,8 +225,9 @@ public class ItemTransferPersistenceTests {
 
     [Test]
     public void FailedBackingSaveCannotCreateBlueprintOrCollectMailCurrency() {
-        using SessionData data = NewSession(prepareCurrency: _ => false);
+        using SessionData data = NewSession();
         GameSession session = data.Session;
+        ((CheckpointWorldStub) session.World).RejectLease = true;
         Mail mail = SendMail(session, 50, new Item(potion, amount: 3));
         session.Mail = new MailManager(session);
 
@@ -239,6 +240,78 @@ public class ItemTransferPersistenceTests {
         Assert.That(verify.GetMail(mail.Id, session.CharacterId)!.Items.Single().Amount, Is.EqualTo(3));
         Assert.That(ReadMeso(session.CharacterId), Is.EqualTo(100));
         Assert.That(ReadMeret(session.AccountId), Is.EqualTo(100));
+    }
+
+    [Test]
+    public void SellingThenCollectingCurrencyMailCheckpointsTheSoldRecoveryRow() {
+        using SessionData data = NewSession();
+        GameSession session = data.Session;
+        Item sold = SellRecoveryItem(session);
+        Mail mail = SendMail(session, 5, new Item(potion));
+        session.Mail = new MailManager(session);
+        Assert.That(ReadMeso(session.CharacterId), Is.EqualTo(100));
+        Assert.That(session.Currency.Meso, Is.EqualTo(120));
+        using (GameStorage.Request before = storage.Context()) {
+            Assert.That(before.GetItemOwner(sold.Uid), Is.EqualTo(session.CharacterId));
+        }
+
+        Assert.That(session.Mail.Collect(mail.Id), Is.EqualTo(MailError.none));
+
+        using GameStorage.Request verify = storage.Context();
+        Assert.That(verify.GetItemOwner(sold.Uid), Is.Zero);
+        Assert.That(verify.GetAllItems(session.CharacterId).Select(item => item.Uid), Does.Not.Contain(sold.Uid));
+        Assert.That(verify.GetMail(mail.Id, session.CharacterId)!.MesoCollectTime, Is.GreaterThan(0));
+        Assert.That(ReadMeso(session.CharacterId), Is.EqualTo(125));
+        Assert.That(session.Currency.Meso, Is.EqualTo(125));
+        AssertVersionsCurrent(session);
+    }
+
+    [Test]
+    public void FailedSoldItemCheckpointCannotCommitSaleEarningsOrCollectMail() {
+        using SessionData data = NewSession();
+        GameSession session = data.Session;
+        Item sold = SellRecoveryItem(session);
+        Mail mail = SendMail(session, 5, new Item(potion, amount: 3));
+        session.Mail = new MailManager(session);
+        UseFailure(session, new RejectItemChange(sold.Uid, ownerId: 0));
+
+        Assert.That(session.Mail.Collect(mail.Id), Is.EqualTo(MailError.s_mail_error));
+
+        using GameStorage.Request verify = storage.Context();
+        Assert.That(verify.GetItemOwner(sold.Uid), Is.EqualTo(session.CharacterId));
+        Assert.That(verify.GetItem(sold.Uid)!.Amount, Is.EqualTo(2));
+        Mail unchanged = verify.GetMail(mail.Id, session.CharacterId)!;
+        Assert.That(unchanged.MesoCollectTime, Is.Zero);
+        Assert.That(unchanged.Items.Single().Amount, Is.EqualTo(3));
+        Assert.That(ReadMeso(session.CharacterId), Is.EqualTo(100));
+        Assert.That(session.Currency.Meso, Is.EqualTo(120));
+        AssertVersionsCurrent(session);
+    }
+
+    [Test]
+    public void FailedSecondTradeCheckpointDoesNotMoveOffersOrCreditSaleEarnings() {
+        using SessionData sender = NewSession();
+        using SessionData receiver = NewSession();
+        GameSession from = sender.Session;
+        GameSession to = receiver.Session;
+        Item sold = SellRecoveryItem(to);
+        Item offered = Add(from, new Item(potion, 2));
+        TradeManager trade = StartTrade(from, to);
+        trade.AddItem(from, offered.Uid, 1, 0);
+        trade.SetMesos(from, 20);
+        UseFailure(to, new RejectItemChange(sold.Uid, ownerId: 0));
+
+        CompleteTrade(trade, from, to);
+
+        Assert.That(from.Trade, Is.SameAs(trade));
+        Assert.That(to.Trade, Is.SameAs(trade));
+        using GameStorage.Request verify = storage.Context();
+        Assert.That(verify.GetItemOwner(offered.Uid), Is.EqualTo(from.CharacterId));
+        Assert.That(verify.GetItemOwner(sold.Uid), Is.EqualTo(to.CharacterId));
+        Assert.That(ReadMeso(from.CharacterId), Is.EqualTo(100));
+        Assert.That(ReadMeso(to.CharacterId), Is.EqualTo(100));
+        Assert.That(from.Currency.Meso, Is.EqualTo(100));
+        Assert.That(to.Currency.Meso, Is.EqualTo(120));
     }
 
     [Test]
@@ -410,6 +483,33 @@ public class ItemTransferPersistenceTests {
         }
         session.Scheduler.InvokeAll();
         Assert.That(invoked, Is.True);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void FinalSavePersistsPendingCallbacksWithRunningOrStoppedScheduler(bool stopped) {
+        using SessionData data = NewSession();
+        GameSession session = data.Session;
+        session.Item.AfterUnlock(() => {
+            Assert.That(Monitor.IsEntered(session.Item), Is.False);
+            session.Player.Value.Character.Exp = 77;
+            session.Item.AfterUnlock(() => {
+                Assert.That(Monitor.IsEntered(session.Item), Is.False);
+                session.Player.Value.Currency.Meso += 5;
+            });
+        });
+        if (stopped) {
+            session.Scheduler.Stop();
+        }
+
+        // Disconnect and channel migration both persist their final snapshot through MigrationSave.
+        Assert.That(session.MigrationSave(), Is.True);
+
+        Assert.That(session.Scheduler.Queued, Is.Zero);
+        Assert.That(ReadMeso(session.CharacterId), Is.EqualTo(105));
+        Assert.That(Scalar("SELECT JSON_EXTRACT(`Experience`, '$.Exp') FROM `character` WHERE `Id` = @id",
+            session.CharacterId), Is.EqualTo(77));
+        AssertVersionsCurrent(session);
     }
 
     [Test]
@@ -1020,7 +1120,7 @@ public class ItemTransferPersistenceTests {
         Assert.That(request.GetMail(mail.Id, data.Session.CharacterId)!.Items, Has.Count.EqualTo(1));
     }
 
-    private SessionData NewSession(short slots = 1, Func<GameSession, bool>? prepareCurrency = null) {
+    private SessionData NewSession(short slots = 1) {
         using GameStorage.Request db = storage.Context();
         Account account = db.CreateAccount(new Account {
             Username = "transfer" + Guid.NewGuid().ToString("N")[..10],
@@ -1038,6 +1138,7 @@ public class ItemTransferPersistenceTests {
         var session = (GameSession) RuntimeHelpers.GetUninitializedObject(typeof(GameSession));
         GC.SuppressFinalize(session);
         Set<GameSession>(session, "gameDisposeState", 2);
+        Set<GameSession>(session, "saveSync", new object());
         var packets = new BlockingCollection<(byte[], int)>();
         Set<NetworkSession>(session, "sendQueue", packets);
         Set<NetworkSession>(session, "lastSentPackets", new ConcurrentDictionary<SendOp, byte[]>());
@@ -1046,6 +1147,9 @@ public class ItemTransferPersistenceTests {
         Set<NetworkSession>(session, "<CharacterId>k__BackingField", character.Id);
         Set<GameSession>(session, "<GameStorage>k__BackingField", storage);
         Set<GameSession>(session, "<ItemMetadata>k__BackingField", items);
+        Set<GameSession>(session, "<World>k__BackingField", new CheckpointWorldStub(session));
+        var tables = new TableMetadataStorage(metadata);
+        Set<GameSession>(session, "<TableMetadata>k__BackingField", tables);
         var scheduler = new EventQueue(Log.Logger);
         scheduler.Start();
         Set<GameSession>(session, "Scheduler", scheduler);
@@ -1061,11 +1165,13 @@ public class ItemTransferPersistenceTests {
         var achievements = new AchievementMetadataStorage(metadata);
         Set<AchievementMetadataStorage>(achievements, "cachedTypes", Enum.GetValues<ConditionType>().ToHashSet());
         Set<GameSession>(session, "<AchievementMetadata>k__BackingField", achievements);
-        var player = new Player(account, character, 1) {
-            Home = new Home { AccountId = account.Id },
-            Currency = new Currency { Meso = 100, Meret = 100 },
-            Unlock = new Unlock(),
-        };
+        Player player;
+        using (GameStorage.Request load = storage.Context()) {
+            player = load.LoadPlayer(account.Id, character.Id, 1, 1)
+                ?? throw new InvalidOperationException("Failed to load checkpoint fixture player.");
+        }
+        player.Currency.Meso = 100;
+        player.Currency.Meret = 100;
         var fieldPlayer = (FieldPlayer) RuntimeHelpers.GetUninitializedObject(typeof(FieldPlayer));
         GC.SuppressFinalize(fieldPlayer);
         Set<Actor<Player>>(fieldPlayer, "<Value>k__BackingField", player);
@@ -1073,21 +1179,51 @@ public class ItemTransferPersistenceTests {
         Set<FieldPlayer>(fieldPlayer, "Session", session);
         Set<GameSession>(session, "<Player>k__BackingField", fieldPlayer);
         session.Currency = new CurrencyManager(session);
-        session.Item = new ItemManager(db, session, null!) {
-            PrepareCurrencyTransfer = () => prepareCurrency?.Invoke(session) ?? true,
-        };
+        session.Item = new ItemManager(db, session, null!);
         session.Achievement = new AchievementManager(session);
         session.Quest = new QuestManager(session);
-        var initialVersions = db.GetLastModifiedTimestamps(character.Id)!.Value;
-        player.Account.LastModified = initialVersions.AccountLastModified;
-        player.Character.LastModified = initialVersions.CharacterLastModified;
-        player.Unlock.LastModified = initialVersions.UnlockLastModified;
-        using (GameStorage.Request seed = storage.Context()) {
-            seed.BeginTransaction();
-            Assert.That(seed.SavePlayer(player), Is.True);
-            Assert.That(seed.Commit(), Is.True);
+        InitializeCheckpointManagers(session, db, constants, tables);
+        lock (session.Item) {
+            Assert.That(session.SessionSave(), Is.True, "The fixture must use the real full-session checkpoint.");
         }
         return new SessionData(session, packets);
+    }
+
+    private static void InitializeCheckpointManagers(GameSession session, GameStorage.Request db,
+        ConstantsTable constants, TableMetadataStorage tables) {
+        // Empty ancillary state still exercises every real component Save in SessionSave.
+        var config = (ConfigManager) RuntimeHelpers.GetUninitializedObject(typeof(ConfigManager));
+        Set<ConfigManager>(config, "session", session);
+        Set<ConfigManager>(config, "keyBinds", new Dictionary<int, KeyBind>());
+        Set<ConfigManager>(config, "hotBars", new List<HotBar> { new(), new(), new() });
+        Set<ConfigManager>(config, "skillMacros", new List<SkillMacro>());
+        Set<ConfigManager>(config, "wardrobes", new List<Wardrobe>());
+        Set<ConfigManager>(config, "favoriteStickers", new List<int>());
+        Set<ConfigManager>(config, "favoriteDesigners", new List<long>());
+        Set<ConfigManager>(config, "lapenshards", new Dictionary<LapenshardSlot, int>());
+        Set<ConfigManager>(config, "statAttributes", new StatAttributes(constants));
+        Set<ConfigManager>(config, "skillPoints", new SkillPoint());
+        Set<ConfigManager>(config, nameof(ConfigManager.GatheringCounts), new Dictionary<int, int>());
+        Set<ConfigManager>(config, nameof(ConfigManager.GuideRecords), new Dictionary<int, int>());
+        var (_, _, _, _, _, _, _, _, _, _, _, _, _, _, skillBook) = db.LoadCharacterConfig(session.CharacterId);
+        var skills = (SkillManager) RuntimeHelpers.GetUninitializedObject(typeof(SkillManager));
+        Set<SkillManager>(skills, nameof(SkillManager.SkillBook), skillBook!);
+        Set<ConfigManager>(config, nameof(ConfigManager.Skill), skills);
+        session.Config = config;
+        session.Shop = new ShopManager(session);
+        session.UgcMarket = new UgcMarketManager(session);
+        session.Survival = new SurvivalManager(session);
+        session.Housing = new HousingManager(session, tables);
+        var events = (GameEventManager) RuntimeHelpers.GetUninitializedObject(typeof(GameEventManager));
+        Set<GameEventManager>(events, "session", session);
+        Set<GameEventManager>(events, "eventValues", new Dictionary<int, Dictionary<GameEventUserValueType, GameEventUserValue>>());
+        session.GameEvent = events;
+        var dungeon = (DungeonManager) RuntimeHelpers.GetUninitializedObject(typeof(DungeonManager));
+        Set<DungeonManager>(dungeon, "session", session);
+        Set<DungeonManager>(dungeon, "<Records>k__BackingField", new Dictionary<int, DungeonRecord>());
+        Set<DungeonManager>(dungeon, "<CharacterRecords>k__BackingField", new Dictionary<int, DungeonRecord>());
+        Set<DungeonManager>(dungeon, "<AccountRecords>k__BackingField", new Dictionary<int, DungeonRecord>());
+        session.Dungeon = dungeon;
     }
 
     private GameStorage NewStorage(DbContextOptions settings) => new(settings, items, new MapMetadataStorage(metadata),
@@ -1104,6 +1240,22 @@ public class ItemTransferPersistenceTests {
         Item? result = db.CreateItem(ownerId, item);
         Assert.That(result, Is.Not.Null);
         return result!;
+    }
+
+    private Item SellRecoveryItem(GameSession session) {
+        var restock = new ShopRestockData(ResetType.Default, ShopCurrencyType.Meso, ShopCurrencyType.Meso,
+            0, 0, 0, false, true, false);
+        var shop = new ShopMetadata(1, 0, "", 0, false, false, false, false, false, false, false, 0, false, restock);
+        Set<ShopManager>(session.Shop, "activeShop", new Shop(shop));
+        ItemMetadata sale = potion with {
+            Property = potion.Property with { CustomSellPrices = [10], SellPrices = [0] },
+            Limit = potion.Limit with { ShopSell = true, Level = 1 },
+        };
+        Item item = Add(session, new Item(sale, amount: 2));
+        session.Shop.Sell(item.Uid, 2);
+        Assert.That(session.Item.Inventory.Get(item.Uid), Is.Null);
+        Assert.That(session.Currency.Meso, Is.EqualTo(120));
+        return item;
     }
 
     private static Item Add(GameSession session, Item item) {
@@ -1264,6 +1416,24 @@ public class ItemTransferPersistenceTests {
     private sealed class RejectCommitAcknowledgement : DbTransactionInterceptor {
         public override void TransactionCommitted(DbTransaction transaction, TransactionEndEventData eventData) {
             throw new DbUpdateException("Injected loss of commit acknowledgement after the data was committed.");
+        }
+    }
+
+    private sealed class CheckpointWorldStub(GameSession session) : WorldClient {
+        public bool RejectLease;
+
+        public override LockResponse AcquireLock(LockRequest request, CallOptions options) {
+            Assert.That(Monitor.IsEntered(session.Item), Is.True);
+            Assert.That(options.Deadline, Is.Not.Null);
+            if (RejectLease) {
+                throw new RpcException(new Status(StatusCode.PermissionDenied, "Injected checkpoint lease failure."));
+            }
+            return new LockResponse { ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(30).ToUnixTimeMilliseconds() };
+        }
+
+        public override LockResponse ReleaseLock(LockRequest request, CallOptions options) {
+            Assert.That(Monitor.IsEntered(session.Item), Is.True);
+            return new LockResponse();
         }
     }
 
