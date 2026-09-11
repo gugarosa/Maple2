@@ -7,7 +7,7 @@ var resourceGroupName = 'rg-maple2-${location}'
 var tags = {
   project: 'maple2'
   brand: 'mapletime'
-  environment: 'foundation'
+  environment: 'private'
   managedBy: 'bicep'
   sourceRepository: 'https://github.com/gugarosa/Maple2'
 }
@@ -29,5 +29,3 @@ module resources './resources.bicep' = {
 output resourceGroup string = maple2Group.name
 output virtualNetworkId string = resources.outputs.virtualNetworkId
 output subnetId string = resources.outputs.subnetId
-output dnsZone string = resources.outputs.dnsZone
-output delegationNameServers array = resources.outputs.delegationNameServers

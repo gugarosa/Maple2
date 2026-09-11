@@ -1,0 +1,119 @@
+#cloud-config
+package_update: true
+
+packages:
+  - curl
+  - git
+  - jq
+
+write_files:
+  - path: /etc/docker/daemon.json
+    owner: root:root
+    permissions: '0644'
+    content: |
+      {"data-root": "/srv/maple2/docker", "log-driver": "local", "log-opts": {"max-size": "10m", "max-file": "3"}}
+  - path: /etc/systemd/system/docker.service.d/maple2-data.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/srv/maple2
+      [Service]
+      ExecStartPre=/usr/bin/mountpoint --quiet /srv/maple2
+  - path: /usr/local/sbin/maple2-bootstrap
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -Eeuo pipefail
+      trap 'echo "Maple2 bootstrap failed at line $LINENO; Docker must not use the OS disk." >&2' ERR
+
+      fail() {
+        echo "Maple2 bootstrap: $*" >&2
+        exit 1
+      }
+
+      mount_dir=/srv/maple2
+      allow_format='__MAPLE2_FORMAT_NEW_DISK__'
+      udevadm settle --timeout=60
+      disk=$(readlink -f /dev/disk/azure/scsi1/lun0)
+      [[ -b "$disk" ]] || fail "LUN0 is missing; no root-disk fallback is permitted."
+      [[ "$(lsblk --noheadings --nodeps --output TYPE "$disk")" == disk ]] ||
+        fail "LUN0 does not resolve to a whole disk."
+      layout=$(lsblk --json --paths --output NAME,TYPE,FSTYPE,MOUNTPOINTS "$disk")
+      nodes=$(jq '[.blockdevices[] | recurse(.children[]?)]' <<< "$layout")
+      foreign_mounts=$(jq --arg target "$mount_dir" \
+        '[.[] | .mountpoints[]? | select(. != null and . != $target)] | length' <<< "$nodes")
+      [[ "$foreign_mounts" == 0 ]] || fail "LUN0 or a child is mounted elsewhere; refusing to adopt it."
+      filesystems=$(jq '[.[] | select(.fstype != null and .fstype != "")]' <<< "$nodes")
+      filesystem_count=$(jq 'length' <<< "$filesystems")
+
+      case "$filesystem_count" in
+        0)
+          [[ "$allow_format" == true ]] || fail "An existing disk has no filesystem; formatting is forbidden."
+          [[ "$(jq 'length' <<< "$nodes")" == 1 ]] || fail "A partitioned disk is not a blank new disk."
+          signatures=$(wipefs --no-act --json "$disk")
+          [[ "$(jq '.signatures | length' <<< "$signatures")" == 0 ]] ||
+            fail "LUN0 has existing signatures; refusing to format it."
+          disk_bytes=$(blockdev --getsize64 "$disk")
+          [[ "$disk_bytes" -gt 0 ]] || fail "Cannot determine LUN0 capacity."
+          # Signature absence alone does not prove that an old disk is empty.
+          cmp --bytes="$disk_bytes" "$disk" /dev/zero ||
+            fail "LUN0 is not entirely zero-filled or could not be read; refusing to format it."
+          mkfs.ext4 -L maple2data "$disk"
+          filesystem_device=$disk
+          ;;
+        1)
+          filesystem_device=$(jq -r '.[0].name' <<< "$filesystems")
+          ;;
+        *)
+          fail "LUN0 has multiple filesystems; choose the preserved volume manually."
+          ;;
+      esac
+
+      filesystem_type=$(blkid -s TYPE -o value "$filesystem_device")
+      uuid=$(blkid -s UUID -o value "$filesystem_device")
+      [[ "$uuid" =~ ^[A-Za-z0-9-]+$ && "$filesystem_type" =~ ^[A-Za-z0-9_]+$ ]] ||
+        fail "The preserved filesystem needs a usable UUID and mount type."
+      mkdir -p "$mount_dir"
+      if mountpoint --quiet "$mount_dir"; then
+        [[ "$(findmnt --noheadings --output UUID --mountpoint "$mount_dir")" == "$uuid" ]] ||
+          fail "The data mount belongs to another filesystem."
+      else
+        contents=$(find "$mount_dir" -mindepth 1 -maxdepth 1 -print -quit)
+        [[ -z "$contents" ]] ||
+          fail "The unmounted data directory is not empty; refusing to hide OS-disk data."
+      fi
+
+      awk -v source="UUID=$uuid" -v target="$mount_dir" '
+        $1 !~ /^#/ && NF >= 2 &&
+        (($2 == target && $1 != source) || ($1 == source && $2 != target)) { bad = 1 }
+        END { exit bad }
+      ' /etc/fstab || fail "fstab contains a conflicting data mount; it was not changed."
+      fstab=$(mktemp /etc/fstab.maple2.XXXXXX)
+      trap 'rm -f -- "$fstab"' EXIT
+      awk -v target="$mount_dir" '$1 ~ /^#/ || $2 != target' /etc/fstab > "$fstab"
+      pass=0
+      case "$filesystem_type" in ext2|ext3|ext4) pass=2 ;; esac
+      printf 'UUID=%s %s %s defaults 0 %s\n' "$uuid" "$mount_dir" "$filesystem_type" "$pass" >> "$fstab"
+      chmod 0644 "$fstab"
+      mv -- "$fstab" /etc/fstab
+      systemctl daemon-reload
+      if ! mountpoint --quiet "$mount_dir"; then
+        mount "$mount_dir"
+      fi
+      mountpoint --quiet "$mount_dir"
+      [[ "$(findmnt --noheadings --output UUID --mountpoint "$mount_dir")" == "$uuid" ]] ||
+        fail "Mounted UUID differs from LUN0; Docker remains unconfigured."
+      mkdir -p "$mount_dir/docker" "$mount_dir/backups"
+
+      # Install Docker only after mounting its data root, never during cloud-init's package phase.
+      DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends docker.io docker-compose-v2
+      systemctl enable --now docker.service
+      docker compose version
+      [[ "$(docker info --format '{{.DockerRootDir}}')" == "$mount_dir/docker" ]] ||
+        fail "Docker is not using the data disk."
+      echo "Maple2 infrastructure bootstrap complete; no applications or client data were deployed."
+
+runcmd:
+  - [bash, /usr/local/sbin/maple2-bootstrap]

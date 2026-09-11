@@ -50,11 +50,12 @@ This is an integration baseline, not evidence that every gameplay issue or rever
 
 ### Runtime and operations
 
-- The [Azure foundation](deploy/azure/README.md) isolates Maple2 in
-  `rg-maple2-brazilsouth` with a non-overlapping private network and the
-  `ms2.mapletime.dev` DNS child zone. It has no compute, public IP, database, or
-  website. Porkbun delegation, HTTPS hosting, and remote gameplay remain pending;
-  the existing MapleTime portal/resources are unchanged.
+- The [Azure private pilot](deploy/azure/README.md) isolates Maple2 in
+  `rg-maple2-brazilsouth` with a non-overlapping network, Free Static Web App, and
+  separate VM/IP, retained data disk, vault, backup container and budget guard.
+  DNS stays at Porkbun; the unused Azure child zone was retired. Initial bootstrap
+  prepares Docker/storage only, with no public game ingress. DNS, managed HTTPS,
+  application/data deployment and remote gameplay remain separate release gates.
 - Workspace and client distribution follow [CLIENT_SETUP.md](CLIENT_SETUP.md):
   one original client, one server checkout, and source-only setup artifacts in
   sibling `release`. Mushroom 2.0.3 uses its normal installed location and existing

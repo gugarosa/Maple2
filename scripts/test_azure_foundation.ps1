@@ -97,14 +97,12 @@ try {
         $nested = @($resources | Where-Object type -eq 'Microsoft.Resources/deployments')[0].properties.template
         $children = @($nested.resources.PSObject.Properties.Value)
         if ($nested.resources -is [Array]) { $children = @($nested.resources) }
-        Assert ((@($children.type | Sort-Object) -join ',') -eq 'Microsoft.Network/dnsZones,Microsoft.Network/networkSecurityGroups,Microsoft.Network/virtualNetworks') 'Foundation includes unapproved or metered compute/storage resources.'
+        Assert ((@($children.type | Sort-Object) -join ',') -eq 'Microsoft.Network/networkSecurityGroups,Microsoft.Network/virtualNetworks') 'Foundation includes unapproved DNS, compute or storage resources.'
         $nsg = @($children | Where-Object type -eq 'Microsoft.Network/networkSecurityGroups')[0]
         Assert (@($nsg.properties.securityRules).Count -eq 0) 'Foundation opens custom inbound access.'
         $network = @($children | Where-Object type -eq 'Microsoft.Network/virtualNetworks')[0]
         Assert ($network.properties.addressSpace.addressPrefixes[0] -eq '10.43.0.0/16') 'Maple2 network allocation changed.'
         Assert ($network.properties.subnets[0].properties.defaultOutboundAccess -eq $false) 'Implicit outbound access is enabled.'
-        $zone = @($children | Where-Object type -eq 'Microsoft.Network/dnsZones')[0]
-        Assert ($zone.name -eq 'ms2.mapletime.dev') 'Foundation changes the parent or MapleTime DNS zone.'
     }
     Write-Host 'Azure foundation checks passed; no Azure login or resources were used.'
 } finally {

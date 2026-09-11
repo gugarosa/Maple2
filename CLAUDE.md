@@ -36,12 +36,16 @@ launching, native client add-ons, or distribution.
 ## Azure isolation
 
 Read [deploy/azure/README.md](deploy/azure/README.md) before cloud changes.
-The foundation script defaults to what-if, pins an explicitly supplied
-subscription, and owns only the Maple2 group/network/NSG/DNS child zone.
+The foundation and pilot scripts default to what-if and pin an explicitly supplied
+subscription. DNS remains at Porkbun; do not recreate the retired Azure child zone.
+The pilot VM is private and must be deallocated after initial validation unless
+an operator explicitly approves running it. Preserve existing disk identities,
+mount guards, budget dates, and the shared subscription spending limit.
 Do not repurpose the existing Cosmic resource group, VM, identities, budgets, or
-data. Do not change the parent Porkbun nameservers, existing portal bindings, or
-mail records as part of Maple2 setup. DNS creation is not delegation or an
-HTTPS/game-service deployment; keep those readiness claims separate.
+data. Explicitly requested MS1 website aliases require preserved existing bindings
+and hosting capacity; never replace apex/www or change canonical OAuth settings as
+a side effect. DNS resolution, HTTPS readiness, bootstrap, and actual game-service
+readiness are separate claims. The authored static portal does not collect accounts.
 
 ## Build and Development Commands
 
