@@ -122,6 +122,9 @@ Resolve-DnsName ms2.mapletime.dev -Type SOA -Server ns1-06.azure-dns.com
 
 The Azure zone initially contains only NS/SOA records. No A/CNAME points to an
 unprovisioned server, and no website is implied by successful delegation.
+`ms2.mapletime.dev` is this child zone's apex: do not create a CNAME at `@`,
+where NS/SOA already exist. Use the hosting provider's supported apex A/alias
+and verification records, or put a CNAME on a child name such as `www`.
 
 ### Publishing the player-facing names
 
