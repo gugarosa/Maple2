@@ -2,11 +2,11 @@
 
 <#
 .SYNOPSIS
-Preview or provision Maple2's isolated Azure resource group, network, and DNS child zone.
+Preview or provision Maple2's isolated Azure resource group and private network.
 .DESCRIPTION
 Preview is the default. Apply creates no VM, disks, public IP, registry, database,
-or public application endpoint. Azure public DNS zones and queries are metered.
-The existing MapleTime resource group and Porkbun DNS records are not modified.
+or public application endpoint. DNS remains at Porkbun.
+The existing MapleTime resource group and DNS records are not modified.
 .PARAMETER SubscriptionId
 Explicit target subscription; the command never changes the CLI default subscription.
 .PARAMETER Apply
@@ -60,7 +60,7 @@ Invoke-Azure deployment sub $operation `
     --only-show-errors `
     --output json
 if ($Apply) {
-    Write-Host 'Foundation provisioned. Parent-domain delegation, HTTPS, compute and game deployment are separate steps.'
+    Write-Host 'Foundation provisioned. Porkbun records, HTTPS, compute and game deployment are separate steps.'
 } else {
     Write-Host 'Preview only. Review the resource changes before rerunning with -Apply.'
 }

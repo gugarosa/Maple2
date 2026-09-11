@@ -41,16 +41,5 @@ resource virtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   }
 }
 
-resource childZone 'Microsoft.Network/dnsZones@2018-05-01' = {
-  name: 'ms2.mapletime.dev'
-  location: 'global'
-  tags: tags
-  properties: {
-    zoneType: 'Public'
-  }
-}
-
 output virtualNetworkId string = virtualNetwork.id
 output subnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetwork.name, subnetName)
-output dnsZone string = childZone.name
-output delegationNameServers array = childZone.properties.nameServers

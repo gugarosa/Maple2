@@ -1,188 +1,187 @@
-# Maple2 Azure foundation
+# Maple2 private Azure pilot
 
-This is an isolated starting point for MapleStory2 under the MapleTime brand.
-It is **not an Azure game-server deployment** and does not migrate the running
-MapleTime/MapleStory 1 service.
+Use the same broad hosting pattern as MapleTime: **Porkbun DNS, an Azure Static
+Web App for the website, and a separate VM/static IPv4 for the native game**.
+MS2 resources remain isolated in `rg-maple2-brazilsouth`.
 
-## Provisioned scope
+The earlier Azure DNS child-zone plan was withdrawn. Its unused, undelegated zone
+was removed. **Do not add the four NS records from that earlier plan.** No parent
+Porkbun nameservers, MS1 apex/www/game records, or mail records were changed.
 
-Verified on 2026-09-11 in the selected Visual Studio Enterprise subscription:
+## Pilot boundaries
 
-| Resource | Name / allocation |
+The pilot is private, not a public game launch. The VM is to be **deallocated
+after operator bootstrap validation**, rather than left running continuously
+against the shared Visual Studio subscription credit.
+
+| Resource | Configuration |
 |---|---|
-| Dedicated resource group | `rg-maple2-brazilsouth` |
-| Region | Brazil South, matching the existing MapleTime VM region |
-| Virtual network | `vnet-maple2-brazilsouth`, `10.43.0.0/16` |
-| Subnet | `snet-maple2`, `10.43.1.0/24` |
-| Network security group | `nsg-maple2`, no custom inbound allow rules |
-| Public DNS child zone | `ms2.mapletime.dev` |
+| Resource group | `rg-maple2-brazilsouth` |
+| Network | `vnet-maple2-brazilsouth`, `10.43.0.0/16` |
+| Subnet / NSG | `snet-maple2`, `10.43.1.0/24`; `nsg-maple2`, no custom ingress |
+| VM | `vm-maple2-brs`, `Standard_B2als_v2`, 2 vCPU / 4 GiB |
+| OS / data disks | Separate 32-GiB Standard SSD disks; preserve existing disk IDs/sizes |
+| Static IPv4 | `pip-maple2-brs`, initially `20.226.79.46` |
+| Website | Free `swa-maple2-lx7rwls5nb4z2` in East US 2 |
+| Generated site | `blue-flower-07ce5190f.3.azurestaticapps.net` |
+| Backup storage | `stmaple2lx7rwls5nb4z2`, private `backups` container |
+| Key Vault | `kv-maple2-lx7rwls5nb4z2`, separate managed-identity access |
+| Budget | `budget-maple2-monthly`, BRL 250/month initial guard |
 
-The subnet has implicit default outbound access disabled. It has no peering with
-the existing MapleTime network (`10.42.0.0/16`), no connected workloads, and no
-public ingress opened by this template.
+Read current addresses from deployment outputs before publishing DNS. The VM's
+public IP provides explicit outbound connectivity, but the foundation NSG opens
+no game, SSH, database, or web ingress. No original client archives or local
+player database are uploaded by these templates.
 
-**No VM, disks, public IP, registry, managed database, website, secrets, or role
-assignments are created.** Public Azure DNS zones and queries are metered; the
-foundation is not a free game-hosting deployment. Check current
-[DNS pricing](https://azure.microsoft.com/pricing/details/dns/) and subscription
-billing currency before extending it. Set an MS2-specific budget and safeguards
-before provisioning compute or public assets; do not reuse the Cosmic shutdown
-automation against a different workload.
+The bootstrap prepares Docker/Compose and a guarded data mount only. It does
+**not** install the game services, import metadata, create game accounts, schedule
+application backups, or enable HTTPS registration. The private backup container
+and vault are infrastructure capabilities, not evidence that those application
+workflows have been deployed.
 
-The public Azure retail API returned standard first-tier list prices of about
-USD 0.50 per public zone-month and USD 0.40 per million queries on 2026-09-11.
-These are reference prices, not a BRL subscription bill or a hosting estimate.
+## Costs and the shared credit
 
-The existing `rg-cosmic-brazilsouth` resources, VM, portal, database, DNS bindings,
-email configuration, and deployment identities remain unchanged.
+Standard retail reference prices observed on 2026-09-11:
 
-## Preview and apply
+- MS2 4-GiB VM: USD 0.0605/hour, about USD 44.17 for 730 running hours.
+- The 8-GiB alternative: about USD 88.33/month for compute alone.
+- Retaining all three MS1 website names requires Standard: approximately USD 9/month.
 
-Use an explicit subscription ID. The script never changes Azure CLI's default
-subscription and refuses to adopt an existing group with the wrong project tag
-or location.
+Disks, retained IPv4, backup transactions, and traffic are additional. These are
+reference prices, not a BRL bill or a guarantee about subscription credit.
+Deallocating stops VM compute billing, not the smaller retained-resource charges.
+Do not remove the subscription spending limit to make an oversized pilot fit.
+
+The MS2 budget emails at 80% actual spend and 100% forecast, and requests VM
+deallocation at 100% actual spend. Its managed identity can only read/deallocate
+VMs in the MS2 group. The workflow targets `vm-maple2-brs`, never the Cosmic VM.
+Budget alerts are delayed and are **not an instantaneous spending cap**.
+
+## Preview and provision
+
+Use explicit subscription selection. No script changes Azure CLI's global
+default subscription. The foundation wrapper rejects a group with a different
+project tag or region.
 
 ```powershell
 az account list --query "[].{Name:name,Id:id}" --output table
 $subscription = "<the intended subscription ID>"
 
-# No resource changes: inspect Azure what-if first.
+# Group/network only; DNS stays at Porkbun.
 .\deploy\azure\deploy-foundation.ps1 -SubscriptionId $subscription
-
-# Apply only the reviewed foundation.
 .\deploy\azure\deploy-foundation.ps1 -SubscriptionId $subscription -Apply
+
+# Preview the private pilot before provisioning paid resources.
+.\deploy\azure\deploy-pilot.ps1 -SubscriptionId $subscription `
+    -AdminSshPublicKeyPath "$env:USERPROFILE\.ssh\maple2-azure-ed25519.pub" `
+    -AlertEmail "operator@example.org"
 ```
 
-`foundation.bicep` creates the dedicated group at subscription scope.
-`resources.bicep` owns only the network, NSG, and child DNS zone in that group.
-The resources carry `project=maple2`, `brand=mapletime`,
-`environment=foundation`, and repository/management tags.
+Add `-Apply` only after reviewing what-if. The pilot wrapper verifies BRL billing,
+the private foundation, the operator identity, and existing disks/budget dates.
+If Cost Management is throttled, pass `-BillingCurrencyBudgetId` with an existing
+budget resource ID **in the same subscription** whose `currentSpend.unit` confirms
+BRL. This is a read-only currency reference, not permission to modify that budget.
+The current MS2 budget can serve as that reference on subsequent deployments.
 
-Review changes before every apply. Routine updates must not delete/recreate the
-DNS zone, change its authoritative servers, or replace data-bearing resources
-when those are introduced later.
+Existing VM updates preserve the actual OS disk name/size, LUN0 disk name, and
+administrator username. Existing data disks are not redeclared or resized.
+A replacement VM requires explicit `-ExistingDataDiskName`; an existing blank
+disk is never formatted automatically.
 
-## Domain structure and current boundaries
+The new-disk bootstrap verifies the Azure LUN0 device, absence of partitions and
+signatures, and a full zero-filled-device read before formatting. It mounts by
+UUID at `/srv/maple2`, puts Docker data there, bounds Docker logs, and requires
+that mount before Docker starts. There is no silent OS-disk fallback.
 
-| Hostname | Role / current state |
-|---|---|
-| `mapletime.dev` | Existing MapleTime portal; unchanged |
-| `www.mapletime.dev` | Existing portal alias; unchanged |
-| `ms.mapletime.dev` | Proposed MapleStory 1 portal name; not published by this foundation |
-| `ms2.mapletime.dev` | Maple2 DNS child zone prepared in Azure; parent delegation and hosting pending |
+## Validate bootstrap, then stop the pilot VM
 
-The domain is registered and authoritative DNS is hosted at **Porkbun**, not
-Azure DNS. Creating the child zone in Azure does not automatically publish it.
-Keep the parent domain on its current Porkbun nameservers.
-
-The existing MapleTime Static Web App is Free tier and already has both custom
-hostname slots bound (`mapletime.dev` and `www.mapletime.dev`). A simple CNAME
-does not add a supported third HTTPS hostname. Publishing `ms.mapletime.dev`
-requires a separate deliberate hostname/plan decision, including canonical URL,
-OAuth callback, cookie, and redirect behavior. Do not remove either current
-binding as a side effect of Maple2 work.
-
-The existing portal address and MapleTime VM address are different. Do not point
-a game launcher at a Static Web App frontend or copy that frontend IP into
-`GAME_IP`.
-
-### Delegate only `ms2` at Porkbun
-
-Retrieve the current Azure-assigned servers rather than assuming an old value:
+Use Azure control-plane Run Command; do not open SSH:
 
 ```powershell
-az network dns zone show `
-    --subscription $subscription `
-    --resource-group rg-maple2-brazilsouth `
-    --name ms2.mapletime.dev `
-    --query nameServers --output tsv
+az vm run-command invoke --subscription $subscription `
+    --resource-group rg-maple2-brazilsouth --name vm-maple2-brs `
+    --command-id RunShellScript `
+    --scripts "cloud-init status --wait --long; findmnt /srv/maple2; docker info; docker compose version"
+
+az vm deallocate --subscription $subscription `
+    --resource-group rg-maple2-brazilsouth --name vm-maple2-brs
 ```
 
-The verified values for the initial zone are:
+Require successful bootstrap, the correct mounted UUID, and Docker root
+`/srv/maple2/docker`; merely reaching VM `Succeeded` is not a bootstrap check.
+Review the stopped VM state afterward. Before any future application rollout,
+add metadata/migration handling, protected secrets, tested backup/restore,
+resource limits, and private multi-client validation.
 
-| Porkbun record type | Host | Answer |
-|---|---|---|
-| `NS` | `ms2` | `ns1-06.azure-dns.com` |
-| `NS` | `ms2` | `ns2-06.azure-dns.net` |
-| `NS` | `ms2` | `ns3-06.azure-dns.org` |
-| `NS` | `ms2` | `ns4-06.azure-dns.info` |
+## Website deployment
 
-Add these as records in the **parent `mapletime.dev` zone**, using a reasonable
-TTL such as 600 seconds. This delegates only the child name and its descendants;
-it does not replace the registrar's nameserver settings for the whole domain.
-Do not modify the existing apex/www, mail-verification, SPF, or DKIM records.
+`website` contains only authored static HTML/CSS and Static Web Apps configuration.
+The page explicitly states that registration/public gameplay are not open.
+It does not collect credentials or pretend to be a live health monitor.
 
-No Porkbun credentials were available to this setup, so these parent records
-have **not** been applied. They require registrar access. After delegation:
+From the clean, validated `origin/master` revision:
 
 ```powershell
-Resolve-DnsName ms2.mapletime.dev -Type NS
-Resolve-DnsName ms2.mapletime.dev -Type SOA -Server ns1-06.azure-dns.com
+.\deploy\azure\deploy-portal.ps1 -SubscriptionId $subscription `
+    -StaticWebAppName swa-maple2-lx7rwls5nb4z2
 ```
 
-The Azure zone initially contains only NS/SOA records. No A/CNAME points to an
-unprovisioned server, and no website is implied by successful delegation.
-`ms2.mapletime.dev` is this child zone's apex: do not create a CNAME at `@`,
-where NS/SOA already exist. Use the hosting provider's supported apex A/alias
-and verification records, or put a CNAME on a child name such as `www`.
+The script checks the target's `project=maple2` tag, uploads only three approved
+static files using Microsoft's deployment client, keeps the token in a temporary
+file outside the checkout, and verifies the generated HTTPS endpoint. It cannot
+deploy to the existing MS1 site.
 
-### Publishing the player-facing names
+## Porkbun records
 
-`.dev` is HSTS-preloaded: browsers require HTTPS. Select and validate the actual
-web host/certificate before publishing a working portal address.
+Keep all current MS1 apex/www/play, DKIM, SPF, and verification records.
+Add these only for the actual provisioned targets:
 
-A VM serving both HTTPS and the native game ports can use the same hostname for
-both roles. If the portal uses Static Web Apps or another HTTP-only frontend,
-give the native game a separate name, such as `play.ms2.mapletime.dev`, pointing
-to its own static public IPv4. An HTTP frontend cannot proxy arbitrary native
-game TCP ports.
+| Type | Host field | Answer | TTL |
+|---|---|---|---|
+| `CNAME` | `ms` | `red-cliff-08e48be0f.7.azurestaticapps.net` | 600 |
+| `CNAME` | `ms2` | `blue-flower-07ce5190f.3.azurestaticapps.net` | 600 |
+| `A` | `play.ms2` | `20.226.79.46` | 600 |
 
-Maple2's Login/Game handoff currently advertises IPv4 literals. The launcher can
-resolve a hostname, but the server's `LOGIN_IP` and `GAME_IP` must contain the
-client-reachable public IP, not the Docker bind address or private VM address.
-The Web/UGC endpoint requires its own routing validation; its current
-`WEB_IP`/`WEB_PORT` creates an HTTP URL rather than a configurable HTTPS origin.
+The records require Porkbun access; creating Azure resources does not publish
+them. No MS2 NS delegation is required. If those old NS records were added,
+remove only the four `ms2` delegation records before adding the CNAME.
 
-## Next deployment boundary
+The native game name is separate from the Static Web App frontend: a static
+website cannot proxy arbitrary game TCP traffic. `play.ms2` resolving to the VM
+does not mean gameplay is open while the VM is deallocated or ingress is blocked.
 
-Keep the existing six-service local topology while preparing the pilot:
-
-- MySQL and internal gRPC stay private. Do not publish 3306 or 21000-21003.
-- Public game ports will be Login 20001, instanced Game 20002, and normal Game
-  20003, opened only after a private bootstrap succeeds.
-- Registration requires a real HTTPS endpoint and trusted reverse-proxy handling
-  for rate limiting. Do not expose the local-only registration setup unchanged.
-- Provision separate MS2 data, backups, deployment identity, and restore/rollback
-  procedures. A later GitHub identity should be scoped to this group, not granted
-  subscription-wide ownership or borrowed from Cosmic.
-- Size compute from the MS2 workload, not the MapleTime VM defaults. The available
-  complete metadata ingestion required an 8 GiB allowance; runtime and ingestion
-  resource requirements are different.
-- Keep original client/data distribution and the tested compatibility set within
-  the boundaries in [CLIENT_SETUP.md](../../CLIENT_SETUP.md). Do not upload
-  proprietary content into a public release by treating infrastructure creation
-  as distribution approval.
-
-The foundation intentionally leaves compute, registration/recovery hosting,
-public ingress, DNS A/CNAME targets, TLS, and clean-PC multiplayer verification
-for the next reviewed deployment. The local server continues to operate
-independently.
-
-## Validation without Azure access
+After the CNAMEs are publicly visible, validate the managed website bindings:
 
 ```powershell
-az bicep build --file .\deploy\azure\foundation.bicep `
-    --outfile "$env:TEMP\maple2-foundation.json"
+az staticwebapp hostname set --subscription $subscription `
+    --resource-group rg-cosmic-brazilsouth --name swa-mapletime-w473ymmg3j5z2 `
+    --hostname ms.mapletime.dev --validation-method cname-delegation
+
+az staticwebapp hostname set --subscription $subscription `
+    --resource-group rg-maple2-brazilsouth --name swa-maple2-lx7rwls5nb4z2 `
+    --hostname ms2.mapletime.dev --validation-method cname-delegation
+```
+
+`.dev` is HSTS-preloaded. Both bindings and their certificates must become `Ready`
+before calling these usable website addresses. The MS1 canonical origin stays
+`mapletime.dev`; its current OAuth callbacks/cookies and existing bindings are not
+changed. Standard capacity was requested to add the alias without removing `www`.
+
+No credentials for Porkbun are stored in this repository. Do not publish a
+registration URL or open game ingress while the DNS/HTTPS/application gates remain
+unverified.
+
+## Validation
+
+```powershell
+az bicep build --file .\deploy\azure\foundation.bicep --outfile "$env:TEMP\maple2-foundation.json"
 .\scripts\test_azure_foundation.ps1 -CompiledTemplate "$env:TEMP\maple2-foundation.json"
+az bicep build --file .\deploy\azure\pilot.bicep --outfile "$env:TEMP\maple2-pilot.json"
+.\scripts\test_azure_pilot.ps1 -CompiledTemplate "$env:TEMP\maple2-pilot.json"
+.\scripts\test_pilot_portal.ps1
 ```
 
-The test uses an Azure CLI stub for deployment safety and inspects the compiled
-resource allowlist. It checks preview-only defaults, explicit subscription
-selection, refusal to adopt other projects/regions, error propagation, private
-network defaults, and the absence of compute/storage/public endpoint resources.
-CI compiles and tests the foundation; it does not authenticate or deploy.
-
-References:
-[Azure DNS delegation](https://learn.microsoft.com/azure/dns/dns-domain-delegation),
-[subdomain delegation](https://learn.microsoft.com/azure/dns/delegate-subdomain),
-[Static Web Apps quotas](https://learn.microsoft.com/azure/static-web-apps/quotas).
+These checks do not log into or deploy Azure resources. See
+[CLIENT_SETUP.md](../../CLIENT_SETUP.md) for the separate original-client,
+distribution, and remote-game protocol constraints.

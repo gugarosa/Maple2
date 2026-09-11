@@ -38,3 +38,11 @@ jobs:
           az bicep build --file .\deploy\azure\foundation.bicep --outfile $template --only-show-errors
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\scripts\test_azure_foundation.ps1 -CompiledTemplate $template
+      - name: Validate private pilot and portal without deploying
+        shell: pwsh
+        run: |
+          $template = Join-Path $env:RUNNER_TEMP 'maple2-pilot.json'
+          az bicep build --file .\deploy\azure\pilot.bicep --outfile $template --only-show-errors
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\test_azure_pilot.ps1 -CompiledTemplate $template
+          .\scripts\test_pilot_portal.ps1

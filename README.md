@@ -196,16 +196,16 @@ Game order. Use `--instanced` for the instanced Game process and leave
 uses repository-local EF tools; it never downloads or overwrites client archives.
 The obsolete `start.bat` and `dev.bat` window launchers have been removed.
 
-## Azure foundation
+## Azure private pilot
 
-Maple2 has an isolated `rg-maple2-brazilsouth` foundation with a private network
-and an Azure DNS child zone for `ms2.mapletime.dev`. This does not change the
-existing MapleTime deployment or provision a remote game server.
+Maple2 uses isolated `rg-maple2-brazilsouth` resources: a private network, a Free
+Static Web App, and separate pilot VM/static IPv4, data disk, vault, and budget.
+DNS stays at Porkbun, matching MS1; the unused Azure child zone was retired.
 
-See [Azure foundation](deploy/azure/README.md) for preview/apply commands, the
-pending Porkbun subdomain delegation, cost boundaries, and the prerequisites for
-publishing `ms.mapletime.dev` / `ms2.mapletime.dev` without breaking the existing
-site. No compute or public application endpoint is created by this phase.
+See [Azure private pilot](deploy/azure/README.md) for preview/apply commands,
+credit-safe VM deallocation, exact Porkbun records, and the pending DNS/HTTPS/game
+deployment gates. The pilot information site is not a public registration or game
+service; existing MS1 addresses and canonical login origin are preserved.
 
 ## Architecture
 
