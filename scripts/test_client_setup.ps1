@@ -26,7 +26,7 @@ foreach ($name in @('configure_client.ps1', 'build_client_release.ps1')) {
 
 $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) ('.client-setup-check ' + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $fixture
-$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+$oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue | Select-Object Value
 try {
     $client = Join-Path $fixture 'client with spaces'
     $null = New-Item -ItemType Directory -Path (Join-Path $client 'x64'), (Join-Path $client 'Data')
