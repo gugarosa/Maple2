@@ -1729,13 +1729,18 @@ public class TableMapper : TypeMapper<TableMetadata> {
             results.Add(id, new DungeonMissionMetadata(
                 Id: id,
                 Type: type,
-                Value1: Array.ConvertAll(mission.value1, element => (long) element),
-                Value2: mission.value2,
+                Value1: mission.value1.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(ParseMissionValue).ToArray(),
+                Value2: ParseMissionValue(mission.value2),
                 MaxScore: (short) mission.maxScore,
                 ApplyCount: (short) mission.applyCount,
                 IsPenaltyType: mission.isPenaltyType));
         }
         return new DungeonMissionTable(results);
+    }
+
+    internal static long ParseMissionValue(string value) {
+        return string.IsNullOrEmpty(value) ? 0 : checked((long) decimal.Parse(value, NumberStyles.Float, CultureInfo.InvariantCulture));
     }
 
     private RewardContentTable ParseRewardContentTable() {

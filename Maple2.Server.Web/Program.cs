@@ -4,15 +4,18 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Threading.RateLimiting;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
 using Maple2.Server.Core.Modules;
 using Maple2.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -29,6 +32,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
 IConfigurationRoot configRoot = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", true, true)
+    .AddEnvironmentVariables()
     .Build();
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(configRoot)
@@ -49,7 +53,22 @@ builder.WebHost.UseKestrel(options => {
 });
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 builder.Services.AddMemoryCache();
-builder.Services.AddControllers();
+builder.Services.AddControllersWithViews();
+builder.Services.AddRateLimiter(options => {
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) => {
+        context.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
+        await context.HttpContext.Response.WriteAsync(
+            "Too many registration attempts. Wait a minute, then reload the registration page.", cancellationToken);
+    };
+    options.AddPolicy("account-registration", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions {
+            PermitLimit = 5,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+        }));
+});
 
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog(dispose: true);
@@ -63,6 +82,8 @@ builder.Host.ConfigureContainer<ContainerBuilder>(autofac => {
 });
 
 WebApplication app = builder.Build();
+app.UseRouting();
+app.UseRateLimiter();
 app.MapControllers();
 
 var provider = app.Services.GetRequiredService<IActionDescriptorCollectionProvider>();

@@ -2055,17 +2055,17 @@ public class ServerTableMapper : TypeMapper<ServerTableMetadata> {
         }
 
         // Parse Lure
-        var lures = new Dictionary<int, FishTable.Lure>();
-        foreach ((int id, FishLure lure) in parser.ParseFishLure()) {
-            lures.Add(id, new FishTable.Lure(
-                BuffId: lure.fishCode,
-                BuffLevel: (short) lure.additionalEffectLevel,
-                Catches: lure.catchRank.Select((t, i) => new FishTable.Lure.Catch(Rank: t, Probability: lure.catchProp[i])).ToArray(),
-                Spawns: lure.spawnRank.Select((t, i) => new FishTable.Lure.Spawn(FishId: t, Rate: lure.spawnProp[i])).ToArray(),
-                GlobalDropBoxId: lure.globalDropBoxID,
-                GlobalDropRank: lure.globalDropRank,
-                IndividualDropBoxId: lure.individualDropBoxID,
-                IndividualDropRank: lure.individualDropRank));
+        var lures = new Dictionary<int, IReadOnlyDictionary<short, FishTable.Lure>>();
+        foreach (var group in parser.ParseFishLure().GroupBy(entry => entry.Code)) {
+            lures.Add(group.Key, group.ToDictionary(entry => checked((short) entry.Level), entry => new FishTable.Lure(
+                BuffId: entry.Code,
+                BuffLevel: checked((short) entry.Level),
+                Catches: entry.Lure.catchRank.Select((rank, i) => new FishTable.Lure.Catch(Rank: rank, Probability: entry.Lure.catchProp[i])).ToArray(),
+                Spawns: entry.Lure.spawnRank.Select((rank, i) => new FishTable.Lure.Spawn(Rank: rank, Rate: entry.Lure.spawnProp[i])).ToArray(),
+                GlobalDropBoxId: entry.Lure.globalDropBoxID,
+                GlobalDropRank: entry.Lure.globalDropRank,
+                IndividualDropBoxId: entry.Lure.individualDropBoxID,
+                IndividualDropRank: entry.Lure.individualDropRank)));
         }
 
         // Global Fish Boxes

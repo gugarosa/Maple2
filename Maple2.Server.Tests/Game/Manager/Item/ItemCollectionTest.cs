@@ -468,6 +468,68 @@ public class ItemCollectionTest {
         Assert.That(new ItemCollection(1).PlanAdd([CreateItem(1000, amount: amount)]), Is.Null);
     }
 
+    [Test]
+    public void TransferredUidIsRetainedByOnlyOneSplitStack() {
+        var source = CreateItem(1000, amount: 250);
+        source.Slot = 2;
+        source.Group = ItemGroup.Default;
+        source.RemainUses = 17;
+        source.ExpiryTime = 240;
+        var collection = new ItemCollection(3);
+
+        Model.Game.Item[] plan = collection.PlanAdd([source])!;
+        Assert.That(plan, Has.Length.EqualTo(3));
+        Assert.That(plan.Count(item => item.Uid == source.Uid), Is.EqualTo(1));
+        Assert.That(plan.Count(item => item.Uid == 0), Is.EqualTo(2));
+        Assert.That(plan.Single(item => item.Uid == source.Uid).Slot, Is.EqualTo(2));
+        Assert.That(plan.Sum(item => item.Amount), Is.EqualTo(250));
+        Assert.That(plan.All(item => item.Amount <= 100 && item.RemainUses == 17 && item.ExpiryTime == 240), Is.True);
+        Assert.That(source.Amount, Is.EqualTo(250));
+        Assert.That(source.Slot, Is.EqualTo(2));
+        Assert.That(collection, Is.Empty);
+    }
+
+    [Test]
+    public void FullyAbsorbedSourceHasNoDestinationUidAndRemainsUnmodified() {
+        var existing = CreateItem(1000, amount: 90);
+        var source = CreateItem(1000, amount: 10);
+        var collection = new ItemCollection(1) { [0] = existing };
+
+        Model.Game.Item[] plan = collection.PlanAdd([source])!;
+        Assert.That(plan, Has.Length.EqualTo(1));
+        Assert.That(plan[0].Uid, Is.EqualTo(existing.Uid));
+        Assert.That(plan[0].Amount, Is.EqualTo(100));
+        Assert.That(source.Amount, Is.EqualTo(10));
+        Assert.That(existing.Amount, Is.EqualTo(90));
+    }
+
+    [Test]
+    public void PlanningCannotDuplicateAnExistingOrRepeatedTransferUid() {
+        var source = CreateItem(1000, amount: 10);
+        var existing = new ItemCollection(2) { [0] = source };
+        Assert.That(existing.PlanAdd([source]), Is.Null);
+        Assert.That(new ItemCollection(2).PlanAdd([source, source]), Is.Null);
+        Assert.That(source.Amount, Is.EqualTo(10));
+        Assert.That(existing.Count, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void PartialRemovalOnlyChangesTheSourceAfterApplication() {
+        var source = CreateItem(1000, amount: 10);
+        var collection = new ItemCollection(1) { [0] = source };
+        var transfer = source.Clone(0);
+        transfer.Amount = 4;
+        Assert.That(new ItemCollection(1).PlanAdd([transfer])![0].Uid, Is.Zero);
+        Assert.That(source.Amount, Is.EqualTo(10));
+
+        collection.ApplyRemoved(source.Uid, 4);
+        Assert.That(collection.Get(source.Uid), Is.SameAs(source));
+        Assert.That(source.Amount, Is.EqualTo(6));
+        collection.ApplyRemoved(source.Uid, 6);
+        Assert.That(collection, Is.Empty);
+        Assert.That(collection.Count, Is.Zero);
+    }
+
     private static Model.Game.Item CreateItem(int id, int rarity = 1, int amount = 1) {
         var fakeProperty = new ItemMetadataProperty(false, 0, 100, 18, 0, string.Empty, string.Empty, ItemTag.None, 0, 0, 0, 0, 0, 0, 0, 0, 0, [], false, 0, false, [], [], [], 0, 0);
         var fakeCustomize = new ItemMetadataCustomize(0, 0);

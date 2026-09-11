@@ -37,7 +37,7 @@ public class MapMapper : TypeMapper<MapMetadata> {
             ).ToList();
         }
 
-        foreach ((int id, string name, MapData data) in parser.Parse()) {
+        foreach (var (id, name, data, _) in parser.Parse()) {
             yield return new MapMetadata(
                 Id: id,
                 Name: name,

@@ -20,7 +20,9 @@ public class QuestLifecycleArchiveTests {
             Assert.Ignore("Set MS2_DATA_FOLDER to run the read-only quest lifecycle regression.");
         }
 
-        using var client = new M2dReader(Path.Combine(folder!, "Xml.m2d"));
+        string archive = Path.Combine(folder!, "Xml.m2d");
+        using var sharedRead = System.IO.File.Open(archive, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var client = new M2dReader(archive);
         Filter.Load(client, "NA", "Live");
         var mapper = new QuestMapper(client, "en");
         mapper.Process();

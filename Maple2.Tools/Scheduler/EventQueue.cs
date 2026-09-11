@@ -7,7 +7,13 @@ namespace Maple2.Tools.Scheduler;
 
 public class EventQueue {
     public bool Running { get; private set; }
-    public int Queued => nextEvents.Count;
+    public int Queued {
+        get {
+            lock (mutex) {
+                return nextEvents.Count;
+            }
+        }
+    }
     public int Count => nextEvents.Count + timedEvents.Count;
 
     private readonly List<ScheduledEvent> timedEvents = [];
@@ -16,6 +22,7 @@ public class EventQueue {
     private readonly ILogger logger;
 
     private readonly object mutex = new object();
+    private readonly object invocationMutex = new();
 
     public EventQueue(ILogger logger) {
         this.logger = logger;
@@ -88,44 +95,70 @@ public class EventQueue {
     }
 
     public void InvokeAll() {
-        // Avoid processing queue if we know nothing is available
-        if (!Running || Environment.TickCount64 < nextTime) {
+        if (!Running || Environment.TickCount64 < nextTime || Monitor.IsEntered(invocationMutex) || !Monitor.TryEnter(invocationMutex)) {
             return;
         }
 
-        Queue<ScheduledEvent> events = nextEvents;
-        lock (mutex) {
-            nextEvents = new Queue<ScheduledEvent>();
-            Interlocked.Exchange(ref nextTime, long.MaxValue);
+        try {
+            Queue<ScheduledEvent> events;
+            lock (mutex) {
+                events = nextEvents;
+                nextEvents = new Queue<ScheduledEvent>();
+                Interlocked.Exchange(ref nextTime, long.MaxValue);
 
-            long timeNow = Environment.TickCount64;
-            for (int i = timedEvents.Count - 1; i >= 0; i--) {
-                if (timedEvents[i].Completed) {
-                    timedEvents.RemoveAt(i);
-                } else if (timedEvents[i].IsReady(timeNow)) {
-                    events.Enqueue(timedEvents[i]);
-                } else {
-                    Interlocked.Exchange(ref nextTime, Math.Min(nextTime, timedEvents[i].ExecutionTime));
+                long timeNow = Environment.TickCount64;
+                for (int i = timedEvents.Count - 1; i >= 0; i--) {
+                    if (timedEvents[i].Completed) {
+                        timedEvents.RemoveAt(i);
+                    } else if (timedEvents[i].IsReady(timeNow)) {
+                        events.Enqueue(timedEvents[i]);
+                    } else {
+                        Interlocked.Exchange(ref nextTime, Math.Min(nextTime, timedEvents[i].ExecutionTime));
+                    }
                 }
             }
+
+            foreach (ScheduledEvent scheduledEvent in events) {
+                try {
+                    long result = scheduledEvent.Invoke();
+                    if (result >= 0) {
+                        Interlocked.Exchange(ref nextTime, Math.Min(nextTime, result));
+                    }
+                } catch (Exception ex) {
+                    // Log exception but continue processing other events
+                    // The scheduler should be resilient to individual task failures
+                    logger.Error(ex, "[EventQueue] Task threw exception");
+
+                    // Even if task threw, we need to check if it has a next execution time
+                    // (for repeated tasks that should continue despite errors)
+                    if (scheduledEvent is { Completed: false, ExecutionTime: > 0 }) {
+                        Interlocked.Exchange(ref nextTime, Math.Min(nextTime, scheduledEvent.ExecutionTime));
+                    }
+                }
+            }
+        } finally {
+            Monitor.Exit(invocationMutex);
         }
+    }
 
-        foreach (ScheduledEvent scheduledEvent in events) {
-            try {
-                long result = scheduledEvent.Invoke();
-                if (result >= 0) {
-                    Interlocked.Exchange(ref nextTime, Math.Min(nextTime, result));
+    // Finish accepted one-shot work even after Stop; do not run timers or swallow failures before a final save.
+    public void DrainImmediate() {
+        if (Monitor.IsEntered(invocationMutex)) {
+            throw new InvalidOperationException("Cannot finalize the event queue from inside one of its callbacks.");
+        }
+        lock (invocationMutex) {
+            const int maxCallbacks = 10000;
+            for (int count = 0; count < maxCallbacks; count++) {
+                ScheduledEvent? next;
+                lock (mutex) {
+                    if (!nextEvents.TryDequeue(out next)) {
+                        return;
+                    }
                 }
-            } catch (Exception ex) {
-                // Log exception but continue processing other events
-                // The scheduler should be resilient to individual task failures
-                logger.Error(ex, "[EventQueue] Task threw exception");
-
-                // Even if task threw, we need to check if it has a next execution time
-                // (for repeated tasks that should continue despite errors)
-                if (scheduledEvent is { Completed: false, ExecutionTime: > 0 }) {
-                    Interlocked.Exchange(ref nextTime, Math.Min(nextTime, scheduledEvent.ExecutionTime));
-                }
+                next.Invoke();
+            }
+            if (Queued > 0) {
+                throw new InvalidOperationException("Immediate callbacks did not settle before the final save.");
             }
         }
     }

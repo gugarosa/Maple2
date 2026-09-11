@@ -16,10 +16,12 @@ public class ItemManager {
     public readonly EquipManager Equips;
     public readonly InventoryManager Inventory;
     public FurnishingManager Furnishing { get; private set; }
+    internal Func<bool> PrepareCurrencyTransfer { get; init; }
 
     public ItemManager(GameStorage.Request db, GameSession session, ItemStatsCalculator itemStatsCalc) {
         this.session = session;
         this.itemStatsCalc = itemStatsCalc;
+        PrepareCurrencyTransfer = session.SessionSave;
 
         Equips = new EquipManager(db, session);
         Inventory = new InventoryManager(db, session);
@@ -71,21 +73,76 @@ public class ItemManager {
         return inventory == null || furnishings == null ? null : [.. inventory, .. furnishings];
     }
 
-    internal void ApplyAdded(IReadOnlyList<Item> additions, bool notifyNew) {
-        // Apply the entire committed batch before item conditions can grant or consume other items.
-        List<(Item Item, int Added, bool New)> applied = additions.Select(item =>
-            item.Group == ItemGroup.Furnishing ? Furnishing.ApplyAdded(item) : Inventory.ApplyAdded(item)).ToList();
+    internal void ApplyAdded(IReadOnlyList<Item> additions, bool notifyNew, ICollection<Action>? notifications = null) {
+        NotifyAdded(ApplyAddedState(additions), notifyNew, notifications);
+    }
+
+    // Currency and both sides of a trade must also be applied before any condition callbacks run.
+    internal List<(Item Item, int Added, bool New)> ApplyAddedState(IReadOnlyList<Item> additions) {
+        try {
+            return additions.Select(item => item.Group == ItemGroup.Furnishing
+                ? Furnishing.ApplyAdded(item) : Inventory.ApplyAdded(item)).ToList();
+        } catch {
+            AbortPersistence("Committed item additions could not be applied to memory.");
+            throw;
+        }
+    }
+
+    internal void NotifyAdded(IEnumerable<(Item Item, int Added, bool New)> applied, bool notifyNew,
+        ICollection<Action>? notifications = null) {
         foreach ((Item item, int added, bool isNew) in applied) {
             if (item.Group == ItemGroup.Furnishing) {
                 Furnishing.NotifyAdded(item, added, isNew, notifyNew);
             } else {
-                Inventory.NotifyAdded(item, added, isNew, notifyNew);
+                Inventory.NotifyAdded(item, added, isNew, notifyNew, notifications);
             }
         }
     }
 
+    internal (long OwnerId, Item Item)[] Owned(IEnumerable<Item> items) => items.Select(item =>
+        (item.Group == ItemGroup.Furnishing ? session.AccountId : session.CharacterId, item)).ToArray();
+
+    internal void AfterUnlock(Action callback, ICollection<Action>? notifications) {
+        if (notifications == null) {
+            AfterUnlock(callback);
+        } else {
+            notifications.Add(callback);
+        }
+    }
+
+    internal void AfterUnlock(Action callback) {
+        session.Scheduler.Schedule(Invoke);
+        return;
+
+        void Invoke() {
+            if (Monitor.IsEntered(session.Item)) {
+                session.Scheduler.Schedule(Invoke);
+                return;
+            }
+            // The scheduler invokes callbacks without its queue mutex; wait out another Item holder, then release it.
+            lock (session.Item) { }
+            if (session.PersistenceAborted) {
+                return;
+            }
+            try {
+                callback();
+            } catch {
+                session.AbortPersistence("A committed item's deferred effects could not be applied.");
+                throw;
+            }
+        }
+    }
+
+    internal void AbortPersistence(string reason) {
+        session.AbortPersistence(reason);
+    }
+
     public bool MailItem(Item item) {
         lock (session.Item) {
+            if (session.PersistenceAborted || item.Amount <= 0 || item.Uid != 0 &&
+                (Inventory.Get(item.Uid) != null || Furnishing.GetCube(item.Uid) != null)) {
+                return false;
+            }
             using GameStorage.Request db = session.GameStorage.Context();
             var mail = new Mail(session.ServerTableMetadata.ConstantsTable.MailExpiryDays) {
                 Type = MailType.System,
@@ -93,35 +150,42 @@ public class ItemManager {
                 Content = "50000000", // id from string/en/systemmailcontentna.xml
             };
 
-            mail = db.CreateMail(mail);
-            if (mail == null) {
+            mail.Items.Add(item);
+            Mail? created = null;
+            Item[]? committed;
+            try {
+                committed = db.TransferItems([], [], request =>
+                    Save(request) && (created = request.CreateMail(mail)) != null);
+            } catch {
+                AbortPersistence("Item mail commitment could not be confirmed.");
+                throw;
+            }
+            if (committed == null || created == null) {
                 return false;
             }
 
-            if (item.Uid == 0) {
-                item.Slot = -1;
-                Item? newAdd = db.CreateItem(mail.Id, item);
-                if (newAdd == null) {
-                    return false;
-                }
-                item = newAdd;
-            }
-
-            mail.Items.Add(item);
-
-            try {
-                session.World.MailNotification(new MailNotificationRequest {
-                    CharacterId = session.CharacterId,
-                    MailId = mail.Id,
-                });
-            } catch { /* ignored */ }
+            long mailId = created.Id;
+            AfterUnlock(() => _ = NotifyMailAsync(mailId));
         }
         return true;
     }
 
+    // The caller has released Item; notification failure must not retry the already durable mail.
+    internal async Task NotifyMailAsync(long mailId) {
+        try {
+            using var call = session.World.MailNotificationAsync(new MailNotificationRequest {
+                CharacterId = session.CharacterId,
+                MailId = mailId,
+            }, deadline: DateTime.UtcNow.AddSeconds(5));
+            await call.ResponseAsync.ConfigureAwait(false);
+        } catch (Exception ex) {
+            Log.Warning(ex, "Committed mail {MailId} could not notify character {CharacterId}", mailId, session.CharacterId);
+        }
+    }
+
     public bool Save(GameStorage.Request db) {
         lock (session.Item) {
-            return Equips.Save(db) && Inventory.Save(db) && Furnishing.Save(db);
+            return !session.PersistenceAborted && Equips.Save(db) && Inventory.Save(db) && Furnishing.Save(db);
         }
     }
 }

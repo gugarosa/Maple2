@@ -30,6 +30,7 @@ if (!string.Equals(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAIN
 IConfigurationRoot configRoot = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", true, true)
+    .AddEnvironmentVariables()
     .Build();
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(configRoot)
@@ -46,6 +47,7 @@ builder.Logging.ClearProviders();
 builder.Logging.AddSerilog(dispose: true);
 
 builder.Services.AddGrpc();
+builder.Services.AddSingleton<GlobalService>();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddGrpcClient<Login.LoginClient>(options => {

@@ -39,8 +39,16 @@ public class InventoryManager {
             if (!tabs.TryGetValue(type, out ItemCollection? items)) continue;
             foreach (Item item in load) {
                 if (items.Add(item).Count != 0) continue;
-                delete.Add(item);
-                Log.Warning("Deleted item {ItemUid} from inventory {InventoryType} due to overflow", item.Uid, type);
+                var mail = new Mail(Constants.MailExpiryDays) {
+                    ReceiverId = session.CharacterId,
+                    Type = MailType.System,
+                    Content = "50000000",
+                };
+                mail.Items.Add(item);
+                if (db.CreateMail(mail) == null) {
+                    throw new InvalidOperationException($"Could not preserve overflowing inventory item {item.Uid}.");
+                }
+                Log.Warning("Mailed overflowing inventory item {ItemUid} from tab {InventoryType}", item.Uid, type);
             }
         }
     }
@@ -89,6 +97,7 @@ public class InventoryManager {
 
     public bool Move(long uid, short dstSlot) {
         lock (session.Item) {
+            if (session.PersistenceAborted) return false;
             if (dstSlot < 0) {
                 session.Send(ItemInventoryPacket.Error(s_item_err_Invalid_slot));
                 return false;
@@ -134,129 +143,66 @@ public class InventoryManager {
         }
     }
 
-    public bool Add(Item add, bool notifyNew = false, bool commit = false) {
+    public bool Add(Item add, bool notifyNew = false, bool commit = false, ICollection<Action>? notifications = null) {
+        return Add(add, out _, notifyNew, commit, notifications);
+    }
+
+    public bool Add(Item add, out Item? addedItem, bool notifyNew = false, bool commit = false,
+        ICollection<Action>? notifications = null) {
+        addedItem = null;
         lock (session.Item) {
-            if (session.Field is null) {
-                logger.Warning("Tried to add item while not in a field");
+            if (session.PersistenceAborted || add.Amount <= 0) {
                 return false;
             }
 
             if (add.IsCurrency()) {
-                AddCurrency(add);
-                session.Item.Inventory.Discard(add);
+                AddCurrency(add, notifications);
+                Discard(add, commit, notifications);
                 return true;
             }
 
             if (add.Type.IsMedal) {
                 session.Survival.AddMedal(add);
-                session.Item.Inventory.Discard(add);
+                Discard(add, commit, notifications);
                 return true;
             }
 
-            if (add.Type.IsFurnishing) {
-                long uid = session.Item.Furnishing.AddStorage(add, add.Template);
-                session.Item.Inventory.Discard(add);
-                if (uid > 0 && notifyNew) {
-                    session.Send(ItemInventoryPacket.NotifyNew(uid, add.Amount));
-                }
-                return uid > 0;
-            }
-
-            if (!tabs.TryGetValue(add.Inventory, out ItemCollection? items)) {
-                session.Send(ItemInventoryPacket.Error(s_item_err_not_active_tab));
-                return false;
-            }
-
-            // Unified logic for stack splitting (works for both SlotMax == 1 and SlotMax > 1)
-            int slotMax = Math.Max(1, add.Metadata.Property.SlotMax);
-            if (add.Amount > slotMax) {
-                int totalAmount = add.Amount;
-
-                // 1. Fill partially filled stacks first
-                foreach (Item existing in items.Where(x => x.Id == add.Id && x.Rarity == add.Rarity && x.Amount < slotMax && !x.IsExpired())) {
-                    int canFill = slotMax - existing.Amount;
-                    int toFill = Math.Min(canFill, totalAmount);
-                    if (toFill <= 0) continue;
-                    totalAmount -= toFill;
-                    Item? itemToStack = session.Field.ItemDrop.CreateItem(add.Id, add.Rarity, toFill);
-                    if (itemToStack is null) return false;
-                    if (!Add(itemToStack, notifyNew, commit)) {
-                        logger.Error("Failed to add partial stack during multi-step stacking");
-                        return false;
-                    }
-                }
-
-                int fullStacks = totalAmount / slotMax;
-                int remainder = totalAmount % slotMax;
-                int stacksNeeded = fullStacks + (remainder > 0 ? 1 : 0);
-
-                if (items.OpenSlots < stacksNeeded) {
-                    session.Send(ItemInventoryPacket.Error(s_err_inventory));
-                    return false;
-                }
-
-                // 2. Add full stacks
-                for (int i = 0; i < fullStacks; i++) {
-                    Item? stackItem = session.Field.ItemDrop.CreateItem(add.Id, add.Rarity);
-                    if (stackItem is null) return false;
-                    stackItem.Amount = slotMax;
-                    if (!Add(stackItem, notifyNew, commit)) return false;
-                }
-
-                // 3. Add remainder stack
-                if (remainder > 0) {
-                    Item? remainderItem = session.Field.ItemDrop.CreateItem(add.Id, add.Rarity);
-                    if (remainderItem is null) return false;
-                    remainderItem.Amount = remainder;
-                    if (!Add(remainderItem, notifyNew, commit)) return false;
-                }
-
-                return true;
-            }
-
-            if (add.Metadata.Limit.TransferType is TransferType.BindOnLoot) {
-                add.Transfer?.Bind(session.Player.Value.Character);
-            }
-
-            using GameStorage.Request db = session.GameStorage.Context();
-
-            bool justCreated = false;
-
-            // If we are adding an item without a Uid, it needs to be created in db.
-            if (add.Uid == 0) {
-                // Slot MUST be -1 so we don't add directly to a slot.
-                add.Slot = -1;
-
-                Item? newAdd = db.CreateItem(session.CharacterId, add);
-                if (newAdd == null) {
-                    logger.Error("Failed to create item in database");
-                    return false;
-                }
-
-                add = newAdd;
-                justCreated = true;
-            }
-
-            IList<(Item, int Added)> result = items.Add(add, stack: true);
-            if (result.Count == 0) {
-                Discard(add, commit);
+            Item[]? plan = session.Item.PlanAdd([add]);
+            if (plan == null) {
                 session.Send(ItemInventoryPacket.Error(s_err_inventory));
                 return false;
             }
 
-            if (add.Amount == 0) {
-                Discard(add, commit);
+            using GameStorage.Request db = session.GameStorage.Context();
+            var sources = new List<(long OwnerId, Item Item)>();
+            if (add.Uid != 0) {
+                Item? source = db.GetItem(add.Uid);
+                long? ownerId = db.GetItemOwner(add.Uid);
+                if (source == null || !ownerId.HasValue || ownerId != 0 && ownerId != add.OwnerId) {
+                    return false;
+                }
+                sources.Add((ownerId.Value, source));
             }
 
-            if (commit && !justCreated) {
-                db.SaveItems(session.CharacterId, add);
-            }
+            try {
+                // Even ordinary additions create rows. Commit the entire plan, never a prefix of a split stack.
+                Item[]? saved = db.TransferItems(sources, session.Item.Owned(plan), session.Item.Save);
+                if (saved == null) {
+                    logger.Error("Failed to persist inventory addition {ItemUid}/{ItemId}", add.Uid, add.Id);
+                    return false;
+                }
 
-            foreach ((Item item, int added) in result) {
-                NotifyAdded(item, added, item.Uid == add.Uid, notifyNew);
-            }
+                delete.RemoveAll(item => item.Uid == add.Uid);
+                session.Item.ApplyAdded(saved, notifyNew, notifications);
+                Item first = saved.First(item => item.Id == add.Id);
+                addedItem = first.Group == ItemGroup.Furnishing
+                    ? session.Item.Furnishing.GetCube(first.Uid) : Get(first.Uid);
 
-            return true;
+                return true;
+            } catch {
+                session.Item.AbortPersistence("Inventory addition commitment or receipt application could not be confirmed.");
+                throw;
+            }
         }
     }
 
@@ -269,6 +215,7 @@ public class InventoryManager {
 
             Item[] items = group.Select(item => {
                 Item copy = item.Clone();
+                copy.Slot = item.Slot;
                 copy.Group = ItemGroup.Default;
                 if (copy.Metadata.Limit.TransferType == TransferType.BindOnLoot) {
                     copy.Transfer?.Bind(session.Player.Value.Character);
@@ -284,6 +231,113 @@ public class InventoryManager {
         return result.ToArray();
     }
 
+    internal IReadOnlyList<(Item Item, int Added, bool New)>? TransferTo(long uid, int amount,
+        ItemCollection destination, long ownerId, short slot = -1) {
+        lock (session.Item) {
+            Item? source = Get(uid);
+            if (session.PersistenceAborted || source == null || amount <= 0 || amount > source.Amount) {
+                return null;
+            }
+
+            Item transfer = source.Clone(amount < source.Amount ? 0 : source.Uid);
+            transfer.Amount = amount;
+            transfer.Slot = slot;
+            Item[]? plan = destination.PlanAdd([transfer]);
+            if (plan == null) {
+                return null;
+            }
+
+            var changes = plan.Select(item => (ownerId, item)).ToList();
+            if (amount < source.Amount) {
+                Item remainder = source.Clone();
+                remainder.Amount -= amount;
+                remainder.Slot = source.Slot;
+                remainder.Group = source.Group;
+                changes.Add((session.CharacterId, remainder));
+            }
+
+            using GameStorage.Request db = session.GameStorage.Context();
+            try {
+                Item[]? saved = db.TransferItems([(session.CharacterId, source)], changes,
+                    request => session.Item.Save(request) && request.SaveItems(ownerId, destination.ToArray()));
+                if (saved == null) {
+                    logger.Error("Failed to transfer inventory item {ItemUid} to owner {OwnerId}", uid, ownerId);
+                    return null;
+                }
+
+                tabs[source.Inventory].ApplyRemoved(uid, amount);
+                var result = new List<(Item Item, int Added, bool New)>(plan.Length);
+                foreach (Item item in saved.Take(plan.Length)) {
+                    bool isNew = !destination.Contains(item.Uid);
+                    (Item value, int added) = destination.ApplyAdded(item);
+                    result.Add((value, added, isNew));
+                }
+                NotifyRemoved(source);
+                return result;
+            } catch {
+                session.Item.AbortPersistence("Inventory deposit commitment or receipt application could not be confirmed.");
+                throw;
+            }
+        }
+    }
+
+    internal bool TransferFrom(ItemCollection sourceItems, long ownerId, long uid, int amount, short slot = -1) {
+        lock (session.Item) {
+            Item? source = sourceItems.Get(uid);
+            if (session.PersistenceAborted || source == null || amount <= 0 || amount > source.Amount) {
+                return false;
+            }
+
+            Item transfer = source.Clone(amount < source.Amount ? 0 : source.Uid);
+            transfer.Amount = amount;
+            transfer.Slot = slot;
+            Item[]? plan = session.Item.PlanAdd([transfer]);
+            if (plan == null) {
+                session.Send(ItemInventoryPacket.Error(s_err_inventory));
+                return false;
+            }
+
+            var changes = session.Item.Owned(plan).ToList();
+            if (amount < source.Amount) {
+                Item remainder = source.Clone();
+                remainder.Amount -= amount;
+                remainder.Slot = source.Slot;
+                remainder.Group = source.Group;
+                changes.Add((ownerId, remainder));
+            }
+
+            using GameStorage.Request db = session.GameStorage.Context();
+            try {
+                Item[]? saved = db.TransferItems([(ownerId, source)], changes,
+                    request => session.Item.Save(request) && request.SaveItems(ownerId, sourceItems.ToArray()));
+                if (saved == null) {
+                    logger.Error("Failed to transfer item {ItemUid} from owner {OwnerId} to inventory", uid, ownerId);
+                    return false;
+                }
+
+                sourceItems.ApplyRemoved(uid, amount);
+                session.Item.ApplyAdded(saved.Take(plan.Length).ToArray(), notifyNew: false);
+                return true;
+            } catch {
+                session.Item.AbortPersistence("Inventory withdrawal commitment or receipt application could not be confirmed.");
+                throw;
+            }
+        }
+    }
+
+    // The caller holds session.Item and has already committed the transfer.
+    internal void ApplyRemoved(Item source, int amount) {
+        tabs[source.Inventory].ApplyRemoved(source.Uid, amount);
+        NotifyRemoved(source);
+    }
+
+    private void NotifyRemoved(Item source) {
+        Item? remaining = Get(source.Uid);
+        session.Send(remaining == null
+            ? ItemInventoryPacket.Remove(source.Uid)
+            : ItemInventoryPacket.UpdateAmount(source.Uid, remaining.Amount));
+    }
+
     internal (Item Item, int Added, bool New) ApplyAdded(Item item) {
         ItemCollection collection = tabs[item.Inventory];
         bool isNew = collection[item.Slot] == null;
@@ -291,36 +345,45 @@ public class InventoryManager {
         return (value, added, isNew);
     }
 
-    internal void NotifyAdded(Item item, int added, bool isNew, bool notifyNew) {
+    internal void NotifyAdded(Item item, int added, bool isNew, bool notifyNew, ICollection<Action>? notifications = null) {
         session.Send(isNew
             ? ItemInventoryPacket.Add(item)
             : ItemInventoryPacket.UpdateAmount(item.Uid, item.Amount));
         if (notifyNew) {
             session.Send(ItemInventoryPacket.NotifyNew(item.Uid, added));
         }
-        session.ConditionUpdate(ConditionType.item_collect, codeLong: item.Id);
-        session.ConditionUpdate(ConditionType.item_collect_revise, codeLong: item.Id);
-        session.ConditionUpdate(ConditionType.item_add, counter: item.Amount, codeLong: item.Id);
-        session.ConditionUpdate(ConditionType.item_exist, counter: item.Amount, codeLong: item.Id);
+        int itemId = item.Id;
+        int amount = item.Amount;
+        session.Item.AfterUnlock(() => {
+            if (session.PersistenceAborted) return;
+            session.ConditionUpdate(ConditionType.item_collect, codeLong: itemId);
+            session.ConditionUpdate(ConditionType.item_collect_revise, codeLong: itemId);
+            session.ConditionUpdate(ConditionType.item_add, counter: amount, codeLong: itemId);
+            session.ConditionUpdate(ConditionType.item_exist, counter: amount, codeLong: itemId);
+        }, notifications);
     }
 
-    private void AddCurrency(Item add) {
+    private void AddCurrency(Item add, ICollection<Action>? notifications = null) {
         switch (add.Id) {
             case 90000001 or 90000002 or 90000003:
-                session.Currency.Meso += add.Amount;
+                long meso = session.Currency.CanAddMeso(add.Amount);
+                session.Player.Value.Currency.Meso += meso;
+                session.Currency.NotifyChanges(meso: meso, notifications: notifications);
                 break;
             // case 90000011: // Meret (Secondary)
             // case 90000015: // GameMeret (Secondary)
             case 90000016: // EventMeret (Secondary)
             case 90000020: // RedMeret
             case 90000004: // Meret
-                session.Currency.Meret += add.Amount;
+                long meret = session.Currency.CanAddMeret(add.Amount);
+                session.Player.Value.Currency.Meret += meret;
+                session.Currency.NotifyChanges(meret: meret, notifications: notifications);
                 break;
             case 90000006: // ValorToken
-                session.Currency[CurrencyType.ValorToken] += add.Amount;
+                AddToken(CurrencyType.ValorToken);
                 break;
             case 90000008: // ExperienceOrb
-                session.Exp.AddExp(ExpType.expDrop, additionalExp: add.Amount);
+                session.Exp.AddExp(ExpType.expDrop, additionalExp: add.Amount, notifications: notifications);
                 break;
             case 90000009: // SpiritOrb
                 session.Stats.Values[BasicAttribute.Spirit].Add(add.Amount);
@@ -331,16 +394,16 @@ public class InventoryManager {
                 session.Send(StatsPacket.Update(session.Player, BasicAttribute.Stamina));
                 break;
             case 90000013: // Rue
-                session.Currency[CurrencyType.Rue] += add.Amount;
+                AddToken(CurrencyType.Rue);
                 break;
             case 90000014: // HaviFruit
-                session.Currency[CurrencyType.HaviFruit] += add.Amount;
+                AddToken(CurrencyType.HaviFruit);
                 break;
             case 90000017: // Treva
-                session.Currency[CurrencyType.Treva] += add.Amount;
+                AddToken(CurrencyType.Treva);
                 break;
             case 90000027: // MesoToken
-                session.Currency[CurrencyType.MesoToken] += add.Amount;
+                AddToken(CurrencyType.MesoToken);
                 break;
             // case 90000005: // DungeonKey
             // case 90000007: // Karma
@@ -349,19 +412,21 @@ public class InventoryManager {
             // case 90000019: // DistinctPaul
             case 90000021: // GuildFunds
             case 90000022: // ReverseCoin
-                session.Currency[CurrencyType.ReverseCoin] += add.Amount;
+                AddToken(CurrencyType.ReverseCoin);
                 break;
             case 90000023: // MentorPoint
-                session.Currency[CurrencyType.MentorToken] += add.Amount;
+                AddToken(CurrencyType.MentorToken);
                 break;
             case 90000024: // MenteePoint
-                session.Currency[CurrencyType.MenteeToken] += add.Amount;
+                AddToken(CurrencyType.MenteeToken);
                 break;
             case 90000025: // StarPoint
-                session.Currency[CurrencyType.StarPoint] += add.Amount;
+                AddToken(CurrencyType.StarPoint);
                 break;
                 // case 90000026: // Unknown (Blank)
         }
+
+        void AddToken(CurrencyType type) => session.Currency.Set(type, session.Currency[type] + add.Amount, notifications);
     }
 
     public bool CanAdd(Item item) {
@@ -430,7 +495,8 @@ public class InventoryManager {
         }
     }
 
-    public bool ConsumeItemComponents(IReadOnlyList<ItemComponent> components, int quantityMultiplier = 1) {
+    public bool ConsumeItemComponents(IReadOnlyList<ItemComponent> components, int quantityMultiplier = 1,
+        ICollection<Action>? notifications = null) {
         lock (session.Item) {
 
             // Check for components
@@ -477,7 +543,7 @@ public class InventoryManager {
                 if (ingredient.Tag != ItemTag.None) {
                     foreach (Item material in materialsByTag[ingredient.Tag]) {
                         int consume = Math.Min(remainingIngredients, material.Amount);
-                        if (!session.Item.Inventory.Consume(material.Uid, consume)) {
+                        if (!ConsumeInternal(material.Uid, consume, notifications: notifications)) {
                             Log.Error("Failed to consume item uid: {ItemUid}, item id: {ItemId}", material.Uid, material.Id);
                             return false;
                         }
@@ -490,7 +556,7 @@ public class InventoryManager {
                 } else {
                     foreach (Item material in materialsById[ingredient.ItemId]) {
                         int consume = Math.Min(remainingIngredients, material.Amount);
-                        if (!session.Item.Inventory.Consume(material.Uid, consume)) {
+                        if (!ConsumeInternal(material.Uid, consume, notifications: notifications)) {
                             Log.Error("Failed to consume item uid: {ItemUid}, item id: {ItemId}", material.Uid, material.Id);
                             return false;
                         }
@@ -646,8 +712,9 @@ public class InventoryManager {
             }
 
             foreach (Item item in items) {
-                Remove(item.Uid, out _, item.Amount);
-                Discard(item);
+                if (Remove(item.Uid, out _, item.Amount)) {
+                    Discard(item);
+                }
             }
         }
     }
@@ -655,7 +722,7 @@ public class InventoryManager {
     #region Internal (No Locks)
     private bool RemoveInternal(long uid, int amount, [NotNullWhen(true)] out Item? removed) {
         ItemCollection? items = tabs.Values.FirstOrDefault(collection => collection.Contains(uid));
-        if (items == null || amount == 0) {
+        if (session.PersistenceAborted || items == null || amount == 0) {
             removed = null;
             return false;
         }
@@ -671,18 +738,40 @@ public class InventoryManager {
             // Otherwise, we would just do a full remove.
             if (item.Amount > amount) {
                 using GameStorage.Request db = session.GameStorage.Context();
-                removed = db.SplitItem(0, item, amount);
-                if (removed == null) {
-                    return false;
-                }
-                item.Amount -= amount;
+                Item split = item.Clone(0);
+                split.Amount = amount;
+                Item remainder = item.Clone();
+                remainder.Slot = item.Slot;
+                remainder.Group = item.Group;
+                remainder.Amount -= amount;
+                try {
+                    Item[]? saved = db.TransferItems([(session.CharacterId, item)],
+                        [(session.CharacterId, remainder), (session.CharacterId, split)],
+                        request => Save(request));
+                    if (saved == null) {
+                        removed = null;
+                        return false;
+                    }
+                    removed = saved[1];
+                    item.Amount -= amount;
 
-                session.Send(ItemInventoryPacket.UpdateAmount(uid, item.Amount));
-                return true;
+                    session.Send(ItemInventoryPacket.UpdateAmount(uid, item.Amount));
+                    return true;
+                } catch {
+                    session.Item.AbortPersistence("Inventory split commitment or receipt application could not be confirmed.");
+                    throw;
+                }
             }
         }
 
-        // Full remove of item
+        // Keep an exact, owned recovery row until the receiving operation commits its ownership change.
+        Item? whole = items.Get(uid);
+        using (GameStorage.Request db = session.GameStorage.Context()) {
+            if (whole == null || !db.UpdateItem(session.CharacterId, whole)) {
+                removed = null;
+                return false;
+            }
+        }
         if (items.Remove(uid, out removed)) {
             session.Send(ItemInventoryPacket.Remove(uid));
             return true;
@@ -691,9 +780,9 @@ public class InventoryManager {
         return false;
     }
 
-    private bool ConsumeInternal(long uid, int amount, bool commit = false) {
+    private bool ConsumeInternal(long uid, int amount, bool commit = false, ICollection<Action>? notifications = null) {
         ItemCollection? items = tabs.Values.FirstOrDefault(collection => collection.Contains(uid));
-        if (items == null || amount == 0) {
+        if (session.PersistenceAborted || items == null || amount == 0) {
             return false;
         }
 
@@ -714,7 +803,7 @@ public class InventoryManager {
 
         // Full remove of item
         if (items.Remove(uid, out Item? removed)) {
-            Discard(removed, commit);
+            Discard(removed, commit, notifications);
             session.Send(ItemInventoryPacket.Remove(uid));
             return true;
         }
@@ -723,30 +812,38 @@ public class InventoryManager {
     }
     #endregion
 
-    public void Discard(Item item, bool commit = false) {
-        // Only discard items that need to be saved to DB.
-        if (item.Uid == 0) {
-            return;
-        }
-
-        if (commit) {
-            lock (session.Item) {
-                using GameStorage.Request db = session.GameStorage.Context();
-                db.SaveItems(0, item);
-            }
-        } else {
-            delete.Add(item);
-        }
+    public void Discard(Item item, bool commit = false, ICollection<Action>? notifications = null) {
         lock (session.Item) {
+            if (session.PersistenceAborted || item.Uid == 0) {
+                return;
+            }
+            if (commit) {
+                try {
+                    using GameStorage.Request db = session.GameStorage.Context();
+                    if (!db.SaveItems(0, item)) {
+                        throw new InvalidOperationException($"Failed to retire item {item.Uid}.");
+                    }
+                } catch {
+                    session.Item.AbortPersistence("Item retirement could not be confirmed.");
+                    throw;
+                }
+            } else {
+                delete.Add(item);
+            }
             if (item.Type is { IsSkin: false, IsHair: false, IsDecal: false, IsEar: false, IsFace: false }) {
-                session.ConditionUpdate(ConditionType.item_destroy, codeLong: item.Id);
+                int itemId = item.Id;
+                session.Item.AfterUnlock(() => {
+                    if (!session.PersistenceAborted) {
+                        session.ConditionUpdate(ConditionType.item_destroy, codeLong: itemId);
+                    }
+                }, notifications);
             }
         }
     }
 
     public bool Save(GameStorage.Request db) {
         lock (session.Item) {
-            return db.SaveItems(0, delete.ToArray()) &&
+            return !session.PersistenceAborted && db.SaveItems(0, delete.ToArray()) &&
                    tabs.Values.All(tab => db.SaveItems(session.CharacterId, tab.ToArray()));
         }
     }

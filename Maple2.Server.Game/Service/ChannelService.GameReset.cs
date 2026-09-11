@@ -12,23 +12,19 @@ public partial class ChannelService {
             case GameResetRequest.ResetOneofCase.Monthly:
                 return Task.FromResult(Monthly());
             default:
-                return Task.FromResult(new GameResetResponse());
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "A reset period is required."));
         }
     }
 
     private GameResetResponse Daily() {
-        server.DailyReset();
-        return new GameResetResponse();
+        return new GameResetResponse { Error = server.DailyReset() ? 0 : 1 };
     }
 
     private GameResetResponse Weekly() {
-        server.WeeklyReset();
-        return new GameResetResponse();
+        return new GameResetResponse { Error = server.WeeklyReset() ? 0 : 1 };
     }
 
     private GameResetResponse Monthly() {
-        server.MonthlyReset();
-        return new GameResetResponse();
+        return new GameResetResponse { Error = server.MonthlyReset() ? 0 : 1 };
     }
 }
-

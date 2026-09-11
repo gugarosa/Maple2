@@ -3,7 +3,6 @@ using Maple2.Model.Enum;
 using Maple2.Model.Game;
 using Maple2.Tools.Extensions;
 using Microsoft.EntityFrameworkCore;
-using Z.EntityFramework.Plus;
 using Club = Maple2.Model.Game.Club.Club;
 using ClubMember = Maple2.Model.Game.Club.ClubMember;
 
@@ -79,18 +78,18 @@ public partial class GameStorage {
         public bool DeleteClub(long clubId) {
             BeginTransaction();
 
-            int count = Context.Club.Where(club => club.Id == clubId).Delete();
+            int count = Context.Club.Where(club => club.Id == clubId).ExecuteDelete();
             if (count == 0) {
                 return false;
             }
 
-            Context.ClubMember.Where(member => member.ClubId == clubId).Delete();
+            Context.ClubMember.Where(member => member.ClubId == clubId).ExecuteDelete();
 
             return Commit();
         }
 
         public bool DeleteClubMember(long clubId, long characterId) {
-            int count = Context.ClubMember.Where(member => member.ClubId == clubId && member.CharacterId == characterId).Delete();
+            int count = Context.ClubMember.Where(member => member.ClubId == clubId && member.CharacterId == characterId).ExecuteDelete();
             return SaveChanges() && count > 0;
         }
 

@@ -147,10 +147,13 @@ public class EquipManager {
             item.Slot = (short) slot;
             equips[slot] = item;
             session.Field?.Broadcast(EquipPacket.EquipItem(session.Player, item, 0));
-            session.ConditionUpdate(ConditionType.change_equip, codeLong: item.Id);
-            if (item.Template != null) {
-                session.ConditionUpdate(ConditionType.change_ugc_equip);
-            }
+            int equippedId = item.Id;
+            bool ugc = item.Template != null;
+            session.Item.AfterUnlock(() => {
+                if (session.PersistenceAborted) return;
+                session.ConditionUpdate(ConditionType.change_equip, codeLong: equippedId);
+                if (ugc) session.ConditionUpdate(ConditionType.change_ugc_equip);
+            });
             session.Stats.Refresh();
             return true;
         }
@@ -271,7 +274,7 @@ public class EquipManager {
         }
 
         lock (session.Item) {
-            if (!Badge.TryRemove(slot, out Item? unequipBadge)) {
+            if (!Badge.TryGetValue(slot, out Item? unequipBadge)) {
                 return true; // Nothing to unequip
             }
 
@@ -284,14 +287,16 @@ public class EquipManager {
                 return false;
             }
 
-            unequipBadge.Group = ItemGroup.Default;
-            unequipBadge.Slot = inventorySlot;
+            Item transfer = unequipBadge.Clone();
+            transfer.Group = ItemGroup.Default;
+            transfer.Slot = inventorySlot;
 
-            bool success = session.Item.Inventory.Add(unequipBadge);
+            bool success = session.Item.Inventory.Add(transfer);
             if (!success) {
                 Logger.Error("Failed to unequip badge: {BadgeUid}", unequipBadge.Uid);
                 return false;
             }
+            Badge.TryRemove(slot, out _);
 
             session.Field?.Broadcast(EquipPacket.UnequipBadge(session.Player, unequipBadge.Badge.Type));
             session.Stats.Refresh();
@@ -305,7 +310,7 @@ public class EquipManager {
 
     private bool UnequipInternal(EquipSlot slot, bool isSkin, short inventorySlot = -1) {
         ConcurrentDictionary<EquipSlot, Item> equips = isSkin ? Outfit : Gear;
-        if (!equips.TryRemove(slot, out Item? unequipItem)) {
+        if (!equips.TryGetValue(slot, out Item? unequipItem)) {
             return true; // Nothing to unequip
         }
 
@@ -313,21 +318,23 @@ public class EquipManager {
             return false;
         }
 
-        unequipItem.Group = ItemGroup.Default;
-        unequipItem.Slot = inventorySlot;
+        Item transfer = unequipItem.Clone();
+        transfer.Group = ItemGroup.Default;
+        transfer.Slot = inventorySlot;
 
         bool success;
         if (slot is EquipSlot.HR or EquipSlot.ER or EquipSlot.FA or EquipSlot.FD) {
             session.Item.Inventory.Discard(unequipItem);
             success = true;
         } else {
-            success = session.Item.Inventory.Add(unequipItem);
+            success = session.Item.Inventory.Add(transfer);
         }
 
         if (!success) {
             Logger.Error("Failed to unequip item: {ItemUid}", unequipItem.Uid);
             return false;
         }
+        equips.TryRemove(slot, out _);
 
         session.Field?.Broadcast(EquipPacket.UnequipItem(session.Player, unequipItem));
         session.Buffs.RemoveItemBuffs(unequipItem);

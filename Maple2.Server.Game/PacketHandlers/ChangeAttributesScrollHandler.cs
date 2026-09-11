@@ -162,12 +162,12 @@ public class ChangeAttributesScrollHandler : FieldPacketHandler {
             if (!consumedScroll || !consumedLock) {
                 // Rollback if either consumption failed.
                 if (consumedScroll) {
-                    Item newScroll = scroll.Clone();
+                    Item newScroll = scroll.Clone(0);
                     newScroll.Amount = 1;
                     session.Item.Inventory.Add(newScroll); // Re-add scroll if only lock failed
                 }
                 if (lockItem != null && consumedLock) {
-                    Item newLockItem = lockItem.Clone();
+                    Item newLockItem = lockItem.Clone(0);
                     newLockItem.Amount = 1;
                     session.Item.Inventory.Add(newLockItem); // Re-add lock item if only scroll failed
                 }

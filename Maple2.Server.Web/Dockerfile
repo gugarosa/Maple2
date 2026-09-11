@@ -1,12 +1,11 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
 # Web Service (HTTP)
-EXPOSE 80
-# Web Service (HTTPS)
-# EXPOSE 443
+EXPOSE 4000
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
+COPY ["global.json", "./"]
 COPY ["Maple2.Server.Web/Maple2.Server.Web.csproj", "Maple2.Server.Web/"]
 COPY ["Maple2.Database/Maple2.Database.csproj", "Maple2.Database/"]
 COPY ["Maple2.Server.Core/Maple2.Server.Core.csproj", "Maple2.Server.Core/"]

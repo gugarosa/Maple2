@@ -309,7 +309,7 @@ public partial class FieldManager : IField {
         lock (queuedPackets) {
             foreach ((FieldPacketHandler handler, GameSession session, ByteReader reader) packet in queuedPackets) {
                 try {
-                    if (packet.session.State is SessionState.Disconnected) {
+                    if (!packet.session.CanProcessPackets) {
                         continue;
                     }
                     packet.handler.Handle(packet.session, packet.reader);

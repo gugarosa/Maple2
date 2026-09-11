@@ -1,6 +1,7 @@
 ﻿using Autofac;
 using Maple2.Database.Context;
 using Maple2.Database.Storage;
+using Maple2.Tools;
 using Microsoft.EntityFrameworkCore;
 using Module = Autofac.Module;
 
@@ -16,11 +17,7 @@ public class DataDbModule : Module {
         string? user = Environment.GetEnvironmentVariable("DB_USER");
         string? password = Environment.GetEnvironmentVariable("DB_PASSWORD");
 
-        if (server == null || port == null || database == null || user == null || password == null) {
-            throw new ArgumentException("Database connection information was not set");
-        }
-
-        string dataDbConnection = $"Server={server};Port={port};Database={database};User={user};Password={password};oldguids=true";
+        string dataDbConnection = DatabaseConnectionString.Build(server, port, database, user, password);
 
         options = new DbContextOptionsBuilder()
             .UseMySql(dataDbConnection, ServerVersion.AutoDetect(dataDbConnection))

@@ -149,8 +149,7 @@ public sealed class UgcMarketManager {
         return items.TryGetValue(id, out item);
     }
 
-    public void Save(GameStorage.Request db) {
-        db.SaveUgcMarketItems(items.Values);
-        db.SaveSoldUgcMarketItems(sales.Values);
+    public bool Save(GameStorage.Request db) {
+        return db.SaveUgcMarketItems(items.Values) && db.SaveSoldUgcMarketItems(sales.Values);
     }
 }

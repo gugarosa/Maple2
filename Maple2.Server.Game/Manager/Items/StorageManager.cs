@@ -1,5 +1,4 @@
 ﻿using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
 using Maple2.Database.Storage;
 using Maple2.Model.Game;
 using Maple2.Model.Metadata;
@@ -36,12 +35,23 @@ public sealed class StorageManager : IDisposable {
     }
 
     public void Dispose() {
-        using GameStorage.Request db = session.GameStorage.Context();
         lock (session.Item) {
-            db.SaveStorageInfo(session.AccountId, mesos, expand);
-            db.SaveItems(session.AccountId, items.ToArray());
-
-            session.Storage = null;
+            if (session.PersistenceAborted) {
+                if (session.Storage == this) session.Storage = null;
+                return;
+            }
+            try {
+                using GameStorage.Request db = session.GameStorage.Context();
+                db.BeginTransaction();
+                if (!db.SaveStorageInfo(session.AccountId, mesos, expand) ||
+                    !db.SaveItems(session.AccountId, items.ToArray()) || !db.Commit()) {
+                    throw new InvalidOperationException("Failed to save bank storage.");
+                }
+            } catch {
+                session.Item.AbortPersistence("Bank storage closure could not be confirmed.");
+                throw;
+            }
+            if (session.Storage == this) session.Storage = null;
         }
     }
 
@@ -74,7 +84,7 @@ public sealed class StorageManager : IDisposable {
     public void Deposit(long uid, short slot, int amount) {
         lock (session.Item) {
             Item? deposit = session.Item.Inventory.Get(uid);
-            if (deposit == null || deposit.Amount < amount) {
+            if (deposit == null || amount <= 0 || deposit.Amount < amount) {
                 session.Send(StorageInventoryPacket.Error(s_item_err_invalid_count));
                 return;
             }
@@ -90,15 +100,15 @@ public sealed class StorageManager : IDisposable {
                 amount -= remaining;
             }
 
-            if (!session.Item.Inventory.Remove(uid, out deposit, amount)) {
+            IReadOnlyList<(Item Item, int Added, bool New)>? result =
+                session.Item.Inventory.TransferTo(uid, amount, items, session.AccountId, slot);
+            if (result == null) {
+                session.Send(StorageInventoryPacket.Error(s_item_err_store_full));
                 return;
             }
 
-            deposit.Slot = slot;
-            IList<(Item, int Added)> result = items.Add(deposit, true);
-
-            foreach ((Item item, int _) in result) {
-                session.Send(deposit.Uid == item.Uid
+            foreach ((Item item, int _, bool isNew) in result) {
+                session.Send(isNew
                     ? StorageInventoryPacket.Add(item)
                     : StorageInventoryPacket.Update(item.Uid, item.Amount));
             }
@@ -108,7 +118,7 @@ public sealed class StorageManager : IDisposable {
     public void Withdraw(long uid, short slot, int amount) {
         lock (session.Item) {
             Item? withdraw = items.Get(uid);
-            if (withdraw == null || withdraw.Amount < amount) {
+            if (withdraw == null || amount <= 0 || withdraw.Amount < amount) {
                 session.Send(StorageInventoryPacket.Error(s_item_err_invalid_count));
                 return;
             }
@@ -118,12 +128,13 @@ public sealed class StorageManager : IDisposable {
                 return;
             }
 
-            if (!RemoveInternal(uid, amount, out withdraw)) {
+            if (!session.Item.Inventory.TransferFrom(items, session.AccountId, uid, amount, slot)) {
                 return;
             }
 
-            withdraw.Slot = slot;
-            session.Item.Inventory.Add(withdraw, commit: true);
+            session.Send(items.Get(uid) is { } remaining
+                ? StorageInventoryPacket.Update(uid, remaining.Amount)
+                : StorageInventoryPacket.Remove(uid));
         }
     }
 
@@ -221,38 +232,4 @@ public sealed class StorageManager : IDisposable {
             }
         }
     }
-
-    #region Internal (No Locks)
-    private bool RemoveInternal(long uid, int amount, [NotNullWhen(true)] out Item? removed) {
-        if (amount > 0) {
-            Item? item = items.Get(uid);
-            if (item == null || item.Amount < amount) {
-                session.Send(StorageInventoryPacket.Error(s_item_err_invalid_count));
-                removed = null;
-                return false;
-            }
-
-            // Otherwise, we would just do a full remove.
-            if (item.Amount > amount) {
-                using GameStorage.Request db = session.GameStorage.Context();
-                removed = db.SplitItem(0, item, amount);
-                if (removed == null) {
-                    return false;
-                }
-                item.Amount -= amount;
-
-                session.Send(StorageInventoryPacket.Update(uid, item.Amount));
-                return true;
-            }
-        }
-
-        // Full remove of item
-        if (items.Remove(uid, out removed)) {
-            session.Send(StorageInventoryPacket.Remove(uid));
-            return true;
-        }
-
-        return false;
-    }
-    #endregion
 }

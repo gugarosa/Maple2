@@ -19,19 +19,25 @@ public class ResetCommand : GameCommand {
 
     private void Handle(InvocationContext ctx) {
         string? resetType = ctx.ParseResult.GetValueForArgument(resetTypeArg)?.ToLower();
+        bool success;
         switch (resetType) {
             case "daily":
-                session.DailyReset();
+                success = session.DailyReset();
                 break;
             case "weekly":
-                session.WeeklyReset();
+                success = session.WeeklyReset();
                 break;
             case "monthly":
-                session.MonthlyReset();
+                success = session.MonthlyReset();
                 break;
             default:
                 session.Send(NoticePacket.Message($"Unknown reset type: {resetType}. Use: daily, weekly, or monthly"));
-                break;
+                ctx.ExitCode = 1;
+                return;
+        }
+        if (!success) {
+            session.Send(NoticePacket.Message("Reset could not be saved. Please reconnect before trying again."));
+            ctx.ExitCode = 1;
         }
     }
 }

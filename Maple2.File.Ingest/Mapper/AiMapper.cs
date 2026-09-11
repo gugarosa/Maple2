@@ -33,11 +33,11 @@ public class AiMapper : TypeMapper<AiMetadata> {
                 reserved.Add(MapCondition(node));
             }
 
-            foreach (Entry entry in data.Battle) {
+            foreach (Entry entry in data.Battle.Entries) {
                 MapEntry(battle, entry);
             }
 
-            foreach (Entry entry in data.BattleEnd) {
+            foreach (Entry entry in data.BattleEnd.Entries) {
                 MapEntry(battleEnd, entry);
             }
 

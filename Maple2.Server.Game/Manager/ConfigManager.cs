@@ -590,8 +590,8 @@ public class ConfigManager {
     }
     #endregion
 
-    public void Save(GameStorage.Request db) {
-        db.SaveCharacterConfig(
+    public bool Save(GameStorage.Request db) {
+        return db.SaveCharacterConfig(
             session.CharacterId, keyBinds.Values.ToList(),
             hotBars.Select(hotBar => hotBar.Slots).ToList(),
             skillMacros,

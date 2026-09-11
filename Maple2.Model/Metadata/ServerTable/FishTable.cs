@@ -6,7 +6,7 @@ namespace Maple2.Model.Metadata;
 public record FishTable(
     IReadOnlyDictionary<int, FishTable.Fish> Fishes,
     IReadOnlyDictionary<int, FishTable.Spot> Spots,
-    IReadOnlyDictionary<int, FishTable.Lure> Lures,
+    IReadOnlyDictionary<int, IReadOnlyDictionary<short, FishTable.Lure>> Lures,
     IReadOnlyDictionary<int, FishTable.FishBox> GlobalFishBoxes,
     IReadOnlyDictionary<int, FishTable.FishBox> IndividualFishBoxes) : ServerTable {
 
@@ -56,7 +56,7 @@ public record FishTable(
             int Probability);
 
         public record Spawn(
-            int FishId,
+            int Rank,
             int Rate);
     }
 

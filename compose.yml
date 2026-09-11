@@ -1,13 +1,28 @@
+x-database-environment: &database-environment
+  DB_IP: mysql
+  DB_PORT: 3306
+  DB_USER: ${DB_USER:?Set DB_USER in .env}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+  DATA_DB_NAME: ${DATA_DB_NAME:?Set DATA_DB_NAME in .env}
+  GAME_DB_NAME: ${GAME_DB_NAME:?Set GAME_DB_NAME in .env}
+
+x-config-volume: &config-volume
+  type: bind
+  source: ./config.yaml
+  target: /app/config.yaml
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
-  # One-shot database migration and metadata ingestion. This profile prevents
-  # ingestion from running during a normal `docker compose up`.
+  # Explicit migration/metadata job; never runs during normal startup.
+  # Stop application services first, retaining MySQL and its player volume.
   # Run with: docker compose --profile ingest run --build --rm file-ingest
   file-ingest:
     profiles: ["ingest"]
     build:
       context: .
       dockerfile: ./Maple2.File.Ingest/Dockerfile
-    container_name: maple2-file-ingest
     image: maple2/file-ingest
     working_dir: /app/Maple2.File.Ingest
     depends_on:
@@ -16,18 +31,23 @@ services:
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
+      <<: *database-environment
+      LANGUAGE: ${LANGUAGE:?Set LANGUAGE in .env}
       MS2_DATA_FOLDER: /ClientData
+      MS2_NAVMESH_DIR: /app/Navmeshes
     volumes:
-      - .:/app
-      - ${MS2_DOCKER_DATA_FOLDER}:/ClientData
+      - navmeshes:/app/Navmeshes
+      - type: bind
+        source: ${MS2_DOCKER_DATA_FOLDER:?Set MS2_DOCKER_DATA_FOLDER to the client Data directory}
+        target: /ClientData
+        read_only: true
+        bind:
+          create_host_path: false
 
   mysql:
     image: mysql:8.0
     restart: unless-stopped
     stop_grace_period: 1m
-    container_name: maple2-db
     env_file:
       - .env
     environment:
@@ -36,9 +56,13 @@ services:
     volumes:
       - mysql:/var/lib/mysql
     ports:
-      - 3306:3306
+      - 127.0.0.1:3306:3306
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot --password=\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      test:
+        - CMD-SHELL
+        - >-
+          MYSQL_PWD="$${MYSQL_ROOT_PASSWORD}" mysql --protocol=TCP --host=127.0.0.1
+          --user=root --execute="SELECT 1" --silent --skip-column-names
       interval: 5s
       timeout: 5s
       retries: 30
@@ -48,43 +72,52 @@ services:
     build:
       context: .
       dockerfile: ./Maple2.Server.Web/Dockerfile
-    container_name: maple2-web
     image: maple2/web
     depends_on:
       mysql:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-4000}:${WEB_PORT:-4000}"
+      - "127.0.0.1:${WEB_PORT:-4000}:${WEB_PORT:-4000}"
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
+      <<: *database-environment
       WEB_PORT: ${WEB_PORT:-4000}
+      WEB_DATA_DIR: /app/Data
+    volumes:
+      - web-data:/app/Data
     restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$$WEB_PORT'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
 
   world:
     build:
       context: .
       dockerfile: ./Maple2.Server.World/Dockerfile
-    container_name: maple2-world
     image: maple2/world
     depends_on:
       mysql:
         condition: service_healthy
     ports:
-      - 21001:21001
+      - 127.0.0.1:21001:21001
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
+      <<: *database-environment
+      GRPC_WORLD_PORT: 21001
       GRPC_LOGIN_IP: login
+      CONFIG_PATH: /app/config.yaml
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - *config-volume
     restart: unless-stopped
+    stop_grace_period: 1m
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/21001' || exit 1"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/21001'"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -94,7 +127,6 @@ services:
     build:
       context: .
       dockerfile: ./Maple2.Server.Login/Dockerfile
-    container_name: maple2-login
     image: maple2/login
     depends_on:
       mysql:
@@ -102,18 +134,21 @@ services:
       world:
         condition: service_healthy
     ports:
-      - 20001:20001
+      - "${CLIENT_BIND_IP:-127.0.0.1}:20001:20001"
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
+      <<: *database-environment
+      LOGIN_PORT: 20001
       GRPC_WORLD_IP: world
+      GRPC_WORLD_PORT: 21001
+      CONFIG_PATH: /app/config.yaml
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - *config-volume
     restart: unless-stopped
+    stop_grace_period: 1m
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/21000' || exit 1"]
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/20001'"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -130,21 +165,31 @@ services:
       world:
         condition: service_healthy
     ports:
-      - 20002:20002
-      - 21002:21002
+      - "${CLIENT_BIND_IP:-127.0.0.1}:20002:20002"
+      - 127.0.0.1:21002:21002
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
-      INSTANCED_CONTENT: true
+      <<: *database-environment
+      INSTANCED_CONTENT: "true"
       GRPC_WORLD_IP: world
+      GRPC_WORLD_PORT: 21001
       GRPC_GAME_IP: game-ch0
+      CONFIG_PATH: /app/config.yaml
+      MS2_NAVMESH_DIR: /app/Navmeshes
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - *config-volume
+      - navmeshes:/app/Navmeshes:ro
     restart: unless-stopped
+    stop_grace_period: 30s
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
+      test:
+        - CMD-SHELL
+        - >-
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/21002;
+          exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+          read -r status <&3; [[ "$$status" == "HTTP/1.1 200 "* ]]'
       interval: 5s
       timeout: 3s
       retries: 30
@@ -161,20 +206,31 @@ services:
       world:
         condition: service_healthy
     ports:
-      - 20003:20003
-      - 21003:21003
+      - "${CLIENT_BIND_IP:-127.0.0.1}:20003:20003"
+      - 127.0.0.1:21003:21003
     env_file:
       - .env
     environment:
-      DB_IP: mysql
-      DB_PORT: 3306
+      <<: *database-environment
+      INSTANCED_CONTENT: "false"
       GRPC_WORLD_IP: world
+      GRPC_WORLD_PORT: 21001
       GRPC_GAME_IP: game-ch1
+      CONFIG_PATH: /app/config.yaml
+      MS2_NAVMESH_DIR: /app/Navmeshes
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - *config-volume
+      - navmeshes:/app/Navmeshes:ro
     restart: unless-stopped
+    stop_grace_period: 30s
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' || exit 1"]
+      test:
+        - CMD-SHELL
+        - >-
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/21003;
+          exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+          read -r status <&3; [[ "$$status" == "HTTP/1.1 200 "* ]]'
       interval: 5s
       timeout: 3s
       retries: 30
@@ -182,3 +238,5 @@ services:
 
 volumes:
   mysql:
+  web-data:
+  navmeshes:

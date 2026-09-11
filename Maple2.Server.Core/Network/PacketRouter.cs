@@ -19,9 +19,9 @@ public class PacketRouter<T> where T : Session {
     }
 
     public void OnPacket(object? sender, IByteReader reader) {
+        if (sender is not T session || !session.CanProcessPackets) return;
         var op = reader.Read<RecvOp>();
         PacketHandler<T>? handler = handlers.GetValueOrDefault(op);
-        if (sender is not T session) return;
 
         // Let another system schedule when to call Handle
         if (handler?.TryHandleDeferred(session, reader) ?? false) {

@@ -1,4 +1,5 @@
-﻿using Maple2.Database.Extensions;
+﻿using System.Data.Common;
+using Grpc.Core;
 using Maple2.Database.Storage;
 using Maple2.Model;
 using Maple2.Model.Enum;
@@ -9,13 +10,13 @@ using Maple2.Server.Game.LuaFunctions;
 using Maple2.Server.Game.Packets;
 using Maple2.Server.Game.Session;
 using Maple2.Server.World.Service;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 
 namespace Maple2.Server.Game.Manager;
 
 public sealed class BlackMarketManager {
     private readonly GameSession session;
-    private ConstantsTable Constants => session.ServerTableMetadata.ConstantsTable;
 
     private readonly ILogger logger = Log.Logger.ForContext<BlackMarketManager>();
 
@@ -31,324 +32,169 @@ public sealed class BlackMarketManager {
     }
 
     public void Add(long itemUid, long price, int quantity) {
-        Item? item = session.Item.Inventory.Get(itemUid);
-        if (item == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_register_not_exist_in_inven));
-            return;
+        BlackMarketRegistration? registration = null;
+        lock (session.Item) {
+            Item? item = session.Item.Inventory.Get(itemUid);
+            if (item == null) {
+                session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_register_not_exist_in_inven));
+                return;
+            }
+
+            if (quantity <= 0 || item.Amount < quantity || price <= 0) {
+                session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_lack_sale_count));
+                return;
+            }
+            if (item.IsExpired()) {
+                return;
+            }
+
+            float depositPercent = Lua.CalcBlackMarketRegisterDepositPercent();
+            long depositFee;
+            try {
+                long total = checked(price * quantity);
+                depositFee = Lua.CalcBlackMarketRegisterDeposit(checked((long) (total * (decimal) depositPercent)));
+            } catch (OverflowException) {
+                session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_invalid_sale_count));
+                return;
+            }
+
+            if (depositFee < 0 || session.Currency.CanAddMeso(-depositFee) != -depositFee) {
+                session.Send(BlackMarketPacket.Error(BlackMarketError.s_err_lack_meso));
+                return;
+            }
+            if (SaveBeforeTransaction()) {
+                try {
+                    using GameStorage.Request db = session.GameStorage.Context();
+                    BlackMarketError error = db.RegisterBlackMarketListing(session.Player.Value, item, quantity, price, depositFee, out registration);
+                    if (error != BlackMarketError.none) {
+                        session.Send(BlackMarketPacket.Error(error));
+                        return;
+                    }
+                    if (registration == null) {
+                        throw new InvalidOperationException("A committed black-market registration must include its listing receipt.");
+                    }
+                    session.Item.Inventory.ApplyRemoved(item, quantity);
+                    session.Player.Value.Currency.Meso = registration.SellerMeso;
+                    session.Player.Value.Character.LastModified = registration.CharacterLastModified;
+                } catch (Exception ex) {
+                    logger.Error(ex, "Failed black market registration for item {ItemUid}; disconnecting stale or uncertain seller", itemUid);
+                    session.AbortPersistence("Black-market registration or its in-memory receipt could not be confirmed.");
+                    registration = null;
+                }
+            }
         }
 
-        if (item.Amount < quantity) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_lack_sale_count));
+        if (registration == null) {
+            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
+            session.Disconnect();
             return;
         }
-
-        if (item.IsExpired()) {
-            return;
-        }
-
-        float depositPercent = Lua.CalcBlackMarketRegisterDepositPercent();
-        long depositFee = Lua.CalcBlackMarketRegisterDeposit((long) (price * quantity * depositPercent));
-
-        if (session.Currency.CanAddMeso(-depositFee) != -depositFee) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_err_lack_meso));
-            return;
-        }
-
-        session.Currency.Meso -= depositFee;
-
-        if (!session.Item.Inventory.Remove(itemUid, out item, quantity)) {
-            return;
-        }
-
-        var listing = new BlackMarketListing(item) {
-            AccountId = session.AccountId,
-            CharacterId = session.CharacterId,
-            Deposit = depositFee,
-            ExpiryTime = DateTime.Now.AddDays(Constants.BlackMarketSellEndDay).ToEpochSeconds(),
-            Price = price,
-            Quantity = quantity,
-        };
-
-        using GameStorage.Request db = session.GameStorage.Context();
-        listing = db.CreateBlackMarketingListing(listing);
-        if (listing == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_fail_register));
-            CreateRefundErrorMail(item, depositFee);
-            return;
-        }
-
-        // Also add to World
-        BlackMarketResponse response = session.World.BlackMarket(new BlackMarketRequest {
+        session.Currency.NotifyChanges(meso: 0);
+        session.Send(BlackMarketPacket.Add(registration.Listing));
+        RefreshWorld(new BlackMarketRequest {
             Add = new BlackMarketRequest.Types.Add {
-                ListingId = listing.Id,
+                ListingId = registration.Listing.Id,
             },
         });
-
-        var error = (BlackMarketError) response.Error;
-        if (error != BlackMarketError.none) {
-            session.Send(BlackMarketPacket.Error(error));
-            CreateRefundErrorMail(item, depositFee);
-            return;
-        }
-
-        session.Send(BlackMarketPacket.Add(listing));
     }
 
     public void Remove(long listingId) {
-        using GameStorage.Request db = session.GameStorage.Context();
-
-        BlackMarketListing? listing = db.GetBlackMarketListing(listingId);
-        if (listing == null || listing.CharacterId != session.CharacterId) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
-            return;
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return;
+            }
+            try {
+                using GameStorage.Request db = session.GameStorage.Context();
+                BlackMarketError error = db.CancelBlackMarketListing(session.AccountId, session.CharacterId, listingId);
+                if (error != BlackMarketError.none) {
+                    session.Send(BlackMarketPacket.Error(error));
+                    return;
+                }
+            } catch (Exception ex) when (ex is DbException or DbUpdateException) {
+                logger.Error(ex, "Failed to cancel black market listing {ListingId} for {CharacterId}", listingId, session.CharacterId);
+                session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
+                return;
+            }
         }
 
-        BlackMarketResponse response = session.World.BlackMarket(new BlackMarketRequest {
+        session.Send(BlackMarketPacket.Remove(listingId));
+        RefreshWorld(new BlackMarketRequest {
             Remove = new BlackMarketRequest.Types.Remove {
                 ListingId = listingId,
             },
         });
-
-        var error = (BlackMarketError) response.Error;
-        if (error != BlackMarketError.none) {
-            session.Send(BlackMarketPacket.Error(error));
-            return;
-        }
-
-        long deposit = listing.ExpiryTime < DateTime.Now.ToEpochSeconds() ? listing.Deposit : 0;
-
-        var mail = new Mail(Constants.MailExpiryDays) {
-            ReceiverId = session.CharacterId,
-            Type = MailType.BlackMarketListingCancel,
-            TitleArgs = [
-                ("item", $"{listing.Item.Id}"),
-            ],
-            ContentArgs = [
-                ("key", listing.ExpiryTime < DateTime.Now.ToEpochSeconds() ?
-                    $"{StringCode.s_blackmarket_mail_to_cancel_expired}" :
-                    $"{StringCode.s_blackmarket_mail_to_cancel_direct}"),
-                ("item", $"{listing.Item.Id}"),
-                ("str", $"{listing.Quantity}"),
-                ("money", $"{listing.Price * listing.Quantity}"),
-                ("money", $"{listing.Price}"),
-                ("money", $"{deposit}"),
-            ],
-            Meso = deposit,
-        };
-
-        mail.SetTitle(StringCode.s_blackmarket_mail_to_cancel_title);
-        mail.SetContent(StringCode.s_blackmarket_mail_to_cancel_content);
-        mail.SetSenderName(StringCode.s_blackmarket_mail_to_sender);
-
-        mail = db.CreateMail(mail);
-        if (mail == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
-            logger.Error("Failed to create black market mail for {CharacterId}", session.CharacterId);
-            return;
-        }
-
-        mail.Items.Add(listing.Item);
-        db.SaveItems(mail.Id, listing.Item);
-        session.Send(BlackMarketPacket.Remove(listingId));
         session.Mail.Notify(true);
     }
 
     public void Purchase(long listingId, int quantity) {
-        using GameStorage.Request db = session.GameStorage.Context();
-        BlackMarketListing? listing = db.GetBlackMarketListing(listingId);
-        if (listing == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_err_lack_itemcount));
-            return;
-        }
-
-        if (listing.ExpiryTime < DateTime.Now.ToEpochSeconds()) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_buy_expired));
-            return;
-        }
-
-        if (listing.Quantity < quantity) {
+        if (quantity <= 0) {
             session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_purchase_count));
             return;
         }
-
-        if (listing.Price * quantity > session.Currency.Meso) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_err_lack_meso));
-            return;
-        }
-
-        session.Currency.Meso -= listing.Price * quantity;
-
-        Mail? receivingMail = CreateBuyerMail(listing, quantity);
-        if (receivingMail == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
-            session.Currency.Meso += listing.Price * quantity;
-            logger.Error("Failed to create black market purchase mail for {CharacterId}", session.CharacterId);
-            return;
-        }
-
-        listing.Quantity -= quantity;
-        if (quantity == listing.Item.Amount) {
-            db.SaveItems(receivingMail.Id, listing.Item);
-            receivingMail.Items.Add(listing.Item);
-            db.DeleteBlackMarketListing(listingId);
-        } else {
-            listing.Item.Amount -= quantity;
-            db.SaveItems(listing.Id, listing.Item);
-            Item? item = listing.Item.Clone();
-            item.Amount = quantity;
-
-            item = db.CreateItem(receivingMail.Id, item);
-            if (item is null) {
-                session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
-                session.Currency.Meso += listing.Price * quantity;
-                logger.Error("Failed to create item for black market purchase mail for {CharacterId}", session.CharacterId);
-                return;
+        BlackMarketPurchase? purchase = null;
+        lock (session.Item) {
+            if (SaveBeforeTransaction()) {
+                try {
+                    using GameStorage.Request db = session.GameStorage.Context();
+                    BlackMarketError error = db.PurchaseBlackMarketListing(session.Player.Value, listingId, quantity,
+                        Lua.CalcBlackMarketCostRate(), out purchase);
+                    if (error != BlackMarketError.none) {
+                        session.Send(BlackMarketPacket.Error(error));
+                        return;
+                    }
+                    if (purchase == null) {
+                        throw new InvalidOperationException("A committed black-market purchase must include its payment receipt.");
+                    }
+                    session.Player.Value.Currency.Meso = purchase.BuyerMeso;
+                    session.Player.Value.Character.LastModified = purchase.CharacterLastModified;
+                } catch (Exception ex) {
+                    logger.Error(ex, "Failed black market purchase {ListingId} for {CharacterId}; disconnecting stale or uncertain buyer",
+                        listingId, session.CharacterId);
+                    session.AbortPersistence("Black-market purchase or its in-memory receipt could not be confirmed.");
+                    purchase = null;
+                }
             }
-            receivingMail.Items.Add(item);
-            db.SaveBlackMarketListing(listing);
         }
 
-        BlackMarketResponse response = session.World.BlackMarket(new BlackMarketRequest {
+        if (purchase == null) {
+            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
+            session.Disconnect();
+            return;
+        }
+        session.Currency.NotifyChanges(meso: 0);
+        session.Send(BlackMarketPacket.Purchase(listingId, quantity));
+        RefreshWorld(new BlackMarketRequest {
             Purchase = new BlackMarketRequest.Types.Purchase {
                 ListingId = listingId,
-                SellerId = listing.CharacterId,
+                SellerId = purchase.SellerMail.ReceiverId,
             },
         });
-
-        var error = (BlackMarketError) response.Error;
-        if (error != BlackMarketError.none) {
-            session.Send(BlackMarketPacket.Error(error));
-            session.Currency.Meso += listing.Price * quantity;
-
-            return;
-        }
-
         session.Mail.Notify(true);
-
-        // Seller Mail
-        Mail? sellerMail = CreateSellerMail(listing, quantity);
-        if (sellerMail == null) {
-            session.Send(BlackMarketPacket.Error(BlackMarketError.s_blackmarket_error_close));
-            logger.Error("Failed to create black market sale mail for {CharacterId}", listing.CharacterId);
-            return;
-        }
-
         try {
             session.World.MailNotification(new MailNotificationRequest {
-                CharacterId = sellerMail.ReceiverId,
-                MailId = sellerMail.Id,
+                CharacterId = purchase.SellerMail.ReceiverId,
+                MailId = purchase.SellerMail.Id,
             });
-        } catch { /*ignored*/ }
-
-        session.Send(BlackMarketPacket.Purchase(listingId, quantity));
+        } catch (RpcException ex) {
+            logger.Warning(ex, "Committed black market sale mail {MailId} could not notify seller {CharacterId}",
+                purchase.SellerMail.Id, purchase.SellerMail.ReceiverId);
+        }
     }
 
-    private Mail? CreateBuyerMail(BlackMarketListing listing, int quantity) {
-        var receivingMail = new Mail(Constants.MailExpiryDays) {
-            ReceiverId = session.CharacterId,
-            Type = MailType.BlackMarketSale,
-            TitleArgs = [
-                ("item", $"{listing.Item.Id}"),
-            ],
-            ContentArgs = [
-                ("item", $"{listing.Item.Id}"),
-                ("str", $"{quantity}"),
-                ("money", $"{listing.Price * quantity}"),
-                ("money", $"{listing.Price}"),
-            ],
-        };
-
-        receivingMail.SetTitle(StringCode.s_blackmarket_mail_to_buyer_title);
-        receivingMail.SetContent(StringCode.s_blackmarket_mail_to_buyer_content);
-        receivingMail.SetSenderName(StringCode.s_blackmarket_mail_to_sender);
-
-        using GameStorage.Request db = session.GameStorage.Context();
-        return db.CreateMail(receivingMail);
+    private bool SaveBeforeTransaction() {
+        // Persist the inventory changes behind any pending earnings before making their expenditure durable.
+        return session.SessionSave();
     }
 
-    private Mail? CreateSellerMail(BlackMarketListing listing, int quantity) {
-        using GameStorage.Request db = session.GameStorage.Context();
-
-        float costRate = Lua.CalcBlackMarketCostRate();
-        long tax = (long) (costRate * (quantity * listing.Price));
-
-        bool sellerIsPremium = false;
-        long savings = tax;
-        if (session.PlayerInfo.GetOrFetch(listing.CharacterId, out PlayerInfo? seller) && seller.PremiumTime > DateTime.Now.ToEpochSeconds()) {
-            savings = (long) (tax * Constant.BlackMarketPremiumClubDiscount);
-            sellerIsPremium = true;
+    private void RefreshWorld(BlackMarketRequest request) {
+        try {
+            BlackMarketResponse response = session.World.BlackMarket(request);
+            if (response.Error != 0) {
+                logger.Warning("Black market cache refresh rejected after commit: {Error}", (BlackMarketError) response.Error);
+            }
+        } catch (RpcException ex) {
+            logger.Warning(ex, "Black market cache refresh failed after commit");
         }
-        long revenue = quantity * listing.Price - savings;
-        List<(string, string)> contentArgs = [
-            ("item", $"{listing.Item.Id}"),
-            ("str", $"{quantity}"),
-            ("money", $"{listing.Price * quantity}"),
-            ("money", $"{listing.Price}"),
-            ("money", $"{tax}"),
-            ("str", $"{costRate * 100}" + "%"),
-        ];
-
-        if (listing.Quantity == 0) {
-            contentArgs.Add(("money", $"{listing.Deposit}"));
-            revenue += listing.Deposit;
-        }
-        contentArgs.Add(("money", $"{revenue}"));
-
-        if (sellerIsPremium) {
-            contentArgs.Add(("str", $"{Constant.BlackMarketPremiumClubDiscount * 100}" + "%"));
-            contentArgs.Add(("money", $"{savings}"));
-        }
-
-        var mail = new Mail(Constants.MailExpiryDays) {
-            ReceiverId = listing.CharacterId,
-            Type = MailType.BlackMarketSale,
-            TitleArgs = [
-                ("item", $"{listing.Item.Id}"),
-            ],
-            ContentArgs = contentArgs,
-            Meso = revenue,
-        };
-
-        if (listing.Quantity == 0) {
-            mail.SetContent(sellerIsPremium ?
-                StringCode.s_blackmarket_mail_to_vipseller_content_soldout :
-                StringCode.s_blackmarket_mail_to_seller_content_soldout
-            );
-        } else {
-            mail.SetContent(sellerIsPremium ?
-                StringCode.s_blackmarket_mail_to_vipseller_content :
-                StringCode.s_blackmarket_mail_to_seller_content);
-        }
-        mail.SetTitle(StringCode.s_blackmarket_mail_to_seller_title);
-        mail.SetSenderName(StringCode.s_blackmarket_mail_to_sender);
-
-        return db.CreateMail(mail);
-    }
-
-    private void CreateRefundErrorMail(Item item, long refund) {
-        var mail = new Mail(Constants.MailExpiryDays) {
-            ReceiverId = session.CharacterId,
-            Type = MailType.BlackMarketFail,
-            TitleArgs = [
-                ("item", $"{item.Id}"),
-            ],
-            Meso = refund,
-        };
-
-        mail.SetTitle(StringCode.s_blackmarket_mail_to_fail_add_title);
-        mail.SetContent(StringCode.s_blackmarket_mail_to_fail_add_content);
-        mail.SetSenderName(StringCode.s_blackmarket_mail_to_sender);
-
-        using GameStorage.Request db = session.GameStorage.Context();
-        mail = db.CreateMail(mail);
-        if (mail == null) {
-            logger.Fatal("Failed to create failure black market mail for {CharacterId}", session.CharacterId);
-            return;
-        }
-        mail.Items.Add(item);
-        db.SaveItems(mail.Id, item);
-
-        session.Mail.Notify(true);
     }
 
     public void Preview(int itemId, int rarity) {

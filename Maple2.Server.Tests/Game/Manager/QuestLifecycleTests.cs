@@ -25,7 +25,8 @@ public class QuestLifecycleTests {
         completed.CompletionCount = 2;
         completed.EndTime = 10;
         Quest untimed = QuestManager.CreateStartedQuest(Metadata(2), null, 1);
-        Quest timed = QuestManager.CreateStartedQuest(Metadata(3, repeatable: 2, period: "5", account: 1), null, 1);
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Quest timed = QuestManager.CreateStartedQuest(Metadata(3, repeatable: 2, period: "5", account: 1), null, now);
         (QuestManager manager, var packets) = CreateManager(completed, untimed, timed);
         using (packets) {
             manager.ReconcileExpiry([1, 2, 3, 1, int.MaxValue]);
@@ -37,7 +38,7 @@ public class QuestLifecycleTests {
             Assert.That(completed.State, Is.EqualTo(QuestState.Completed));
             Assert.That(completed.CompletionCount, Is.EqualTo(2));
             Assert.That(completed.EndTime, Is.EqualTo(10));
-            Assert.That(timed.StartTime, Is.EqualTo(1));
+            Assert.That(timed.StartTime, Is.EqualTo(now));
             Assert.That(untimed.State, Is.EqualTo(QuestState.Started));
             Assert.That(packets.Count, Is.EqualTo(2));
             byte[][] sent = packets.Select(entry => entry.Packet).ToArray();
@@ -107,6 +108,61 @@ public class QuestLifecycleTests {
         Assert.That(restarted.Track, Is.False);
         Assert.That(previous.State, Is.EqualTo(QuestState.Completed));
         Assert.That(previous.EndTime, Is.EqualTo(10));
+    }
+
+    [TestCase(0, "5", 299, false)]
+    [TestCase(2, "5", 300, true)]
+    [TestCase(2, "5", -1, false)]
+    [TestCase(0, "1440", 86399, false)]
+    [TestCase(0, "1440", 86400, true)]
+    [TestCase(2, "1440", 86400, true)]
+    [TestCase(0, "10080", 604799, false)]
+    [TestCase(0, "10080", 604800, true)]
+    [TestCase(2, "", 604800, false)]
+    [TestCase(2, "0", 604800, false)]
+    [TestCase(2, "-5", 604800, false)]
+    [TestCase(2, "unknown", 604800, false)]
+    [TestCase(2, "9223372036854775807", 604800, false)]
+    public void NumericPeriodsExpireStartedQuestsFromAcceptance(int repeatable, string period, long age, bool expected) {
+        const long start = 1789086077;
+        Quest quest = QuestManager.CreateStartedQuest(Metadata(1, repeatable, period), null, start);
+        quest.EndTime = start + 10000000;
+        Assert.That(quest.IsExpired(start + age), Is.EqualTo(expected));
+    }
+
+    [TestCase("2026-09-10T23:59:00Z", "2026-09-10T23:59:59Z", false)]
+    [TestCase("2026-09-10T23:59:00Z", "2026-09-11T00:00:00Z", true)]
+    [TestCase("2026-09-11T00:00:00Z", "2026-09-11T00:00:00Z", false)]
+    [TestCase("2026-09-11T00:00:00Z", "2026-09-18T00:00:00Z", true)]
+    public void WeeklyPeriodsUseTheNextFridayUtcBoundary(string accepted, string current, bool expected) {
+        Quest quest = QuestManager.CreateStartedQuest(Metadata(1, 3, "fri"), null,
+            DateTimeOffset.Parse(accepted).ToUnixTimeSeconds());
+        Assert.That(quest.IsExpired(DateTimeOffset.Parse(current).ToUnixTimeSeconds()), Is.EqualTo(expected));
+    }
+
+    [TestCase(QuestState.Completed)]
+    [TestCase(QuestState.None)]
+    public void InactiveAndCompletedRecordsNeverExpire(QuestState state) {
+        Quest quest = QuestManager.CreateStartedQuest(Metadata(1, 2, "5"), null, 1);
+        quest.State = state;
+        Assert.That(quest.IsExpired(10000000), Is.False);
+    }
+
+    [Test]
+    public void ExpiredRecordsKeepHistoryWithoutAppearingActive() {
+        Quest quest = QuestManager.CreateStartedQuest(Metadata(1, 2, "5"), null, 1);
+        quest.State = QuestState.None;
+        quest.CompletionCount = 4;
+        (QuestManager manager, var packets) = CreateManager(quest);
+        using (packets) {
+            Assert.That(manager.TryGetQuest(quest.Id, out _), Is.False);
+            manager.ReconcileExpiry([quest.Id]);
+            Assert.That(quest.CompletionCount, Is.EqualTo(4));
+            byte[] packet = packets.Single().Packet;
+            Assert.That(packet[2], Is.EqualTo(7));
+            Assert.That(BitConverter.ToInt32(packet, 3), Is.EqualTo(1));
+            Assert.That(BitConverter.ToInt32(packet, 7), Is.EqualTo(quest.Id));
+        }
     }
 
     private static QuestMetadata Metadata(int id, int repeatable = 0, string period = "", int account = 0, int fameGrade = 0) {

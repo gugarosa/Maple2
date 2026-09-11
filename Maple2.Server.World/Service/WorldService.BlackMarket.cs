@@ -67,19 +67,13 @@ public partial class WorldService {
     }
 
     private BlackMarketResponse Remove(BlackMarketRequest.Types.Remove remove) {
-        BlackMarketError error = blackMarketLookup.Remove(remove.ListingId);
-        return new BlackMarketResponse {
-            Error = (int) error,
-        };
+        blackMarketLookup.Refresh(remove.ListingId);
+        return new BlackMarketResponse();
     }
 
     private BlackMarketResponse Purchase(BlackMarketRequest.Types.Purchase purchase) {
-        BlackMarketError error = blackMarketLookup.Purchase(purchase.ListingId);
-        if (error != BlackMarketError.none) {
-            return new BlackMarketResponse {
-                Error = (int) error,
-            };
-        }
+        // The game server has already committed payment, stock and both mails atomically.
+        blackMarketLookup.Refresh(purchase.ListingId);
 
         PlayerInfo? playerInfo = playerLookup.GetPlayerInfo(purchase.SellerId);
         if (playerInfo != null && channelClients.TryGetClient(playerInfo.Channel, out ChannelClient? client)) {

@@ -51,20 +51,35 @@ public class ItemPickupHandler : FieldPacketHandler {
                 return;
             }
 
-            session.ConditionUpdate(ConditionType.item_pickup, counter: item.Amount, codeLong: item.Id);
-
             // Items with Pick up effects are not added to player inventory.
             if (item.Metadata.AdditionalEffects.Any(buff => buff.PickUpEffect)) {
                 foreach (ItemMetadataAdditionalEffect additionalEffect in item.Metadata.AdditionalEffects.Where(buff => buff.PickUpEffect)) {
                     session.Player.Buffs.AddBuff(session.Player, session.Player, additionalEffect.Id, additionalEffect.Level, session.Field.FieldTick);
                 }
+                NotifyPickup(session, item);
                 return;
             }
 
             item.Slot = -1;
-            if (session.Item.Inventory.Add(item, true) && item.Metadata.Limit.TransferType == TransferType.BindOnLoot) {
-                session.Item.Bind(item);
+            if (!session.Item.Inventory.Add(item, out Item? added, notifyNew: true)) {
+                session.Field.DropItem(fieldItem.Position, fieldItem.Rotation, item,
+                    characterId: fieldItem.ReceiverId, fixedPosition: true);
+                return;
+            }
+            NotifyPickup(session, item);
+            if (added != null && item.Metadata.Limit.TransferType == TransferType.BindOnLoot) {
+                session.Item.Bind(added);
             }
         }
+    }
+
+    private static void NotifyPickup(GameSession session, Item item) {
+        int itemId = item.Id;
+        int amount = item.Amount;
+        session.Item.AfterUnlock(() => {
+            if (!session.PersistenceAborted) {
+                session.ConditionUpdate(ConditionType.item_pickup, counter: amount, codeLong: itemId);
+            }
+        });
     }
 }

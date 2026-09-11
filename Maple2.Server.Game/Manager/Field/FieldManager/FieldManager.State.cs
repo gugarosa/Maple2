@@ -967,6 +967,9 @@ public partial class FieldManager {
     #region Remove
     public virtual bool RemovePlayer(int objectId, [NotNullWhen(true)] out FieldPlayer? fieldPlayer) {
         if (Players.TryRemove(objectId, out fieldPlayer)) {
+            foreach (FieldPet pet in Pets.Values.Where(pet => pet.OwnerId != 0 && pet.OwnerId == objectId).ToArray()) {
+                RemovePet(pet.ObjectId);
+            }
             CommitPlot(fieldPlayer.Session);
             Broadcast(FieldPacket.RemovePlayer(objectId));
             Broadcast(ProxyObjectPacket.RemovePlayer(objectId));

@@ -674,54 +674,87 @@ public class RequestCubeHandler : FieldPacketHandler {
             return;
         }
 
-        long blueprintCost = design.CreatePrice;
-
-        long negAmount = -1 * blueprintCost;
-        if (session.Currency.CanAddMeret(negAmount) != negAmount) {
-            session.Send(CubePacket.Error(UgcMapError.s_err_ugcmap_not_enough_meso_balance));
-            return;
-        }
-
-        session.Currency.Meret -= blueprintCost;
-
         Item? item = session.Field?.ItemDrop.CreateItem(Constant.BlueprintId);
         if (item is null) {
             return;
         }
 
         Home home = session.Player.Value.Home;
-        byte area = home.PlannerArea;
-        byte height = home.PlannerHeight;
-        using GameStorage.Request db = session.GameStorage.Context();
-
-        var homeLayout = new HomeLayout(0, "Blueprint", area, height, DateTimeOffset.Now, plot.Cubes.Values.ToList()) {
+        var homeLayout = new HomeLayout(0, "Blueprint", home.PlannerArea, home.PlannerHeight, DateTimeOffset.Now, plot.Cubes.Values.ToList()) {
             Background = home.Background,
             Lighting = home.Lighting,
             Camera = home.Camera,
         };
-        HomeLayout? layout = db.SaveHomeLayout(homeLayout);
-        if (layout is null) {
-            Logger.Error("Failed to save layout for {AccountId}", session.AccountId);
-            session.Send(CubePacket.Error(UgcMapError.s_ugcmap_db));
-            return;
+        CreateBlueprint(session, item, homeLayout, design.CreatePrice);
+    }
+
+    internal static Item? CreateBlueprint(GameSession session, Item item, HomeLayout homeLayout, long cost) {
+        lock (session.Item) {
+            if (session.PersistenceAborted) return null;
+            if (item.Id != Constant.BlueprintId || item.Uid != 0 || item.Amount != 1 || cost < 0 ||
+                session.Currency.CanAddMeret(-cost) != -cost) {
+                session.Send(CubePacket.Error(UgcMapError.s_err_ugcmap_not_enough_merat_balance));
+                return null;
+            }
+            Item[]? plan = session.Item.PlanAdd([item]);
+            if (plan is not { Length: 1 } || plan[0].Uid != 0) {
+                session.Send(ItemInventoryPacket.Error(ItemInventoryError.s_err_inventory));
+                return null;
+            }
+            if (!session.Item.PrepareCurrencyTransfer()) {
+                session.Send(CubePacket.Error(UgcMapError.s_ugcmap_db));
+                return null;
+            }
+
+            using GameStorage.Request db = session.GameStorage.Context();
+            (DateTime AccountLastModified, DateTime CharacterLastModified)? currencyVersion = null;
+            Item[]? saved;
+            try {
+                saved = db.TransferItems([], session.Item.Owned(plan), request => {
+                    currencyVersion = request.SaveCurrency(session.Player.Value, meret: -cost);
+                    if (currencyVersion == null || !session.Item.Save(request)) {
+                        return false;
+                    }
+                    HomeLayout? layout = request.SaveHomeLayout(homeLayout);
+                    if (layout == null) {
+                        return false;
+                    }
+                    plan[0].Blueprint = new ItemBlueprint {
+                        BlueprintUid = layout.Uid,
+                        Width = layout.Area,
+                        Length = layout.Area,
+                        Height = layout.Height,
+                        CreationTime = DateTimeOffset.Now,
+                        AccountId = session.AccountId,
+                        CharacterId = session.CharacterId,
+                        CharacterName = session.PlayerName,
+                    };
+                    plan[0].Template ??= new UgcItemLook();
+                    return true;
+                });
+            } catch {
+                session.Item.AbortPersistence("Blueprint creation commitment could not be confirmed.");
+                throw;
+            }
+            if (saved == null) {
+                session.Send(CubePacket.Error(UgcMapError.s_ugcmap_db));
+                return null;
+            }
+
+            var applied = session.Item.ApplyAddedState(saved);
+            Item blueprint = session.Item.Inventory.Get(saved[0].Uid)!;
+            session.StagedUgcItem = blueprint;
+            session.Player.Value.Account.LastModified = currencyVersion!.Value.AccountLastModified;
+            session.Player.Value.Character.LastModified = currencyVersion.Value.CharacterLastModified;
+            session.Player.Value.Currency.Meret -= cost;
+            session.Currency.NotifyChanges(meret: -cost);
+            session.Item.NotifyAdded(applied, notifyNew: true);
+            session.Send(CubePacket.CreateBlueprint(blueprint.Uid, blueprint.Blueprint!));
+            session.Item.AfterUnlock(() => {
+                if (!session.PersistenceAborted) session.ConditionUpdate(ConditionType.create_blueprint);
+            });
+            return blueprint;
         }
-
-        item.Blueprint = new ItemBlueprint {
-            BlueprintUid = layout.Uid,
-            Width = home.PlannerArea,
-            Length = home.PlannerArea,
-            Height = home.PlannerHeight,
-            CreationTime = DateTimeOffset.Now,
-            AccountId = session.AccountId,
-            CharacterId = session.CharacterId,
-            CharacterName = session.PlayerName,
-        };
-
-        session.Item.Inventory.Add(item, notifyNew: true);
-
-        session.StagedUgcItem = item;
-        session.Send(CubePacket.CreateBlueprint(item.Uid, item.Blueprint!));
-        session.ConditionUpdate(ConditionType.create_blueprint);
     }
 
     private void HandleSaveBlueprint(GameSession session, IByteReader packet) {

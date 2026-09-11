@@ -21,6 +21,7 @@ public class LoginSession : Core.Network.Session {
     protected override PatchType Type => PatchType.Delete;
 
     private bool disposed;
+    private static readonly TimeSpan LockRpcTimeout = TimeSpan.FromSeconds(2);
     public readonly LoginServer Server;
 
     public new long AccountId { get; private set; }
@@ -52,36 +53,38 @@ public class LoginSession : Core.Network.Session {
         Server.OnConnected(this);
     }
 
-    private void AcquireLock(long accountId, int maxRetries = 3) {
-        int retryCount = 0;
+    private (LockRequest Request, long ExpiresAt) AcquireLock(long accountId, int maxRetries = 3) {
         const int backoffMs = 500;
-
-        while (retryCount < maxRetries) {
-            LockResponse? response = World.AcquireLock(new LockRequest {
-                AccountId = accountId,
-            });
-
-            if (string.IsNullOrEmpty(response.Error)) {
-                return;
+        var request = new LockRequest {
+            AccountId = accountId,
+            OwnerToken = Guid.NewGuid().ToString("N"),
+        };
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                LockResponse response = World.AcquireLock(request, deadline: DateTime.UtcNow.Add(LockRpcTimeout));
+                if (string.IsNullOrEmpty(response.Error) && response.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) {
+                    return (request, response.ExpiresAt);
+                }
+            } catch (RpcException ex) when (ex.StatusCode is StatusCode.Unavailable or StatusCode.DeadlineExceeded) {
+                Logger.Warning(ex, "Account lock acquisition failed for {AccountId}", accountId);
             }
-
-            retryCount++;
-            Thread.Sleep(backoffMs);
+            if (attempt + 1 < maxRetries) {
+                Thread.Sleep(backoffMs);
+            }
         }
 
         Logger.Error("Failed to acquire lock for account {AccountId} after {MaxRetries} retries", accountId, maxRetries);
+        throw new RpcException(new Status(StatusCode.Unavailable, "Account data is busy. Please try again."));
     }
 
-    private void ReleaseLock(long accountId) {
+    private void ReleaseLock(LockRequest lease) {
         try {
-            LockResponse response = World.ReleaseLock(new LockRequest {
-                AccountId = accountId,
-            });
+            LockResponse response = World.ReleaseLock(lease, deadline: DateTime.UtcNow.Add(LockRpcTimeout));
             if (!string.IsNullOrEmpty(response.Error)) {
-                Logger.Warning("Failed to release lock for account {AccountId}: {ErrorMessage}", accountId, response.Error);
+                Logger.Warning("Failed to release lock for account {AccountId}: {ErrorMessage}", lease.AccountId, response.Error);
             }
         } catch (RpcException ex) {
-            Logger.Error(ex, "Failed to release lock for account {AccountId}", accountId);
+            Logger.Error(ex, "Failed to release lock for account {AccountId}", lease.AccountId);
         }
     }
 
@@ -92,33 +95,36 @@ public class LoginSession : Core.Network.Session {
     }
 
     public void ListCharacters() {
-        using GameStorage.Request db = GameStorage.Context();
-        AcquireLock(AccountId);
-        Account? readAccount;
-        IList<Character>? characters;
+        (LockRequest request, long expiresAt) = AcquireLock(AccountId);
         try {
-            (readAccount, characters) = db.ListCharacters(AccountId);
+            using GameStorage.Request db = GameStorage.Context();
+            (Account? readAccount, IList<Character>? characters) = db.ListCharacters(AccountId);
+            if (readAccount == null || characters == null) {
+                Logger.Error("Failed to load characters for account: {AccountId}", AccountId);
+                throw new RpcException(new Status(StatusCode.Internal, "Character data could not be loaded."));
+            }
+
+            var entries = new List<(Character, IDictionary<ItemGroup, List<Item>>)>();
+            foreach (Character character in characters) {
+                IDictionary<ItemGroup, List<Item>> equips =
+                    db.GetItemGroups(character.Id, ItemGroup.Gear, ItemGroup.Outfit, ItemGroup.Badge);
+                entries.Add((character, equips));
+            }
+            if (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() >= expiresAt) {
+                throw new RpcException(new Status(StatusCode.DeadlineExceeded, "Account data lease expired."));
+            }
+
+            account = readAccount;
+            Send(CharacterListPacket.SetMax(account.MaxCharacters, Constant.ServerMaxCharacters));
+            Send(CharacterListPacket.StartList());
+            Send(CharacterListPacket.AddEntries(account, entries));
+            Send(CharacterListPacket.EndList());
+        } catch (Exception ex) when (ex is not RpcException) {
+            Logger.Error(ex, "Failed to load characters for account {AccountId}", AccountId);
+            throw new RpcException(new Status(StatusCode.Internal, "Character data could not be loaded."));
         } finally {
-            ReleaseLock(AccountId);
+            ReleaseLock(request);
         }
-        if (readAccount == null || characters == null) {
-            Logger.Error("Failed to load characters for account: {AccountId}", AccountId);
-            return;
-        }
-
-        account = readAccount;
-        var entries = new List<(Character, IDictionary<ItemGroup, List<Item>>)>();
-        foreach (Character character in characters) {
-            IDictionary<ItemGroup, List<Item>> equips =
-                db.GetItemGroups(character.Id, ItemGroup.Gear, ItemGroup.Outfit, ItemGroup.Badge);
-            entries.Add((character, equips));
-        }
-
-        Send(CharacterListPacket.SetMax(account.MaxCharacters, Constant.ServerMaxCharacters));
-        Send(CharacterListPacket.StartList());
-        // Send each character data
-        Send(CharacterListPacket.AddEntries(account, entries));
-        Send(CharacterListPacket.EndList());
     }
 
     public void CreateCharacter(Character createCharacter, List<Item> createOutfits) {
@@ -130,8 +136,6 @@ public class LoginSession : Core.Network.Session {
             Send(CharacterListPacket.CreateError(s_char_err_system));
             return;
         }
-        CharacterId = character.Id;
-
         var unlock = new Unlock();
 
         foreach (int emoteId in Constant.DefaultEmotes) {
@@ -140,7 +144,11 @@ public class LoginSession : Core.Network.Session {
         character.AchievementInfo = db.GetAchievementInfo(AccountId, character.Id);
         character.PremiumTime = account.PremiumTime;
 
-        db.InitNewCharacter(character.Id, unlock);
+        if (!db.InitNewCharacter(character.Id, unlock)) {
+            Logger.Error("Failed to initialize character: {CharacterId}", character.Id);
+            Send(CharacterListPacket.CreateError(s_char_err_system));
+            return;
+        }
 
         foreach (Item item in createOutfits) {
             item.Transfer?.Bind(character);
@@ -151,6 +159,7 @@ public class LoginSession : Core.Network.Session {
             Send(CharacterListPacket.CreateError(s_char_err_system));
             return;
         }
+        CharacterId = character.Id;
 
         Send(CharacterListPacket.SetMax(account.MaxCharacters, Constant.ServerMaxCharacters));
         Send(CharacterListPacket.AppendEntry(account, character,

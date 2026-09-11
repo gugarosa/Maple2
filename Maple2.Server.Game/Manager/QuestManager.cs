@@ -43,13 +43,17 @@ public sealed class QuestManager {
     }
 
     public void Load() {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        foreach (Quest quest in accountValues.Values.Concat(characterValues.Values).Where(quest => quest.IsExpired(now)).ToArray()) {
+            TryExpire(quest, now);
+        }
         Initialize();
         session.Send(QuestPacket.LoadExploration(session.Config.ExplorationProgress));
 
-        foreach (ImmutableList<Quest> batch in accountValues.Values.Batch(BATCH_SIZE)) {
+        foreach (ImmutableList<Quest> batch in accountValues.Values.Where(quest => quest.State != QuestState.None).Batch(BATCH_SIZE)) {
             session.Send(QuestPacket.LoadQuestStates(batch));
         }
-        foreach (ImmutableList<Quest> batch in characterValues.Values.Batch(BATCH_SIZE)) {
+        foreach (ImmutableList<Quest> batch in characterValues.Values.Where(quest => quest.State != QuestState.None).Batch(BATCH_SIZE)) {
             session.Send(QuestPacket.LoadQuestStates(batch));
         }
     }
@@ -79,7 +83,7 @@ public sealed class QuestManager {
                 continue;
             }
 
-            if (characterValues.ContainsKey(metadata.Id) || accountValues.ContainsKey(metadata.Id)) {
+            if (TryGetQuest(metadata.Id, out _)) {
                 continue;
             }
 
@@ -106,18 +110,28 @@ public sealed class QuestManager {
     /// Starts a new quest or restarts a completed repeatable quest with all acceptance effects.
     /// </summary>
     public QuestError Start(int questId, bool bypassRequirements = false) {
+        if (session.PersistenceAborted) {
+            return QuestError.s_quest_error_accept_fail;
+        }
         if (bypassRequirements && TryGetQuest(questId, out Quest? completed) &&
             completed.State == QuestState.Completed && IsRepeatable(completed.Metadata)) {
             // Persist the previous completion and its personal rewards before beginning a durable replay.
-            session.SessionSave();
+            if (!session.SessionSave()) {
+                return QuestError.s_quest_error_accept_fail;
+            }
         }
 
         lock (session.Item) {
-            TryGetQuest(questId, out Quest? previous);
-            if (previous != null && (previous.State != QuestState.Completed || !IsRepeatable(previous.Metadata))) {
+            TryGetStoredQuest(questId, out Quest? previous);
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            if (previous?.IsExpired(now) == true && TryExpire(previous, now, notify: true) != QuestExpirationResult.Expired) {
                 return QuestError.s_quest_error_accept_fail;
             }
-            if (previous != null && !bypassRequirements) {
+            if (previous != null && previous.State != QuestState.None &&
+                (previous.State != QuestState.Completed || !IsRepeatable(previous.Metadata))) {
+                return QuestError.s_quest_error_accept_fail;
+            }
+            if (previous?.State == QuestState.Completed && !bypassRequirements) {
                 logger.Warning("Quest {QuestId} cannot restart without a verified repeat schedule (repeatable={Repeatable}, period={Period})",
                     questId, previous.Metadata.Basic.Repeatable, previous.Metadata.Basic.UsePeriod);
                 return QuestError.s_quest_error_accept_fail;
@@ -146,14 +160,20 @@ public sealed class QuestManager {
 
             Quest quest = CreateStartedQuest(metadata, previous, DateTime.Now.ToEpochSeconds());
             using GameStorage.Request db = session.GameStorage.Context();
-            List<Item>? saved = db.ActivateQuest(session.AccountId, session.CharacterId, quest, previous, additions, session.Item.Save);
-            if (saved == null) {
-                return QuestError.s_quest_error_accept_fail;
+            try {
+                List<Item>? saved = db.ActivateQuest(session.AccountId, session.CharacterId, quest, previous, additions, session.Item.Save);
+                if (saved == null) {
+                    return QuestError.s_quest_error_accept_fail;
+                }
+
+                IDictionary<int, Quest> values = metadata.Basic.Account > 0 ? accountValues : characterValues;
+                values[quest.Id] = quest;
+                session.Item.ApplyAdded(saved, notifyNew: true);
+            } catch {
+                session.AbortPersistence("Quest activation commitment or receipt application could not be confirmed.");
+                throw;
             }
 
-            IDictionary<int, Quest> values = metadata.Basic.Account > 0 ? accountValues : characterValues;
-            values[quest.Id] = quest;
-            session.Item.ApplyAdded(saved, notifyNew: true);
             session.ConditionUpdate(ConditionType.quest_accept, codeLong: quest.Id);
             session.Send(QuestPacket.Start(quest));
             if (metadata.SummonPortal != null && field != null && portalNpc != null) {
@@ -221,8 +241,9 @@ public sealed class QuestManager {
     /// <param name="codeString">condition code parameter in string.</param>
     /// <param name="codeLong">condition code parameter in long.</param>
     public void Update(ConditionType type, long counter = 1, string targetString = "", long targetLong = 0, string codeString = "", long codeLong = 0) {
-        IEnumerable<Quest> quests = characterValues.Values.Where(quest => quest.State != QuestState.Completed)
-            .Concat(accountValues.Values.Where(quest => quest.State != QuestState.Completed))
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        IEnumerable<Quest> quests = characterValues.Values.Concat(accountValues.Values)
+            .Where(quest => quest.State == QuestState.Started && !quest.IsExpired(now))
             .Where(x => x.Conditions.Values.Any(quest => quest.Metadata.Type == type));
         foreach (Quest quest in quests) {
             // TODO: Not sure if ProgressMap really means that only progress counts in this map. It doesn't make sense for some quests.
@@ -350,8 +371,15 @@ public sealed class QuestManager {
     /// Gives the player the rewards for completing the quest.
     /// </summary>
     public bool Complete(Quest quest, bool bypassConditions = false) {
-        if (quest.State != QuestState.Started ||
+        if (session.PersistenceAborted || quest.State != QuestState.Started ||
             !TryGetQuest(quest.Id, out Quest? current) || !ReferenceEquals(current, quest)) {
+            return false;
+        }
+
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (!bypassConditions && quest.IsExpired(now) &&
+            TryExpire(quest, now, notify: true) != QuestExpirationResult.RewardPending) {
+            session.Send(QuestPacket.Error(QuestError.s_quest_error_invalid_date));
             return false;
         }
 
@@ -499,7 +527,7 @@ public sealed class QuestManager {
 
         // Get any quests that are in progress and npc is the completion npc
         foreach ((int id, Quest quest) in session.Quest.characterValues) {
-            if (quest.Metadata.Basic.CompleteNpc == npcId && quest.State != QuestState.Completed) {
+            if (quest.Metadata.Basic.CompleteNpc == npcId && quest.State == QuestState.Started) {
                 if (!results.TryAdd(id, quest.Metadata)) {
                     // error
                 }
@@ -507,7 +535,7 @@ public sealed class QuestManager {
         }
 
         foreach ((int id, Quest quest) in session.Quest.accountValues) {
-            if (quest.Metadata.Basic.CompleteNpc == npcId && quest.State != QuestState.Completed) {
+            if (quest.Metadata.Basic.CompleteNpc == npcId && quest.State == QuestState.Started) {
                 if (!results.TryAdd(id, quest.Metadata)) {
                     // error
                 }
@@ -518,24 +546,60 @@ public sealed class QuestManager {
     }
 
     public void ReconcileExpiry(IList<int> questIds) {
-        // The client supplies IDs, not authority to delete progress. Raw periods do not establish a server deadline.
+        if (session.PersistenceAborted) {
+            session.Send(QuestPacket.Error(QuestError.s_quest_error_consume_fail));
+            return;
+        }
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        List<int> expired = [];
         List<Quest> preserved = [];
         foreach (int questId in questIds.Distinct()) {
-            if (TryGetQuest(questId, out Quest? quest)) {
+            if (!TryGetStoredQuest(questId, out Quest? quest)) {
+                continue;
+            }
+            if (quest.State == QuestState.None ||
+                (quest.IsExpired(now) && TryExpire(quest, now) == QuestExpirationResult.Expired)) {
+                expired.Add(quest.Id);
+            } else {
                 preserved.Add(quest);
             }
         }
         if (preserved.Count > 0) {
-            logger.Warning("Preserved {Count} quests from an unverified client expiry request", preserved.Count);
+            logger.Warning("Preserved {Count} quests from an invalid or uncommitted client expiry request", preserved.Count);
             foreach (ImmutableList<Quest> batch in preserved.Batch(BATCH_SIZE)) {
                 session.Send(QuestPacket.LoadQuestStates(batch));
             }
         }
-        session.Send(QuestPacket.Expired([]));
+        session.Send(QuestPacket.Expired(expired));
+    }
+
+    private QuestExpirationResult TryExpire(Quest quest, long now, bool notify = false) {
+        lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return QuestExpirationResult.Failed;
+            }
+            if (!TryGetStoredQuest(quest.Id, out Quest? current) || !ReferenceEquals(quest, current)) {
+                logger.Warning("Rejected expiration of stale quest {QuestId}", quest.Id);
+                return QuestExpirationResult.Failed;
+            }
+            using GameStorage.Request db = session.GameStorage.Context();
+            long ownerId = quest.Metadata.Basic.Account > 0 ? session.AccountId : session.CharacterId;
+            QuestExpirationResult result = db.ExpireQuest(ownerId, quest, now);
+            if (result == QuestExpirationResult.Expired) {
+                quest.State = QuestState.None;
+                if (notify) {
+                    session.Send(QuestPacket.Expired([quest.Id]));
+                }
+            }
+            return result;
+        }
     }
 
     public bool Remove(Quest quest) {
         lock (session.Item) {
+            if (session.PersistenceAborted) {
+                return false;
+            }
             IDictionary<int, Quest> values = quest.Metadata.Basic.Account > 0 ? accountValues : characterValues;
             if (!values.TryGetValue(quest.Id, out Quest? current) || !ReferenceEquals(current, quest)) {
                 logger.Warning("Cannot remove stale quest {QuestId}", quest.Id);
@@ -560,6 +624,14 @@ public sealed class QuestManager {
     }
 
     public bool TryGetQuest(int questId, [NotNullWhen(true)] out Quest? quest) {
+        if (TryGetStoredQuest(questId, out quest) && quest.State != QuestState.None) {
+            return true;
+        }
+        quest = null;
+        return false;
+    }
+
+    private bool TryGetStoredQuest(int questId, [NotNullWhen(true)] out Quest? quest) {
         return characterValues.TryGetValue(questId, out quest) || accountValues.TryGetValue(questId, out quest);
     }
 
@@ -666,7 +738,7 @@ public sealed class QuestManager {
                 break;
             }
             foreach (QuestMetadata metadata in chapterQuests.OrderBy(q => q.Id)) {
-                if (TryGetQuest(metadata.Id, out Quest? quest)) {
+                if (TryGetStoredQuest(metadata.Id, out Quest? quest)) {
                     if (quest.State == QuestState.Completed) {
                         continue;
                     }
@@ -732,7 +804,7 @@ public sealed class QuestManager {
         using GameStorage.Request db = session.GameStorage.Context();
         IEnumerable<int> questIds = session.QuestMetadata.GetQuestsByChapter(chapterId).Select(q => q.Id);
         foreach (int questId in questIds) {
-            if (TryGetQuest(questId, out Quest? quest)) {
+            if (TryGetStoredQuest(questId, out Quest? quest)) {
                 if (quest.State == QuestState.Completed) {
                     continue;
                 }
@@ -770,8 +842,8 @@ public sealed class QuestManager {
         Load();
     }
 
-    public void Save(GameStorage.Request db) {
-        db.SaveQuests(session.AccountId, accountValues.Values);
-        db.SaveQuests(session.CharacterId, characterValues.Values);
+    public bool Save(GameStorage.Request db) {
+        return db.SaveQuests(session.AccountId, accountValues.Values) &&
+               db.SaveQuests(session.CharacterId, characterValues.Values);
     }
 }
