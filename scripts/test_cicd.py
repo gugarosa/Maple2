@@ -346,6 +346,57 @@ class ReleaseTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash") and shutil.which("jq"),
                      "Linux bash/jq recovery checks run in the deployment-contracts CI job.")
 class DeploymentControlFlowTests(unittest.TestCase):
+    def test_azure_wrapper_reexecutes_bash_when_started_by_sh(self):
+        with tempfile.TemporaryDirectory(prefix="maple2-shell-check-") as temporary:
+            root = Path(temporary)
+            commands = root / "bin"
+            commands.mkdir()
+            deployment = root / "deploy-release.sh"
+            deployment.write_text(
+                '#!/bin/bash\nset -Eeuo pipefail\n[[ "$#" == 4 ]]\n'
+                'echo "MS2_RELEASE_DEPLOYED $4 $2 $3"\n'
+            )
+            (root / "package.json").write_text("{}")
+            package = {
+                "release": "20260912-" + "b" * 12 + "-12345678",
+                "files": {"deploy-release.sh": release.digest(deployment)},
+            }
+            shim = commands / "az"
+            shim.write_text(
+                '#!/bin/bash\nset -e\n[[ "$1" != login ]] || exit 0\n'
+                'while [[ "$#" -gt 0 ]]; do\n'
+                '  if [[ "$1" == --file ]]; then output=$2; shift; fi\n'
+                '  shift\ndone\ncp -- "$MS2_SCRIPT_FIXTURE" "$output"\n'
+            )
+            shim.chmod(0o700)
+            environment = {
+                **os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                "MS2_SCRIPT_FIXTURE": str(deployment),
+            }
+            environment.pop("BASH_VERSION", None)
+
+            def query(arguments):
+                if arguments[:3] == ["az", "group", "show"]:
+                    return {"tags": {"project": "maple2", "application": "private-pilot"}}
+                if arguments[:4] == ["az", "storage", "blob", "exists"]:
+                    return {"exists": False}
+                if arguments[0] == "gh":
+                    return {"object": {"sha": REVISION}}
+                if arguments[:3] == ["az", "vm", "run-command"]:
+                    script = arguments[arguments.index("--scripts") + 1][1:]
+                    self.assertTrue(Path(script).read_text().startswith("#!/bin/bash\n"))
+                    result = subprocess.run(["sh", script], env=environment, text=True,
+                                            capture_output=True, check=True, timeout=10)
+                    return {"value": [{"message": result.stdout}]}
+                self.fail("Unexpected delivery command.")
+
+            with patch.object(release, "validate_package", return_value=package), \
+                    patch.object(release, "run", return_value=b""), \
+                    patch.object(release, "read_json_output", side_effect=query), \
+                    patch("sys.stdout", new=io.StringIO()) as console:
+                release.deliver(root, REVISION, SOURCE)
+            self.assertIn("MS2_RELEASE_DEPLOYED " + REVISION, console.getvalue())
+
     def scenario(self, failure="none", legacy=False):
         with tempfile.TemporaryDirectory(prefix="maple2-deployment-check-") as temporary:
             base = Path(temporary)
