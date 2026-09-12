@@ -247,6 +247,14 @@ class ReleaseTests(unittest.TestCase):
         before, after = Path("previous"), Path("candidate")
         first, second = compose_fixture(before), compose_fixture(after)
         self.assertEqual(release.retained_compose(first, before), release.retained_compose(second, after))
+        for service in second["services"].values():
+            service["mem_limit"] = str(service["mem_limit"])
+        self.assertEqual(release.retained_compose(first, before), release.retained_compose(second, after))
+        for invalid in (None, False, 0, -1, "unlimited", "0"):
+            second["services"]["web"]["mem_limit"] = invalid
+            with self.subTest(memory=invalid), self.assertRaisesRegex(ValueError, "memory limit"):
+                release.retained_compose(second, after)
+        second["services"]["web"]["mem_limit"] = str(128 * 1024 * 1024)
         second["services"]["web"]["privileged"] = True
         self.assertNotEqual(release.retained_compose(first, before), release.retained_compose(second, after))
         del second["services"]["web"]["privileged"]
@@ -597,6 +605,23 @@ elif command == "python3":
 @unittest.skipUnless(os.environ.get("MS2_CICD_DOCKER_TESTS") == "1",
                      "Set MS2_CICD_DOCKER_TESTS=1 for an inert, real Docker archive round-trip.")
 class DockerArchiveTests(unittest.TestCase):
+    def test_real_compose_memory_output_is_accepted(self):
+        with tempfile.TemporaryDirectory(prefix="maple2-compose-check-") as temporary:
+            env_file = Path(temporary) / "fixture.env"
+            env_file.write_text(
+                "DB_PASSWORD=synthetic-test-only\nMYSQL_ROOT_PASSWORD=synthetic-root-only\n"
+                "PUBLIC_IP=192.0.2.10\nMS2_DOMAIN=ms2.example.org\n"
+                "GAME_IMAGE=fixture/game\nWORLD_IMAGE=fixture/world\nLOGIN_IMAGE=fixture/login\n"
+                "WEB_IMAGE=fixture/web\nMYSQL_IMAGE=fixture/mysql\nPROXY_IMAGE=fixture/proxy\n"
+            )
+            directory = ROOT / "deploy" / "azure"
+            config = json.loads(release.run([
+                "docker", "compose", "--env-file", str(env_file), "--file", str(directory / "compose.application.yml"),
+                "--project-name", "maple2-cicd-fixture", "config", "--format", "json",
+            ]))
+            retained = release.retained_compose(config, directory)
+            self.assertEqual(len(retained["services"]), 7)
+
     def test_real_image_store_provenance_round_trip(self):
         tags = []
         try:

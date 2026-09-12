@@ -301,7 +301,11 @@ def retained_compose(config, directory):
     services = config["services"]
     require(set(services) == {"mysql", "world", "login", "web", "game-ch0", "game-ch1", "proxy"},
             "Topology changes need an operator-reviewed rollout.")
-    require(sum(service.get("mem_limit", 0) for service in services.values()) <= 3584 * 1024 * 1024,
+    limits = [service.get("mem_limit") for service in services.values()]
+    require(all(type(value) is int or (type(value) is str and re.fullmatch(r"[0-9]+", value))
+                for value in limits), "Compose memory limits must be integer byte counts.")
+    require(all(int(value) > 0 for value in limits), "Every service must retain a positive memory limit.")
+    require(sum(int(value) for value in limits) <= 3584 * 1024 * 1024,
             "Release exceeds the existing VM memory budget.")
     retained = {"volumes": config["volumes"], "services": {}}
     for name, service in services.items():
