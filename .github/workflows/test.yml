@@ -1,15 +1,24 @@
 name: Test Maple2
 
 on:
-  push:
-    branches: ["master"]
   pull_request:
     branches: ["master"]
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
+  deployment-contracts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test delivery and recovery contracts
+        env:
+          MS2_CICD_DOCKER_TESTS: "1"
+        run: python3 -m unittest discover -s scripts -p test_cicd.py -v
   build:
     runs-on: windows-latest
 
@@ -31,6 +40,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\scripts\test_client_setup.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\test_client_installer.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s .\scripts -p test_cicd.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate Azure foundation without deploying
         shell: pwsh
         run: |
@@ -46,3 +59,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\scripts\test_azure_pilot.ps1 -CompiledTemplate $template
           .\scripts\test_pilot_portal.ps1
+      - name: Validate application composition and Web startup without deploying
+        shell: pwsh
+        run: |
+          dotnet build .\Maple2.Server.Web\Maple2.Server.Web.csproj -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\test_azure_application.ps1 -WebAssembly .\Maple2.Server.Web\bin\Release\net8.0\Maple2.Server.Web.dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($name in @('application-access', 'application-ingress')) {
+            az bicep build --file ".\deploy\azure\$name.bicep" --outfile (Join-Path $env:RUNNER_TEMP "$name.json") --only-show-errors
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

@@ -23,6 +23,7 @@ $state = @{
     AccountId = $subscription
     Location = 'brazilsouth'
     Failure = ''
+    Application = $false
 }
 $oldExitCode = Get-Variable LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue | Select-Object Value
 function Assert {
@@ -42,7 +43,11 @@ function Invoke-TestAzure {
     switch ("$($Arguments[0]) $($Arguments[1])") {
         'account show' { @{ id = $state.AccountId; state = 'Enabled' } | ConvertTo-Json }
         'group exists' { $state.Exists.ToString().ToLowerInvariant() }
-        'group show' { @{ location = $state.Location; tags = @{ project = $state.Owner } } | ConvertTo-Json }
+        'group show' {
+            $tags = @{ project = $state.Owner }
+            if ($state.Application) { $tags.application = 'private-pilot' }
+            @{ location = $state.Location; tags = $tags } | ConvertTo-Json
+        }
         'deployment sub' { '{}' }
         default { throw 'Unexpected Azure operation.' }
     }
@@ -77,6 +82,13 @@ try {
     $state.Calls.Clear()
     & $deployment -SubscriptionId $subscription -Apply *> $null
     Assert ($state.Calls[-1][2] -eq 'create') 'An existing owned foundation could not be updated.'
+    $state.Application = $true
+    $state.Calls.Clear()
+    Expect-Failure { & $deployment -SubscriptionId $subscription -Apply }
+    Assert (-not ($state.Calls | Where-Object { $_[0] -eq 'deployment' })) 'Foundation application would erase active application ingress.'
+    & $deployment -SubscriptionId $subscription *> $null
+    Assert ($state.Calls[-1][2] -eq 'what-if') 'Application ownership must not block a read-only preview.'
+    $state.Application = $false
 
     $state.AccountId = '00000000-0000-0000-0000-000000000000'
     $state.Calls.Clear()

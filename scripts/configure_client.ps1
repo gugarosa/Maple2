@@ -13,6 +13,8 @@ Client root containing Data and x64, not the x64 directory itself.
 Login server IPv4 address or DNS name, not a URL or a game-channel address.
 .PARAMETER NoShortcut
 Update settings without creating the client-local Windows shortcut.
+.PARAMETER ValidateOnly
+Check the client and settings without writing files or changing profiles.
 #>
 param(
     [string]$ClientPath = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'client'),
@@ -21,7 +23,8 @@ param(
     [ValidateNotNullOrEmpty()][string]$ServerName = 'Maple2 Local',
     [string]$LauncherPath = (Join-Path $env:LOCALAPPDATA 'mushroom_launcher\Mushroom Launcher.exe'),
     [string]$ConfigPath = (Join-Path $env:APPDATA 'Mushroom Launcher\app-config.json'),
-    [switch]$NoShortcut
+    [switch]$NoShortcut,
+    [switch]$ValidateOnly
 )
 
 Set-StrictMode -Version Latest
@@ -88,6 +91,11 @@ $config | Add-Member -NotePropertyName clientPath -NotePropertyValue $ClientPath
 $config | Add-Member -NotePropertyName servers -NotePropertyValue @($servers) -Force
 $config | Add-Member -NotePropertyName autoLogin -NotePropertyValue $false -Force
 $config | Add-Member -NotePropertyName enableConsole -NotePropertyValue $false -Force
+
+if ($ValidateOnly) {
+    Write-Host 'Client and launcher settings validated; no files or profiles were changed.'
+    return
+}
 
 $directory = Split-Path -Parent $ConfigPath
 $null = New-Item -ItemType Directory -Path $directory -Force

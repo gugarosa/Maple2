@@ -38,6 +38,8 @@ try {
     $settings = Join-Path $fixture 'user data\app-config.json'
     $script = Join-Path $PSScriptRoot 'configure_client.ps1'
     $parameters = @{ ClientPath = $client; LauncherPath = $launcher; ConfigPath = $settings; NoShortcut = $true }
+    & $script @parameters -ValidateOnly *> $null
+    Assert (-not (Test-Path -LiteralPath $settings)) 'Validation-only setup created user settings.'
     & $script @parameters *> $null
     $created = Get-Content -LiteralPath $settings -Raw -Encoding UTF8 | ConvertFrom-Json
     Assert ($created.clientPath -eq $client) 'Client root was not saved correctly.'
@@ -59,6 +61,8 @@ try {
     Assert ($remote.servers.Count -eq 2 -and $remote.servers[1].ip -eq 'game.example.org') 'Remote profile was not merged.'
     Assert ($remote.servers[0].auth.password -eq $savedPassword) 'UTF-8 settings without a BOM were corrupted.'
     $before = (Get-FileHash -LiteralPath $settings).Hash
+    & $script @parameters -ValidateOnly *> $null
+    Assert ((Get-FileHash -LiteralPath $settings).Hash -eq $before) 'Validation-only setup rewrote existing settings.'
     Expect-Failure { & $script @parameters -LoginHost 'https://game.example.org' }
     Expect-Failure { & $script @parameters -LoginPort 0 }
     $wrongRoot = $parameters.Clone()

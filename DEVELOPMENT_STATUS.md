@@ -46,20 +46,134 @@ The following checks completed against isolated real client metadata and an isol
 
 This is an integration baseline, not evidence that every gameplay issue or reverse-engineered protocol flow is complete.
 
+## End-to-end recheck (2026-09-12)
+
+The local service and persistence checks passed, but this run does **not** provide
+a new native-client gameplay sign-off:
+
+- Docker Desktop was initially stopped. After starting it, the existing six-service
+  `maple2-offline` stack recovered using its retained MySQL, Web-data and navigation
+  volumes. No metadata re-ingestion or player-database replacement was needed.
+- All 11 solution projects built in Release. The regular suite passed 506 tests;
+  another 121 real-MySQL persistence tests and five read-only client archive tests
+  passed using a complete, separate metadata copy and disposable player schemas.
+  Temporary schemas were removed afterward.
+- The isolated run found that the historical `InteractCubeFix` migration qualified
+  its cleanup with `GAME_DB_NAME`, potentially targeting a different database.
+  Its SQL now uses the migration connection's database. A regular regression and
+  actual migrations with a deliberately nonexistent environment database cover
+  the corrected scope. Previously applied migrations are not replayed.
+- Live HTTP checks covered registration, invalid input, antiforgery, duplicate
+  rejection and throttling. The running World account service accepted the
+  existing ordinary account's password, rejected an incorrect password and an
+  invalid client identity, and left that account's identity, permissions and
+  version unchanged.
+- Full shutdown returned exit code 0 for all six services. Full startup and
+  game-only recreation restored normal channel 1 and complete v12 handshakes on
+  all three client ports. Account, character, item and home counts were preserved;
+  game-only recreation retained the World container. The 1,181 navigation meshes
+  and their checksum sidecars remain on read-only Game mounts. Existing banner
+  and profile images were served byte-for-byte from the retained Web volume;
+  missing images returned HTTP 404.
+- Channel advertisement follows World's asynchronous health monitoring, not the
+  instant a container first becomes healthy. Runtime verification waits for the
+  actual channel list with a deadline rather than treating one early empty list
+  as a persistent failure.
+- The local website's assets, navigation, security headers and responsive layout
+  passed their checks. At this stage, the published HTTPS site was a private-pilot
+  information page and the Azure VM was deallocated. The later application
+  deployment is recorded below.
+
+Official Mushroom 2.0.3 launched the canonical original client with the correct
+local endpoint. However, automated window capture returned no rendered frames
+and focus control was unreliable. Manual login, character/world entry, movement,
+and reconnect were **not observed in this recheck**. A smaller viewport did not
+resolve the verification limit; the original display preferences were restored
+byte-for-byte and the owned client/launcher were closed. The earlier client
+results above remain historical evidence, not a substitute for this missing check.
+
+## Private Azure application (2026-09-12)
+
+The operator-authorized pilot now runs on `vm-maple2-brs`, using the original
+4-GiB VM, retained disks and BRL 250 budget guard. No local accounts, characters or
+uploaded player images were copied. The deployment uses a checksummed Release
+source/image snapshot; it does not imply that the working changes were committed.
+See [Azure operations](deploy/azure/README.md#running-application-pilot).
+
+- All seven services are healthy. World advertises normal channel 1, and the
+  native ports return complete v12 handshakes from this workstation.
+- `https://play.ms2.mapletime.dev/account` passed real registration, antiforgery,
+  invalid-input, duplicate and throttling checks. Secure cookies and trusted
+  loopback forwarding were verified. Native HTTP serves game assets but rejects
+  account routes, including forged forwarding headers.
+- The original client authenticated the new Azure account and received the
+  server-list response. Its device identity was bound by the real login flow.
+  Character selection and world entry still require interactive confirmation.
+- The exact server-source archive is available through the private HTTPS endpoint.
+  The application DB identity has metadata read and game CRUD permissions only.
+  MySQL, SSH and gRPC are not reachable externally.
+- A downloaded application backup was checksum-verified and restored into a
+  disposable MySQL schema, without replacing live data. The 05:00 UTC backup timer
+  is active. Backup/restart and subsequent external access checks passed.
+
+Cold initialization exposed limits that steady local memory readings did not
+predict. Bulk metadata import now gets temporary MySQL headroom with other apps
+stopped; normal service limits were rebalanced and verified after real requests.
+This restricted pilot is not a public-load or full-gameplay capacity sign-off.
+Only the approved workstation network can reach the application ports.
+
+## Windows installer status (2026-09-12)
+
+The per-user MS2 bootstrap is implemented, but **not cleared for distribution**.
+It reuses official Mushroom, accepts an existing compatible client, pins publisher
+downloads, and carries its exact authored source without redistributing game files.
+Source/build contracts pass on Windows PowerShell 5.1 and 7. The real preview
+installed the expected helpers and shortcuts while preserving profile values,
+credentials and client files; its separately scanned uninstaller removed those
+helpers and shortcuts without removing Mushroom or player settings.
+
+Windows Defender subsequently quarantined the real setup EXE and synthetic
+fixtures as `Trojan:Win32/Bearfoos.A!ml`, despite initial no-threat scans. No
+false-positive determination has been made. The executable is withheld, no
+security protection was weakened, and complete repeat-install/clean-PC acceptance
+remains blocked. See [installer verification](CLIENT_SETUP.md#installer-verification-status)
+for the evidence, manual alternative and remaining release gates.
+
 ## MS2 website redesign (2026-09-12)
 
-The website has MS2-specific hero/class artwork, a game logo, distinct monsters,
-light/dark themes and responsive navigation. Its concise player guide links
-invite-only HTTPS registration, official Mushroom and manual connection steps.
-The explicit publication allowlist and byte-for-byte probes cover all site assets.
+The website published through [PR #9](https://github.com/gugarosa/Maple2/pull/9)
+now connects invite-only registration, compatible-client
+requirements and manual Mushroom connection steps without advertising a missing
+installer or game download. Web has an optional validated `PLAYER_WEBSITE_URL`
+return link; that backend change remains local and is not in the active game
+application release. The website revision is
+`f73db9073e932cb1042a7abd568dba0de49afd1c`, live at `https://ms2.mapletime.dev`.
+Public player access still requires the
+[website-to-game launch gates](CLIENT_SETUP.md#website-to-game-launch), including
+approved client acquisition and fresh-PC world-entry evidence.
+The live website passed exact-content checks and 20 responsive/light/dark/keyboard
+cases. Separate local checks passed for the compiled Web build, URL guards and
+loopback-only account/error pages with and without the return link. Missing
+antiforgery and invalid registration still return HTTP 400; these checks did not
+create accounts or clear the public-launch gates.
+The registration page also matches the site's light/dark palette, with ten local
+desktop/mobile/text-zoom cases checking layout, keyboard focus and input contrast.
+That account-page update is source-only until the Web application is redeployed.
 
-This is a website-only release. The Azure application was deployed separately
-and remains restricted to approved networks; native authentication has been
-observed, but fresh external-player world-entry acceptance is not complete.
-The Windows bootstrap remains withheld after antivirus quarantine. A website
-redesign does not open game ingress, publish a game client or clear those gates.
-See [client access](CLIENT_SETUP.md#website-and-invited-azure-testers) and
-[artwork provenance](deploy/azure/README.md#website-artwork).
+## Delivery automation status
+
+Merge-triggered server delivery is implemented locally, separately from the paused
+gameplay-development work. It reuses PR tests/format checks, builds source-bound
+Release images, takes quiesced backups and promotes only after runtime/source
+checks, with application rollback on failure. Schema, metadata, vendor and
+infrastructure changes require separate review; no player database is restored
+automatically.
+
+The MS2-only OIDC identity and master-only GitHub environment are provisioned.
+Automatic delivery remains disabled until the reviewed source/workflows are
+merged into the approved baseline and a clean hosted run passes. The current pilot was not redeployed,
+and these safeguards do not clear the installer or external-player acceptance
+blockers. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
 
 ## Implemented in this fork
 
@@ -69,8 +183,9 @@ See [client access](CLIENT_SETUP.md#website-and-invited-azure-testers) and
   `rg-maple2-brazilsouth` with a non-overlapping network, Free Static Web App, and
   separate VM/IP, retained data disk, vault, backup container and budget guard.
   DNS stays at Porkbun; the unused Azure child zone was retired. Initial bootstrap
-  prepares Docker/storage only, with no public game ingress. DNS, managed HTTPS,
-  application/data deployment and remote gameplay remain separate release gates.
+  prepares Docker/storage only. The separate application deployment adds HTTPS
+  registration and workstation-restricted native access. Public gameplay remains
+  gated independently from DNS, certificates and service health.
 - Workspace and client distribution follow [CLIENT_SETUP.md](CLIENT_SETUP.md):
   one original client, one server checkout, and source-only setup artifacts in
   sibling `release`. Mushroom 2.0.3 uses its normal installed location and existing

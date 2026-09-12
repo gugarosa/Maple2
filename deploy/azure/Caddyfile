@@ -1,0 +1,36 @@
+{
+	auto_https disable_redirects
+}
+
+{$MS2_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_tlsalpn_challenge
+		}
+	}
+	handle_path /source/* {
+		root * /srv/source
+		file_server
+	}
+	handle {
+		reverse_proxy 127.0.0.1:4001
+	}
+}
+
+http://:80 {
+	respond 404
+}
+
+http://:4000 {
+	@native path /system/* /data/* /item/* /itemicon/* /banner/* /guildmark/* /blueprint/* /irrq.aspx /ruq.aspx /urq.aspx
+	handle @native {
+		reverse_proxy 127.0.0.1:4001
+	}
+	handle /healthz {
+		rewrite * /
+		reverse_proxy 127.0.0.1:4001
+	}
+	handle {
+		respond 404
+	}
+}

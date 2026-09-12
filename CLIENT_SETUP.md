@@ -40,6 +40,36 @@ The client-local shortcut targets the stable installed executable.
 
 ## Install on another Windows PC
 
+### Private-pilot Windows setup
+
+**The Windows preview is not cleared for distribution.** See the
+[installer verification status](#installer-verification-status) before building
+or running it. The manual setup below remains the supported alternative.
+
+The MapleTime MS2 setup executable is a **bootstrap installer**, not a bundled
+game download. It selects an existing x64/NA client, installs or reuses official
+Mushroom, checks the Microsoft x64 runtime, and adds the Azure profile. Game files
+and existing profiles/credentials are not copied or replaced.
+
+The wizard requires the tested `x64\MapleStory2.exe` fingerprint below. Missing
+prerequisites are downloaded directly from their publishers and checked against
+the hashes in `installer\distribution.json`. Microsoft runtime installation may
+request administrator approval; the helper itself installs per user and does not
+mark the game to run as administrator. If the runtime requires a restart, setup
+stops before configuring the client; restart Windows and run setup again.
+
+Use the Start-menu **MapleTime MS2** shortcut (**MapleTime MS2 Preview** for preview
+builds), select **MapleTime MS2 Azure** in
+Mushroom, and create your account at the separate HTTPS registration page.
+Only operator-approved networks can access this pilot. Uninstalling the setup
+removes its own helpers/shortcuts, not Mushroom, game files, profiles or accounts.
+
+Current builds are unsigned. Check the setup's SHA-256 and keep antivirus
+protection enabled. The observed MSVC 14 x64 dependency is covered, but complete
+clean-PC and in-game acceptance remains a separate release gate.
+
+### Manual setup
+
 1. Supply the supported original client, including its `Data` and `x64`
    directories. Do not download a random replacement executable or copy another
    user's configuration/credentials.
@@ -184,12 +214,82 @@ repository's generated data archives.
 
 This server and the authored setup scripts are AGPL-v3. Retain the license and
 make the deployed modified server's corresponding source available to remote
-users. A future branded installer needs a separate reviewed payload/license
+users. A future full-game installer still needs a separate reviewed payload/license
 manifest and code-signing process.
+
+### Build the Windows bootstrap
+
+Install Inno Setup 7 and the build-only image dependency, then run:
+
+```powershell
+python -m pip install -r .\installer\requirements.txt
+.\scripts\build_client_installer.ps1 `
+    -InnoCompiler "C:\Program Files\Inno Setup 7\ISCC.exe" -Preview
+```
+
+`-Preview` labels an uncommitted local build explicitly. Without it, the builder
+requires a clean checkout, just like the existing source-only ZIP builder.
+Neither command commits, publishes or changes the selected game installation.
+The executable, SHA-256, build manifest and exact authored-source ZIP are written
+to sibling `release`. The installer also carries that source ZIP; private settings,
+game archives and upstream installers are not embedded.
+
+The compiler uses MS2 artwork already approved for this project. Asset and
+prerequisite hashes are pinned in `installer\distribution.json`; Microsoft runtime
+14.44.35211 was checked for a valid Microsoft Authenticode signature when pinned.
+Publisher downloads keep their own licenses; the authored bootstrap is AGPL-3.0.
+
+For source checks and an isolated compiled install/reinstall/uninstall exercise:
+
+```powershell
+# Source, compiler-version, runtime-version and archive contracts; no EXE runs.
+.\scripts\test_client_installer.ps1
+
+# Optional native lifecycle; only after resolving the antivirus gate below.
+.\scripts\test_client_installer.ps1 `
+    -InnoCompiler "C:\Program Files\Inno Setup 7\ISCC.exe"
+```
+
+The smoke build uses inert client/launcher fixtures, private compiler definitions
+and a separate uninstall identity and shortcut names. It does not execute a game,
+install publisher prerequisites or modify real profiles. It checks wrong roots,
+incompatible executables, overlapping/nonempty helper folders, malformed settings,
+profile preservation, shortcuts, reinstall, failed prerequisites and uninstall.
+Native execution requires a completed Windows Defender scan; a skipped scan is
+not accepted. Failures retain their fixture path and logs for inspection.
+
+Without `-InnoCompiler`, compiler behavior is simulated with inert text output;
+these checks do not establish native installer readiness. `-InstallerPath` can
+also verify a built EXE's checksum, manifest and exact-source archive without
+executing it. No test disables antivirus protection or restores quarantined files.
+
+### Installer verification status
+
+The unsigned preview built on 2026-09-12, and source/build contracts passed on
+Windows PowerShell 5.1 and PowerShell 7. A real installation confirmed the exact
+helper-only payload, embedded source and correct Mushroom shortcuts. Existing
+profiles and credentials were preserved; JSON formatting was normalized.
+The separately scanned, unflagged uninstaller removed its helpers, both shortcuts
+and uninstall registration while retaining Mushroom, settings and client files.
+No game was launched.
+
+**Distribution is blocked:** Windows Defender subsequently quarantined the
+real preview, as well as synthetic test builds, as
+`Trojan:Win32/Bearfoos.A!ml`. This happened after initial scans reported no threats.
+The affected real preview has source fingerprint prefix `d4e0934d4188`.
+Its runnable EXE is withheld; build metadata and exact source are retained.
+The detection has not been established as a false positive.
+
+Repeated native acceptance, including reinstall, is therefore not a completed
+gate. One earlier fixture also left its desktop shortcut behind; tests now release
+their shortcut COM objects before uninstall, but the full updated lifecycle has
+not passed. Antivirus/publisher review, an appropriate signing process and a full
+clean-PC lifecycle are required before release. Do not add exclusions, disable
+protection, restore quarantine or treat a SHA-256 match as a safety verdict.
 
 ### Remote-release gates
 
-The source-only setup kit does not include a public game installer.
+The existing setup ZIP remains source-only; it does not publish a full game installer.
 Before inviting other computers:
 
 1. Set real client-reachable IPv4 values for `LOGIN_IP` and `GAME_IP`; expose the
@@ -204,6 +304,72 @@ Before inviting other computers:
 5. Test a clean Windows machine through install, registration, manual login,
    character entry, instanced/normal transfers, Web/UGC, reconnect, and update.
 
+### Website-to-game launch
+
+The player entry point is `https://ms2.mapletime.dev`. The authored page now links
+invited testers to the real HTTPS registration service, distinguishes the official
+Mushroom launcher from a game-client download, and provides the pilot's manual
+connection steps. The redesign was published on 2026-09-12 through website-only
+[PR #9](https://github.com/gugarosa/Maple2/pull/9), revision
+`f73db9073e932cb1042a7abd568dba0de49afd1c`. Live HTTPS asset, desktop/mobile,
+light/dark and keyboard checks passed on `ms2.mapletime.dev`.
+
+Set `PLAYER_WEBSITE_URL` on Web to link registration and its success page back to
+the player setup guide. It is optional for local/custom servers and must be an
+absolute HTTPS URL without credentials. The Azure Compose definition sets
+`https://ms2.mapletime.dev/#getting-started`. This source change has not been
+deployed to the current application release. It adds navigation, not shared MS1
+accounts, cross-site password collection or automatic client login.
+The account page follows the site's light/dark palette and mobile layout.
+Its password fields, antiforgery validation and account rules remain unchanged.
+
+**A client download remains a separate release gate.** The old Steam store URL
+for app `560380` redirected to Steam's homepage on 2026-09-12. Mushroom contains
+Steam and third-party archive download options, but their presence is not proof
+of current availability, client compatibility or redistribution permission.
+Do not advertise a launcher download as the full game or link unreviewed mirrors.
+The artwork permission does not establish permission to redistribute game files.
+
+Before opening this journey to ordinary players, verify all of the following:
+
+- The published website and registration hostname have working DNS/HTTPS, current
+  instructions and functioning navigation back to setup.
+- An approved client-acquisition route and antivirus-cleared installer supply the
+  pinned compatibility set, with checksums, provenance and applicable licenses.
+- A fresh player PC completes account creation, download/setup, manual login,
+  character/world entry, transfers, assets and reconnect without copied operator
+  settings. Include a second approved network before a public launch.
+- A separately reviewed public-access rollout opens only required application
+  ports while retaining private management, registration protections, backups,
+  monitoring and the existing budget guard. The current `/32` pilot ingress and
+  4-GiB capacity are not a public-player rollout.
+
+Until then, leave public-launch claims and installer/client downloads disabled.
+Do not loosen the private-pilot ingress template to make a website link appear
+to work.
+
+### Private Azure pilot (2026-09-12)
+
+Access is limited to the operator-approved network, not the public Internet.
+Create a separate account at
+[`https://play.ms2.mapletime.dev/account`](https://play.ms2.mapletime.dev/account),
+then select **MapleTime MS2 Azure** in Mushroom. Local accounts and characters were
+not copied to Azure.
+
+To add the credential-free profile while preserving the local one, close Mushroom
+and run:
+
+```powershell
+.\scripts\configure_client.ps1 -ClientPath "D:\MapleStory\MapleStory2\client" `
+    -LoginHost "20.226.79.46" -LoginPort 20001 -ServerName "MapleTime MS2 Azure"
+```
+
+Do not use the HTTPS registration URL or a Game-channel port as `LoginHost`.
+Public v12 endpoints and native account authentication were checked from this
+workstation; character/world entry remains a separate interactive check.
+See [Azure operations](deploy/azure/README.md#running-application-pilot) for access,
+capacity, budget and backup limits.
+
 Mushroom's launcher updates use the upstream Electron update feed. Optional XML
 mods use their own `mod.json` and file-hash URLs. Neither is this fork's account
 API, server-discovery API, or a full-client update service; do not invent those
@@ -212,37 +378,14 @@ endpoints in a package.
 ### Website and invited Azure testers
 
 The public information website is [`ms2.mapletime.dev`](https://ms2.mapletime.dev).
-Its redesigned setup section distinguishes account registration, the official
-launcher and the original game client. It does not collect passwords or provide
-a full-client download.
-
-The separately deployed Azure pilot accepts only operator-approved networks.
-Invited testers register at
-[`https://play.ms2.mapletime.dev/account`](https://play.ms2.mapletime.dev/account)
-and configure **MapleTime MS2 Azure**, Login host `20.226.79.46`, port `20001`.
-MS1 and local-development accounts/characters are separate from the Azure account.
-
-Close Mushroom before adding the credential-free profile:
-
-```powershell
-.\scripts\configure_client.ps1 -ClientPath "D:\MapleStory\MapleStory2\client" `
-    -LoginHost "20.226.79.46" -LoginPort 20001 -ServerName "MapleTime MS2 Azure"
-```
-
-Existing profiles are preserved. Leave automatic login disabled and sign in
-inside the game. Other networks are intentionally blocked; a reachable website
-does not imply public registration or game access.
-
-The MapleTime MS2 bootstrap remains withheld after a Windows Defender quarantine.
-No false-positive determination or approved full-client distribution has been
-established. Do not disable antivirus, restore quarantine or treat a checksum as
-a safety verdict. The official Mushroom release is a launcher, not this project's
-game-client package. Fresh-PC world entry and public-player acceptance remain
-separate release gates.
+Invited testers should follow the [private Azure steps](#private-azure-pilot-2026-09-12).
+Other networks remain blocked. The [installer verification gate](#installer-verification-status)
+and [website-to-game launch criteria](#website-to-game-launch) are independent of
+the completed website redesign.
 
 `installer\distribution.json` records the shared endpoint, tested client version,
-publisher hashes and artwork provenance. This metadata-only website change does
-not publish or install the native bootstrap.
+publisher hashes and artwork provenance. The file was published with website-only
+PR #9; it contains metadata, not a native installer or game-client payload.
 
 ## Troubleshooting
 

@@ -20,6 +20,9 @@ You will need:
 - **Docker Engine or Docker Desktop** with Compose **2.20 or newer** (recommended) — _or_ the .NET 8 SDK, the `Microsoft.NETCore.App` and `Microsoft.AspNetCore.App` 8.x runtimes, and MySQL 8 for local development
 - **PowerShell 5.1 or newer** (Windows PowerShell or [pwsh](https://github.com/PowerShell/PowerShell))
 
+Docker Engine must be running before setup or server commands. If you use Docker
+Desktop, start it first; installing the CLI alone does not start the engine.
+
 Check local runtime availability with `dotnet --list-runtimes`. The repository targets .NET 8; a newer SDK alone is not a substitute for the required 8.x shared runtimes.
 
 `global.json` selects a stable .NET 8 SDK so local builds and GitHub Actions use

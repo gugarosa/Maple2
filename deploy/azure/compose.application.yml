@@ -1,0 +1,194 @@
+name: maple2-azure
+
+x-app-environment: &app-environment
+  DB_IP: mysql
+  DB_PORT: 3306
+  DB_USER: ms2_runtime
+  DB_PASSWORD: ${DB_PASSWORD:?Retrieve the application password from the MS2 vault}
+  DATA_DB_NAME: maple-data
+  GAME_DB_NAME: game-server
+  LANGUAGE: EN
+  LOGIN_IP: ${PUBLIC_IP:?Supply the retained MS2 public IPv4}
+  GAME_IP: ${PUBLIC_IP:?Supply the retained MS2 public IPv4}
+  WEB_IP: ${PUBLIC_IP:?Supply the retained MS2 public IPv4}
+  WEB_PORT: 4000
+  GRPC_WORLD_IP: world
+  GRPC_WORLD_PORT: 21001
+  CONFIG_PATH: /app/config.yaml
+  Serilog__MinimumLevel__Default: Information
+
+x-game: &game
+  image: ${GAME_IMAGE:?Supply an immutable Release image}
+  pull_policy: never
+  restart: unless-stopped
+  stop_grace_period: 30s
+  mem_limit: 512m
+  depends_on:
+    mysql:
+      condition: service_healthy
+    world:
+      condition: service_healthy
+  volumes:
+    - ./config.yaml:/app/config.yaml:ro
+    - navmeshes:/app/Navmeshes:ro
+  healthcheck:
+    test:
+      - CMD-SHELL
+      - >-
+        bash -ec 'exec 3<>/dev/tcp/127.0.0.1/$$GRPC_CHANNEL_PORT;
+        exec 3<>/dev/tcp/127.0.0.1/8080;
+        printf "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+        read -r status <&3; [[ "$$status" == "HTTP/1.1 200 "* ]]'
+    interval: 5s
+    timeout: 3s
+    retries: 30
+    start_period: 15s
+
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:?Supply the pinned MySQL 8 image}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 1m
+    mem_limit: 1024m
+    command: ["--innodb-buffer-pool-size=256M", "--max-connections=100"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Retrieve the database root password from the MS2 vault}
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysql --protocol=TCP --host=127.0.0.1 --user=root --execute='SELECT 1' --silent --skip-column-names"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  world:
+    image: ${WORLD_IMAGE:?Supply an immutable Release image}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 1m
+    mem_limit: 512m
+    environment:
+      <<: *app-environment
+      GRPC_LOGIN_IP: login
+    ports:
+      - 127.0.0.1:21001:21001
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/21001'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  login:
+    image: ${LOGIN_IMAGE:?Supply an immutable Release image}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 1m
+    mem_limit: 384m
+    environment:
+      <<: *app-environment
+      LOGIN_PORT: 20001
+    ports:
+      - ${BIND_IP:-0.0.0.0}:20001:20001
+    depends_on:
+      mysql:
+        condition: service_healthy
+      world:
+        condition: service_healthy
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/20001'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  web:
+    image: ${WEB_IMAGE:?Supply an immutable Release image}
+    pull_policy: never
+    restart: unless-stopped
+    stop_grace_period: 30s
+    mem_limit: 512m
+    environment:
+      <<: *app-environment
+      WEB_BIND_PORT: 4001
+      WEB_DATA_DIR: /app/Data
+      REQUIRE_HTTPS_REGISTRATION: "true"
+      SERVER_SOURCE_URL: https://${MS2_DOMAIN:?Supply the pilot hostname}/source/server-source.tar.gz
+      PLAYER_WEBSITE_URL: https://ms2.mapletime.dev/#getting-started
+    ports:
+      - ${BIND_IP:-0.0.0.0}:${HTTP_PORT:-80}:80
+      - ${BIND_IP:-0.0.0.0}:${HTTPS_PORT:-443}:443
+      - ${BIND_IP:-0.0.0.0}:4000:4000
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - web-data:/app/Data
+      - web-keys:/root/.aspnet/DataProtection-Keys
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/4001'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  game-ch0:
+    <<: *game
+    environment:
+      <<: *app-environment
+      INSTANCED_CONTENT: "true"
+      GRPC_GAME_IP: game-ch0
+      GRPC_CHANNEL_PORT: 21002
+      MS2_NAVMESH_DIR: /app/Navmeshes
+    ports:
+      - ${BIND_IP:-0.0.0.0}:20002:20002
+
+  game-ch1:
+    <<: *game
+    environment:
+      <<: *app-environment
+      INSTANCED_CONTENT: "false"
+      GRPC_GAME_IP: game-ch1
+      GRPC_CHANNEL_PORT: 21003
+      MS2_NAVMESH_DIR: /app/Navmeshes
+    ports:
+      - ${BIND_IP:-0.0.0.0}:20003:20003
+
+  proxy:
+    image: ${PROXY_IMAGE:?Supply the pinned Caddy image}
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 128m
+    network_mode: service:web
+    environment:
+      MS2_DOMAIN: ${MS2_DOMAIN:?Supply the pilot hostname}
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./source:/srv/source:ro
+      - tls-data:/data
+      - tls-config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mysql:
+  web-data:
+  web-keys:
+  navmeshes:
+    external: true
+    name: maple2-azure_navmeshes
+  tls-data:
+  tls-config:
