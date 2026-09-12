@@ -105,6 +105,13 @@ Login 384 MiB, Web 512 MiB, each Game 512 MiB, Caddy 128 MiB (3.5 GiB total).
 This is not a public-population capacity claim. An 8-GiB resize was not approved
 or performed; the budget and VM size remain unchanged.
 
+Later pre-deployment inspection found three Login memory-limit restarts and
+1,430 threads/1,019 file descriptors. Quiet TCP peers, including health probes,
+were retained after EOF because the receive-pipe writer was not completed.
+The shared session path now completes that writer in `finally`; one-connection
+and repeated-disconnect regressions reproduce the old failure and pass with the
+fix. This addresses the leak without raising memory limits or resizing the VM.
+
 ### Restart, backup and restore
 
 Use Azure Run Command, not public management ports. The active release is linked

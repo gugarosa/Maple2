@@ -266,6 +266,9 @@ public abstract class Session : IDisposable {
         } catch (Exception ex) {
             Logger.Debug(ex, "WriteRecvPipe exception account={AccountId} char={CharacterId}", AccountId, CharacterId);
             Disconnect();
+        } finally {
+            // EOF must wake the reader so an idle peer cannot retain the session's workers.
+            await writer.CompleteAsync();
         }
     }
 
