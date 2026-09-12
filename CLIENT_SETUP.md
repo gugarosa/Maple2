@@ -317,10 +317,10 @@ light/dark and keyboard checks passed on `ms2.mapletime.dev`.
 Set `PLAYER_WEBSITE_URL` on Web to link registration and its success page back to
 the player setup guide. It is optional for local/custom servers and must be an
 absolute HTTPS URL without credentials. The Azure Compose definition sets
-`https://ms2.mapletime.dev/#getting-started`. This source change has not been
-deployed to the current application release. It adds navigation, not shared MS1
+`https://ms2.mapletime.dev/#getting-started`. The setting and account-page design
+are deployed through the verified delivery workflow. They add navigation, not shared MS1
 accounts, cross-site password collection or automatic client login.
-The account page follows the site's light/dark palette and mobile layout.
+The live account page follows the site's light/dark palette and mobile layout.
 Its password fields, antiforgery validation and account rules remain unchanged.
 
 **A client download remains a separate release gate.** The old Steam store URL

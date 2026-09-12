@@ -144,9 +144,8 @@ for the evidence, manual alternative and remaining release gates.
 The website published through [PR #9](https://github.com/gugarosa/Maple2/pull/9)
 now connects invite-only registration, compatible-client
 requirements and manual Mushroom connection steps without advertising a missing
-installer or game download. Web has an optional validated `PLAYER_WEBSITE_URL`
-return link; that backend change remains local and is not in the active game
-application release. The website revision is
+installer or game download. Web's optional validated `PLAYER_WEBSITE_URL` return
+link and matching registration-page design are now deployed. The static website revision is
 `f73db9073e932cb1042a7abd568dba0de49afd1c`, live at `https://ms2.mapletime.dev`.
 Public player access still requires the
 [website-to-game launch gates](CLIENT_SETUP.md#website-to-game-launch), including
@@ -156,24 +155,30 @@ cases. Separate local checks passed for the compiled Web build, URL guards and
 loopback-only account/error pages with and without the return link. Missing
 antiforgery and invalid registration still return HTTP 400; these checks did not
 create accounts or clear the public-launch gates.
-The registration page also matches the site's light/dark palette, with ten local
+The registration page also matches the site's light/dark palette, with ten live
 desktop/mobile/text-zoom cases checking layout, keyboard focus and input contrast.
-That account-page update is source-only until the Web application is redeployed.
+It remains on the approved-network HTTPS account service, not an open public signup.
 
 ## Delivery automation status
 
-Merge-triggered server delivery is implemented locally, separately from the paused
+Merge-triggered server delivery is operating, separately from the paused
 gameplay-development work. It reuses PR tests/format checks, builds source-bound
 Release images, takes quiesced backups and promotes only after runtime/source
 checks, with application rollback on failure. Schema, metadata, vendor and
 infrastructure changes require separate review; no player database is restored
 automatically.
 
-The MS2-only OIDC identity and master-only GitHub environment are provisioned.
-Automatic delivery remains disabled until the reviewed source/workflows are
-merged into the approved baseline and a clean hosted run passes. The current pilot was not redeployed,
-and these safeguards do not clear the installer or external-player acceptance
-blockers. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
+The MS2-only OIDC identity and master-only GitHub environment are active, with
+protected PR merges and `MS2_CD_ENABLED=true`. The first successful automatic
+rollout was [run 34721668981](https://github.com/gugarosa/Maple2/actions/runs/34721668981)
+for commit `60b9fc18ad4c7469805f4884d7eff88a5d50a5e5`. Source/image identity,
+registration, World channel 1, native assets/handshakes, backup checksum and retained
+player counts were verified. Sixty-four external idle-peer probes completed, and
+Login's post-check resource count was 17 threads rather than the previous 1,430.
+VM size, memory ceilings, budget and ingress were not increased.
+
+These delivery checks do not clear the installer or complete external-player
+gameplay acceptance. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
 
 ## Implemented in this fork
 

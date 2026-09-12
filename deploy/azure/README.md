@@ -72,13 +72,17 @@ Do not use either bootstrap procedure for application restarts.
 
 ### Version and runtime
 
-The Release images were built from a complete, checksummed server-source snapshot,
-without committing or pushing the working changes:
+The initial manual pilot used a complete, checksummed Release source/image
+snapshot before those changes were published:
 
 - Git base: `ddfb60bf6a737cdc1f7d7e141dd76941f8eea8b6`.
 - Source SHA-256: `c48bfebb77eb1a5183a5b6785b31e9bf8fc5f34ce794e6d2263a123929c7d33d`.
-- Active configuration: `20260912-c48bfebb77eb-a07b9801`.
+- Initial configuration: `20260912-c48bfebb77eb-a07b9801`.
 - Manifest SHA-256: `571021939b1c8e28be78cf563a4aa2f9541b0a29ff97dba301763630bc0c1ef3`.
+
+Automated delivery now advances `/srv/maple2/current`. Its `release.json` is the
+authoritative current commit, source hash, package identity and rollback reference;
+the initial snapshot above is historical, not a fixed deployment target.
 
 Private artifacts include six pinned Linux/amd64 images, the source, an EF
 migration bundle, static metadata, navigation and configuration. Checks accept
@@ -149,13 +153,18 @@ first; PRs keep their existing checks. A Linux `deployment-contracts` job exerci
 package validation, backup/failure/rollback control flow and a real Docker image
 archive round-trip using inert images.
 
-Delivery is **not live yet**. Azure/GitHub identity configuration has been
-provisioned, but `MS2_CD_ENABLED=false`. The runtime/deployment changes are prepared
-for review, not activated on the running server. The application was originally
-built from a verified snapshot ahead of published `master`. Merge the reviewed
-runtime/deployment baseline, pass its
-hosted checks, then enable delivery; do not deploy the older Git revision over
-the running pilot merely to exercise CI.
+Delivery is **enabled and verified** with `MS2_CD_ENABLED=true`. The first
+successful merge-triggered rollout was
+[run 34721668981](https://github.com/gugarosa/Maple2/actions/runs/34721668981),
+for commit `60b9fc18ad4c7469805f4884d7eff88a5d50a5e5`. It deployed through the
+MS2-only OIDC identity, uploaded a consistent backup and passed the VM and
+approved-network checks. The previous release was retained.
+
+That first rollout preserved one account and one home, with no characters or
+items created or removed. The remote backup was downloaded and checksum-verified.
+All 64 external orderly-disconnect probes closed correctly; Login had 17 threads
+afterward instead of the 1,430 observed before the receive-EOF fix. Current
+revisions and later runs should be read from the workflow and active manifest.
 
 The pipeline:
 
@@ -229,8 +238,8 @@ releases plus the original static-data artifacts during any reviewed cleanup.
 Low disk space blocks promotion rather than pruning recovery data or player volumes.
 Compose versions can encode byte limits as JSON numbers or numeric strings; both
 are validated against the same ceiling, and missing or unbounded limits are rejected.
-A successful hosted run is required before reporting automatic redeployment as
-operational.
+Do not treat a successful pipeline as public-player or installer acceptance;
+those release gates remain separate.
 
 ### Access evidence
 
@@ -340,9 +349,9 @@ client version and launcher release to `installer\distribution.json`.
 Web supports optional `PLAYER_WEBSITE_URL` for a setup link on its account and
 success pages. The authored Azure Compose value is
 `https://ms2.mapletime.dev/#getting-started`; startup rejects non-HTTPS or
-credential-bearing URLs. This Web code/configuration change is not in the active
-Azure release and must use a reviewed code-release upgrade, not the
-source-identical configuration updater.
+credential-bearing URLs. This navigation and the matching light/dark registration
+design are deployed. Future Web changes use the reviewed code-release workflow,
+not the legacy source-identical configuration updater.
 
 The redesign was published on 2026-09-12 through website-only
 [PR #9](https://github.com/gugarosa/Maple2/pull/9), revision
