@@ -1,0 +1,30 @@
+{
+  "version": "0.1.0",
+  "serverName": "MapleTime MS2 Azure",
+  "loginHost": "20.226.79.46",
+  "loginPort": 20001,
+  "registrationUrl": "https://play.ms2.mapletime.dev/account",
+  "websiteUrl": "https://ms2.mapletime.dev",
+  "clientExeSha256": "8123200cdffbeaf98264359ded1330d3f2c1a03fdef8332b7347b233c2355182",
+  "clientVersion": "20.8.1.0316",
+  "mushroom": {
+    "version": "2.0.3",
+    "url": "https://github.com/shuabritze/mushroom-launcher/releases/download/v2.0.3/Mushroom.Launcher-2.0.3.Setup.exe",
+    "sha256": "5dba751024cca4e220eb4931bff39865c4d43b60c8fb5932231998262fb636fd"
+  },
+  "vcRuntime": {
+    "minimumVersion": "14.44.35211.0",
+    "url": "https://download.visualstudio.microsoft.com/download/pr/bd1c8d9d-ba95-4eee-bc6e-df1fcc876373/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+    "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+  },
+  "artwork": {
+    "ms2-logo.png": "b7ae33c43d14cceb6725965c6fe6cc870e6bd4d743a41a6deba984f8e0991a71",
+    "ms2-world-mobile.webp": "41a13d6e5ed4046ac587c19113c775763a1c904ea386818b47c80358611dc622",
+    "ms2-mushroom.webp": "71e59ad74c7bfa4fd40b75635df2c55d5d26e45120a9bcaf0dca8ff1170ed17e"
+  },
+  "artworkSources": {
+    "heroAndMonster": "https://cdn.cloudflare.steamstatic.com/steam/apps/560380/library_hero.jpg",
+    "logo": "https://cdn.cloudflare.steamstatic.com/steam/apps/560380/logo.png",
+    "credit": "MapleStory 2 artwork copyright NEXON; project-specific use authorized by the owner."
+  }
+}

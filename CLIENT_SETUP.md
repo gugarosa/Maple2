@@ -189,7 +189,7 @@ manifest and code-signing process.
 
 ### Remote-release gates
 
-No remote endpoint or public installer is announced by this local setup kit.
+The source-only setup kit does not include a public game installer.
 Before inviting other computers:
 
 1. Set real client-reachable IPv4 values for `LOGIN_IP` and `GAME_IP`; expose the
@@ -208,6 +208,41 @@ Mushroom's launcher updates use the upstream Electron update feed. Optional XML
 mods use their own `mod.json` and file-hash URLs. Neither is this fork's account
 API, server-discovery API, or a full-client update service; do not invent those
 endpoints in a package.
+
+### Website and invited Azure testers
+
+The public information website is [`ms2.mapletime.dev`](https://ms2.mapletime.dev).
+Its redesigned setup section distinguishes account registration, the official
+launcher and the original game client. It does not collect passwords or provide
+a full-client download.
+
+The separately deployed Azure pilot accepts only operator-approved networks.
+Invited testers register at
+[`https://play.ms2.mapletime.dev/account`](https://play.ms2.mapletime.dev/account)
+and configure **MapleTime MS2 Azure**, Login host `20.226.79.46`, port `20001`.
+MS1 and local-development accounts/characters are separate from the Azure account.
+
+Close Mushroom before adding the credential-free profile:
+
+```powershell
+.\scripts\configure_client.ps1 -ClientPath "D:\MapleStory\MapleStory2\client" `
+    -LoginHost "20.226.79.46" -LoginPort 20001 -ServerName "MapleTime MS2 Azure"
+```
+
+Existing profiles are preserved. Leave automatic login disabled and sign in
+inside the game. Other networks are intentionally blocked; a reachable website
+does not imply public registration or game access.
+
+The MapleTime MS2 bootstrap remains withheld after a Windows Defender quarantine.
+No false-positive determination or approved full-client distribution has been
+established. Do not disable antivirus, restore quarantine or treat a checksum as
+a safety verdict. The official Mushroom release is a launcher, not this project's
+game-client package. Fresh-PC world entry and public-player acceptance remain
+separate release gates.
+
+`installer\distribution.json` records the shared endpoint, tested client version,
+publisher hashes and artwork provenance. This metadata-only website change does
+not publish or install the native bootstrap.
 
 ## Troubleshooting
 

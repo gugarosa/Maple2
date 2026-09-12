@@ -46,6 +46,21 @@ The following checks completed against isolated real client metadata and an isol
 
 This is an integration baseline, not evidence that every gameplay issue or reverse-engineered protocol flow is complete.
 
+## MS2 website redesign (2026-09-12)
+
+The website has MS2-specific hero/class artwork, a game logo, distinct monsters,
+light/dark themes and responsive navigation. Its concise player guide links
+invite-only HTTPS registration, official Mushroom and manual connection steps.
+The explicit publication allowlist and byte-for-byte probes cover all site assets.
+
+This is a website-only release. The Azure application was deployed separately
+and remains restricted to approved networks; native authentication has been
+observed, but fresh external-player world-entry acceptance is not complete.
+The Windows bootstrap remains withheld after antivirus quarantine. A website
+redesign does not open game ingress, publish a game client or clear those gates.
+See [client access](CLIENT_SETUP.md#website-and-invited-azure-testers) and
+[artwork provenance](deploy/azure/README.md#website-artwork).
+
 ## Implemented in this fork
 
 ### Runtime and operations

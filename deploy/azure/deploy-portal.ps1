@@ -4,8 +4,9 @@
 .SYNOPSIS
 Deploy the authored pilot information site to the isolated Maple2 Static Web App.
 .DESCRIPTION
-Requires a clean checkout at the exact origin/master revision. No game/client
-assets, credentials, API backend, or existing MapleTime site are uploaded.
+Requires a clean checkout at the exact origin/master revision. Uploads only the
+website and user-authorized promotional artwork. No client binaries, archives,
+credentials, API backend, or existing MapleTime site are uploaded.
 #>
 param(
     [Parameter(Mandatory = $true)][Guid]$SubscriptionId,
@@ -25,6 +26,14 @@ function Invoke-Checked {
         throw "$Command failed with exit code $LASTEXITCODE."
     }
 }
+function Test-PortalFile {
+    param([object]$Response, [string]$Path)
+    if ($Response.StatusCode -ne 200) { return $false }
+    $Response.RawContentStream.Position = 0
+    $actual = (Get-FileHash -InputStream $Response.RawContentStream -Algorithm SHA256).Hash
+    $expected = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    return $actual -eq $expected
+}
 foreach ($command in @('az', 'docker', 'git')) {
     if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
         throw "Required command is missing: $command"
@@ -40,6 +49,7 @@ $main = Invoke-Checked git @('-C', $root, 'rev-parse', 'origin/master')
 if ($revision -ne $main) {
     throw 'Portal deployment requires the exact current origin/master revision.'
 }
+& (Join-Path $root 'scripts\test_pilot_portal.ps1')
 $site = Invoke-Checked az @(
     'staticwebapp', 'show', '--subscription', $subscription,
     '--resource-group', $ResourceGroup, '--name', $StaticWebAppName,
@@ -53,7 +63,11 @@ $content = Join-Path $temporary 'site'
 $envFile = Join-Path $temporary 'deployment.env'
 $null = New-Item -ItemType Directory -Path $content
 try {
-    foreach ($file in @('index.html', 'styles.css', 'staticwebapp.config.json')) {
+    foreach ($file in @(
+        'index.html', 'styles.css', 'staticwebapp.config.json', 'mark.svg',
+        'ms2-logo.png', 'ms2-world.webp', 'ms2-world-mobile.webp',
+        'ms2-slime.webp', 'ms2-pig.webp', 'ms2-mushroom.webp'
+    )) {
         Copy-Item -LiteralPath (Join-Path (Join-Path $root 'website') $file) -Destination $content
     }
     $token = Invoke-Checked az @(
@@ -84,19 +98,29 @@ try {
     $ready = $false
     for ($attempt = 0; $attempt -lt 24; $attempt++) {
         try {
-            $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
-            if ($response.StatusCode -eq 200 -and $response.Content.Contains('MapleTime MS2') -and
-                $response.Content.Contains('Registration is not open yet')) {
-                $ready = $true
-                break
+            $ready = $true
+            foreach ($file in @(
+                'index.html', 'styles.css', 'mark.svg', 'ms2-logo.png',
+                'ms2-world.webp', 'ms2-world-mobile.webp',
+                'ms2-slime.webp', 'ms2-pig.webp', 'ms2-mushroom.webp'
+            )) {
+                $path = if ($file -eq 'index.html') { '/' } else { "/$file" }
+                $response = Invoke-WebRequest -Uri "$url$path" -UseBasicParsing -TimeoutSec 15
+                if (-not (Test-PortalFile -Response $response -Path (Join-Path $content $file))) {
+                    Write-Verbose "Waiting for the uploaded revision of $file."
+                    $ready = $false
+                    break
+                }
             }
+            if ($ready) { break }
         } catch [System.Net.WebException], [System.Net.Http.HttpRequestException] {
+            $ready = $false
             Write-Verbose "Portal is not ready yet: $($_.Exception.Message)"
         }
         Start-Sleep -Seconds 5
     }
     if (-not $ready) {
-        throw 'Uploaded portal did not become ready with the expected private-pilot content.'
+        throw 'Uploaded portal did not become ready with the exact expected HTML, stylesheet, and artwork.'
     }
     Write-Host "Pilot information site deployed from $revision at $url"
     Write-Host 'Custom DNS, HTTPS bindings, registration, and public game access are separate readiness gates.'
