@@ -392,6 +392,8 @@ def deliver(directory, revision, package_hash):
     arguments = [SUBSCRIPTION, package["release"], package_hash, revision]
     script_hash = package["files"]["deploy-release.sh"]
     script = (
+        "#!/bin/bash\n"
+        '[ -n "${BASH_VERSION:-}" ] || exec /bin/bash "$0" "$@"\n'
         "set -Eeuo pipefail\numask 077\n"
         "temporary=$(mktemp /tmp/maple2-delivery.XXXXXX)\n"
         "trap 'rm -f -- \"$temporary\"' EXIT\n"

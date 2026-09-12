@@ -198,6 +198,8 @@ maintenance work.
 
 The `release.py` helper reads both classic Docker and OCI save formats and verifies
 their cryptographic identities. `deploy-release.sh` handles promotion/recovery.
+The generated Run Command wrapper explicitly selects Bash, including when the VM
+agent initially starts it with `/bin/sh`; its shell handoff has a regression check.
 The backup helper's internal `--deployment` mode requires the inherited
 maintenance lock and deliberately leaves writers stopped for its caller.
 CI-managed releases reject the older configuration-only updater.
