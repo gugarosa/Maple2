@@ -201,6 +201,12 @@ blockers. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
   reset the client before its final login/migration response was consumed. A
   network regression reproduces the reset before the fix; actual client login,
   character selection, world entry, and directional movement work after it.
+- Receive EOF now completes the pipe writer so orderly, idle peer disconnects
+  release their session workers and socket. Deployment preflight exposed the
+  resulting Login thread/file-descriptor leak and three memory-limit restarts.
+  The new one-connection and repeated-close regressions failed before the fix;
+  the regular Release suite now passes 508 tests. VM size and memory caps were
+  not increased to hide the leak.
 - Environment variables override `appsettings.json` in all five logging entrypoints.
   Authentication payloads are excluded from verbose packet traces.
 - Re-registering a Game endpoint creates a fresh gRPC transport/monitor while

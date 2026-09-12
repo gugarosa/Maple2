@@ -59,6 +59,27 @@ public class SessionTests {
         }
     }
 
+    [TestCase(1)]
+    [TestCase(32)]
+    public async Task OrderlyPeerCloseReleasesTheSession(int connections) {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        for (int index = 0; index < connections; index++) {
+            (TcpClient server, TcpClient peer) = await ConnectClients();
+            using (server)
+            using (peer)
+            using (var session = new TestSession(server)) {
+                session.Start();
+                NetworkStream stream = peer.GetStream();
+                await stream.ReadExactlyAsync(new byte[25], timeout.Token);
+                peer.Client.Shutdown(SocketShutdown.Send);
+
+                await session.Disposed.Task.WaitAsync(timeout.Token);
+                Assert.That(session.State, Is.EqualTo(SessionState.Disconnected));
+                Assert.That(await stream.ReadAsync(new byte[1], timeout.Token), Is.Zero);
+            }
+        }
+    }
+
     private static async Task<(TcpClient, TcpClient)> ConnectClients() {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
