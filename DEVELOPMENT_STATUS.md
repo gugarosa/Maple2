@@ -139,6 +139,8 @@ security protection was weakened, and complete repeat-install/clean-PC acceptanc
 remains blocked. See [installer verification](CLIENT_SETUP.md#installer-verification-status)
 for the evidence, manual alternative and remaining release gates.
 
+## MS2 website redesign (2026-09-12)
+
 The website published through [PR #9](https://github.com/gugarosa/Maple2/pull/9)
 now connects invite-only registration, compatible-client
 requirements and manual Mushroom connection steps without advertising a missing
@@ -154,6 +156,9 @@ cases. Separate local checks passed for the compiled Web build, URL guards and
 loopback-only account/error pages with and without the return link. Missing
 antiforgery and invalid registration still return HTTP 400; these checks did not
 create accounts or clear the public-launch gates.
+The registration page also matches the site's light/dark palette, with ten local
+desktop/mobile/text-zoom cases checking layout, keyboard focus and input contrast.
+That account-page update is source-only until the Web application is redeployed.
 
 ## Delivery automation status
 
@@ -166,7 +171,7 @@ automatically.
 
 The MS2-only OIDC identity and master-only GitHub environment are provisioned.
 Automatic delivery remains disabled until the reviewed source/workflows are
-published and a clean hosted baseline passes. The current pilot was not redeployed,
+merged into the approved baseline and a clean hosted run passes. The current pilot was not redeployed,
 and these safeguards do not clear the installer or external-player acceptance
 blockers. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
 

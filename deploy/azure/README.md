@@ -140,9 +140,10 @@ package validation, backup/failure/rollback control flow and a real Docker image
 archive round-trip using inert images.
 
 Delivery is **not live yet**. Azure/GitHub identity configuration has been
-provisioned, but `MS2_CD_ENABLED=false` and the new workflows remain uncommitted
-and unpublished. The running application also contains verified changes ahead of
-published `master`. Publish the reviewed runtime/deployment baseline, pass its
+provisioned, but `MS2_CD_ENABLED=false`. The runtime/deployment changes are prepared
+for review, not activated on the running server. The application was originally
+built from a verified snapshot ahead of published `master`. Merge the reviewed
+runtime/deployment baseline, pass its
 hosted checks, then enable delivery; do not deploy the older Git revision over
 the running pilot merely to exercise CI.
 
@@ -300,17 +301,22 @@ resource limits, and private multi-client validation.
 
 ## Website deployment
 
-`website` is a script-free static site with the same broad layout as MS1:
-navigation, a hero, setup cards, project updates, and a status panel. Its content
-follows MS2's compatible client, official Mushroom Launcher, explicit registration,
-and character-creation flow. Public registration/gameplay remain closed; this is
-not a live health monitor or an account frontend. It describes the restricted
-Azure application pilot without claiming public availability.
+`website` is a script-free MS2 site with the same broad layout as MS1: navigation,
+a hero, setup cards, project updates and status. It uses approved MS2 artwork,
+distinct monsters, light/dark themes, a native mobile menu and concise setup help.
+The website can be published independently of the installer and public-game gates.
 
-The authored player journey links the real pilot registration page, one official
-Mushroom release and in-page client requirements/connection steps. Registration
-links explicitly require an approved network. No direct installer or game-client
-download is advertised while those release gates are blocked.
+The separate Azure application is running as an invite-only pilot. The website
+links its HTTPS registration page for approved networks, one official Mushroom
+release and manual connection instructions. No game-client or MapleTime installer
+download is advertised while their release gates remain blocked. The site neither
+collects credentials nor claims to be a live server-health monitor.
+
+`installer\distribution.json` is shared version/endpoint/artwork metadata, not an
+installer binary. The portal checks compare the player-facing details with that
+contract. The website publication did not deploy server code, enable automatic
+server delivery, change application ingress or publish a native installer.
+
 `scripts\test_pilot_portal.ps1` checks these boundaries and compares the endpoint,
 client version and launcher release to `installer\distribution.json`.
 
@@ -355,7 +361,8 @@ before retrieving deployment credentials. It uploads only the ten allowlisted
 HTML, CSS, configuration, and artwork files using Microsoft's deployment client,
 keeps the token outside the checkout, and compares every served page/style/image
 with its exact uploaded bytes. A still-cached old page or missing image is not
-deployment success. It cannot deploy to the MS1 site.
+deployment success. It cannot deploy to the MS1 site. Also verify
+`https://ms2.mapletime.dev` after publication.
 
 ### Website artwork
 

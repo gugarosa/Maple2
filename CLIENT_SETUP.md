@@ -320,6 +320,8 @@ absolute HTTPS URL without credentials. The Azure Compose definition sets
 `https://ms2.mapletime.dev/#getting-started`. This source change has not been
 deployed to the current application release. It adds navigation, not shared MS1
 accounts, cross-site password collection or automatic client login.
+The account page follows the site's light/dark palette and mobile layout.
+Its password fields, antiforgery validation and account rules remain unchanged.
 
 **A client download remains a separate release gate.** The old Steam store URL
 for app `560380` redirected to Steam's homepage on 2026-09-12. Mushroom contains
@@ -372,6 +374,18 @@ Mushroom's launcher updates use the upstream Electron update feed. Optional XML
 mods use their own `mod.json` and file-hash URLs. Neither is this fork's account
 API, server-discovery API, or a full-client update service; do not invent those
 endpoints in a package.
+
+### Website and invited Azure testers
+
+The public information website is [`ms2.mapletime.dev`](https://ms2.mapletime.dev).
+Invited testers should follow the [private Azure steps](#private-azure-pilot-2026-09-12).
+Other networks remain blocked. The [installer verification gate](#installer-verification-status)
+and [website-to-game launch criteria](#website-to-game-launch) are independent of
+the completed website redesign.
+
+`installer\distribution.json` records the shared endpoint, tested client version,
+publisher hashes and artwork provenance. The file was published with website-only
+PR #9; it contains metadata, not a native installer or game-client payload.
 
 ## Troubleshooting
 
