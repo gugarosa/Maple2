@@ -1,0 +1,107 @@
+name: Deliver Maple2
+
+on:
+  push:
+    branches: ["master"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maple2-server-delivery
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+  formatting:
+    uses: ./.github/workflows/format.yml
+
+  package:
+    needs: [tests, formatting]
+    if: github.repository == 'gugarosa/Maple2' && github.ref == 'refs/heads/master' && vars.MS2_CD_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    outputs:
+      release: ${{ steps.package.outputs.release }}
+      package_hash: ${{ steps.package.outputs.package_hash }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reject a superseded revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head=$(gh api repos/gugarosa/Maple2/git/ref/heads/master --jq .object.sha)
+          test "$head" = "$GITHUB_SHA" || { echo "A newer master revision superseded this run."; exit 1; }
+      - name: Build committed Release images and corresponding source
+        id: package
+        run: |
+          python3 deploy/azure/release.py build --repo "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/maple2-release" --revision "$GITHUB_SHA" > "$RUNNER_TEMP/package-result.json"
+          cat "$RUNNER_TEMP/package-result.json"
+          echo "release=$(jq -er .release "$RUNNER_TEMP/package-result.json")" >> "$GITHUB_OUTPUT"
+          echo "package_hash=$(jq -er .packageSha256 "$RUNNER_TEMP/package-result.json")" >> "$GITHUB_OUTPUT"
+      - name: Retain the immutable deployment package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: maple2-${{ github.sha }}
+          path: ${{ runner.temp }}/maple2-release
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: maple2-pilot
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: maple2-${{ github.sha }}
+          path: ${{ runner.temp }}/maple2-release
+      - name: Authenticate with the MS2-only federated identity
+        run: |
+          test "$AZURE_SUBSCRIPTION_ID" = "eb09d227-552f-4003-9129-c3f9cc36748d"
+          test "$AZURE_TENANT_ID" = "ffb26935-7e1d-4409-add6-17cf12ee143e"
+          test -n "$AZURE_CLIENT_ID"
+          token=$(curl --fail --silent --show-error --get \
+            --data-urlencode "audience=api://AzureADTokenExchange" \
+            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -er .value)
+          echo "::add-mask::$token"
+          az login --service-principal --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+            --federated-token "$token" --allow-no-subscriptions --output none
+          unset token
+      - name: Upload, back up, deploy and verify the private pilot
+        env:
+          PACKAGE_HASH: ${{ needs.package.outputs.package_hash }}
+          RELEASE_ID: ${{ needs.package.outputs.release }}
+        run: |
+          python3 deploy/azure/release.py deliver --directory "$RUNNER_TEMP/maple2-release" \
+            --revision "$GITHUB_SHA" --package-hash "$PACKAGE_HASH"
+          {
+            echo "### MS2 private pilot updated"
+            echo "Revision: \`$GITHUB_SHA\`"
+            echo "Release: \`$RELEASE_ID\`"
+            echo "Backups, source identity, registration, native handshakes and World channel readiness verified."
+            echo "This does not open public ingress, publish a client installer, or certify external gameplay."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Clear the runner's Azure session
+        if: always()
+        run: az logout
