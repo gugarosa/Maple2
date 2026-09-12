@@ -497,8 +497,9 @@ class DockerArchiveTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory(prefix="maple2-image-check-") as temporary:
                 root = Path(temporary)
+                (root / "fixture.txt").write_text("Inert image provenance fixture; no executable payload.\n")
                 (root / "Dockerfile").write_text(
-                    "FROM scratch\nARG ROLE\n"
+                    "FROM scratch\nCOPY fixture.txt /fixture.txt\nARG ROLE\n"
                     f'LABEL org.mapletime.source.sha256="{SOURCE}"\n'
                     f'LABEL org.opencontainers.image.revision="{REVISION}"\n'
                     'LABEL fixture.role="$ROLE"\n'
