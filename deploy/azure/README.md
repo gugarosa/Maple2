@@ -116,9 +116,21 @@ resource limits, and private multi-client validation.
 
 ## Website deployment
 
-`website` contains only authored static HTML/CSS and Static Web Apps configuration.
-The page explicitly states that registration/public gameplay are not open.
-It does not collect credentials or pretend to be a live health monitor.
+`website` is a script-free MS2 site with the same broad layout as MS1: navigation,
+a hero, setup cards, project updates and status. It uses approved MS2 artwork,
+distinct monsters, light/dark themes, a native mobile menu and concise setup help.
+The website can be published independently of the installer and public-game gates.
+
+The separate Azure application is running as an invite-only pilot. The website
+links its HTTPS registration page for approved networks, one official Mushroom
+release and manual connection instructions. No game-client or MapleTime installer
+download is advertised while their release gates remain blocked. The site neither
+collects credentials nor claims to be a live server-health monitor.
+
+`installer\distribution.json` is shared version/endpoint/artwork metadata, not an
+installer binary. The portal checks compare the player-facing details with that
+contract. This website release does not deploy server code, enable automatic
+server delivery, change application ingress or publish a native installer.
 
 From the clean, validated `origin/master` revision:
 
@@ -127,10 +139,42 @@ From the clean, validated `origin/master` revision:
     -StaticWebAppName swa-maple2-lx7rwls5nb4z2
 ```
 
-The script checks the target's `project=maple2` tag, uploads only three approved
-static files using Microsoft's deployment client, keeps the token in a temporary
-file outside the checkout, and verifies the generated HTTPS endpoint. It cannot
-deploy to the existing MS1 site.
+The script checks the target's `project=maple2` tag and uploads only the explicit
+HTML/CSS/configuration/artwork allowlist using Microsoft's deployment client.
+It keeps the token outside the checkout and verifies exact live HTML, CSS and
+image bytes rather than accepting HTTP 200 with stale content. It cannot deploy
+to the existing MS1 site. Also verify `https://ms2.mapletime.dev` after publication.
+
+### Website artwork
+
+On 2026-09-12, the project owner explicitly confirmed permission to use MS2 artwork
+for this website. This project-specific permission does not license the original
+game archives or imply unrestricted artwork redistribution. The site retains
+NEXON attribution and its independent, non-commercial, non-affiliated status.
+
+Only two official images from Steam application `560380` are used:
+
+| Source | Dimensions | SHA-256 |
+|---|---|---|
+| [Library hero](https://cdn.cloudflare.steamstatic.com/steam/apps/560380/library_hero.jpg) | 1920 x 620 | `143f7570c9dce1397ea6b72ff186e42aacd6c0baff697dc8bf627169b7975675` |
+| [Game logo](https://cdn.cloudflare.steamstatic.com/steam/apps/560380/logo.png) | 640 x 360 | `88cc543dddb63b211edccb31530a75a8b17c2ce9912843ca5578b30ae236bc96` |
+
+Derivatives use Pillow 12.1.1. Crop coordinates are `(left, top, right, bottom)`,
+with right/bottom exclusive. No client files were used, and no image was enlarged.
+
+| Website file | Source and conversion |
+|---|---|
+| `ms2-world.webp` | Full hero; WebP quality 88, method 6 |
+| `ms2-world-mobile.webp` | Hero crop `(748, 0, 1876, 620)`; WebP quality 88, method 6 |
+| `ms2-logo.png` | Logo crop `(0, 57, 640, 303)` removes transparent padding; optimized PNG |
+| `ms2-slime.webp` | Hero crop `(176, 43, 292, 159)`; WebP quality 90, method 6 |
+| `ms2-pig.webp` | Hero crop `(1771, 0, 1873, 102)`; WebP quality 90, method 6 |
+| `ms2-mushroom.webp` | Hero crop `(1562, 129, 1632, 199)`; WebP quality 90, method 6 |
+
+The mobile crop keeps the class characters in frame. Updates use distinct MS2
+monsters, not MS1 sprites. `scripts\test_pilot_portal.ps1` pins the derivative
+hashes and rejects unreviewed/external assets. Images are served locally under
+`img-src 'self'`; there are no JavaScript, font or third-party image dependencies.
 
 ## Porkbun records
 
