@@ -227,6 +227,8 @@ GitHub intermediate artifacts expire after one day. VM/private-blob releases are
 retained for recovery; monitor their growth and preserve the active and rollback
 releases plus the original static-data artifacts during any reviewed cleanup.
 Low disk space blocks promotion rather than pruning recovery data or player volumes.
+Compose versions can encode byte limits as JSON numbers or numeric strings; both
+are validated against the same ceiling, and missing or unbounded limits are rejected.
 A successful hosted run is required before reporting automatic redeployment as
 operational.
 
