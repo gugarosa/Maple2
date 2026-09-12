@@ -63,12 +63,13 @@ def image_archive(path, oci=True, source=SOURCE, revision=REVISION):
     return references, expected
 
 
-def package_fixture(directory, model="public class Model {}"):
+def package_fixture(directory, model="public class Model {}", game_model="public class SkillBook {}"):
     directory.mkdir()
     (directory / "source").mkdir()
     tar_write(directory / "source" / "server-source.tar.gz", {
         "Maple2.Server.World/Migrations/001.cs": model,
         "Maple2.Database/Context/Game.cs": "context",
+        "Maple2.Model/Game/SkillBook.cs": game_model,
         "Maple2.Server.Game/Runtime.cs": "runtime",
     })
     source_hash = release.digest(directory / "source" / "server-source.tar.gz")
@@ -194,6 +195,23 @@ class ReleaseTests(unittest.TestCase):
             tar_write(root / "changed.gz", {"Maple2.Server.World/Migrations/001.cs": "changed schema"})
             self.assertNotEqual(release.data_contract(root / "before.gz"), release.data_contract(root / "changed.gz"))
 
+    def test_owned_and_json_model_types_are_in_the_data_contract(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            files = {
+                "Maple2.Server.World/Migrations/001.cs": "unchanged migration",
+                "Maple2.Model/Game/SkillBook.cs": "public int MaxSkillTabs { get; set; }",
+                "Maple2.Model/Common/Stats.cs": "public int Value { get; set; }",
+                "Maple2.Model/Enum/EquipSlot.cs": "enum EquipSlot { Head = 1 }",
+            }
+            tar_write(root / "before.gz", files)
+            for name in files:
+                if not name.startswith("Maple2.Model/"):
+                    continue
+                tar_write(root / "after.gz", {**files, name: files[name] + "\npublic int Added { get; set; }"})
+                with self.subTest(name=name):
+                    self.assertNotEqual(release.data_contract(root / "before.gz"), release.data_contract(root / "after.gz"))
+
     def test_saved_image_formats_and_source_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "images.tar.gz"
@@ -277,6 +295,11 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Schema/metadata changes"):
                 release.prepare(changed, previous, REVISION, changed_hash)
             self.assertFalse((changed / ".env").exists())
+            owned = root / "changed-owned"
+            _, owned_hash = package_fixture(owned, game_model="public class SkillBook { public int Added { get; set; } }")
+            with self.assertRaisesRegex(ValueError, "Schema/metadata changes"):
+                release.prepare(owned, previous, REVISION, owned_hash)
+            self.assertFalse((owned / ".env").exists())
 
     def test_azure_wrapper_never_accepts_success_shaped_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -323,7 +346,7 @@ class ReleaseTests(unittest.TestCase):
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash") and shutil.which("jq"),
                      "Linux bash/jq recovery checks run in the deployment-contracts CI job.")
 class DeploymentControlFlowTests(unittest.TestCase):
-    def scenario(self, failure="none"):
+    def scenario(self, failure="none", legacy=False):
         with tempfile.TemporaryDirectory(prefix="maple2-deployment-check-") as temporary:
             base = Path(temporary)
             root, remote, commands = base / "srv", base / "remote", base / "bin"
@@ -343,11 +366,12 @@ class DeploymentControlFlowTests(unittest.TestCase):
                                   "configId": "sha256:" + "d" * 64}
                            for role in (*release.APP_ROLES, *release.VENDOR_ROLES)},
             }
-            (previous / "release.json").write_bytes(release.json_bytes(manifest))
             (previous / ".env").write_text("DB_PASSWORD=synthetic-only\n")
             (previous / "compose.yml").write_text("fixture")
             for name in release.DATA_FILES:
                 (previous / name).write_text("retained static artifact")
+            manifest["files"] = {name: release.digest(previous / name) for name in release.DATA_FILES}
+            (previous / "release.json").write_bytes(release.json_bytes(manifest))
             lock = base / "maintenance.lock"
             for name in ("deploy-release.sh", "start-application.sh", "backup-application.sh", "update-configuration.sh"):
                 text = (ROOT / "deploy" / "azure" / name).read_text().replace(
@@ -356,6 +380,8 @@ class DeploymentControlFlowTests(unittest.TestCase):
                 (package / name).chmod(0o700)
             (previous / "start-application.sh").write_bytes((package / "start-application.sh").read_bytes())
             (previous / "start-application.sh").chmod(0o700)
+            (previous / "backup-application.sh").write_bytes((package / "backup-application.sh").read_bytes())
+            (previous / "backup-application.sh").chmod(0o700)
             (package / "release.py").write_text("inert fixture; intercepted by the test command shim")
             tar_write(package / "images.tar.gz", {"fixture": "inert image archive"})
             descriptor = {
@@ -367,10 +393,23 @@ class DeploymentControlFlowTests(unittest.TestCase):
             descriptor["fileSizes"] = {name: (package / name).stat().st_size for name in descriptor["files"]}
             (package / "package.json").write_bytes(release.json_bytes(descriptor))
             fingerprint = release.digest(package / "package.json")
+            script_name = "deploy-release.sh"
+            if legacy:
+                for name in release.DATA_FILES:
+                    shutil.copyfile(previous / name, package / name)
+                candidate_manifest = {
+                    **manifest, "release": candidate_name,
+                    "sourceSha256": "c" * 64 if failure == "incompatible" else SOURCE,
+                    "files": {**descriptor["files"], **manifest["files"]},
+                }
+                (package / "release.json").write_bytes(release.json_bytes(candidate_manifest))
+                fingerprint = release.digest(package / "release.json")
+                script_name = "update-configuration.sh"
             config = {
                 "root": str(root), "remote": str(remote), "previous": str(previous),
                 "candidate": str(candidate), "manifest": manifest, "failure": failure,
-                "log": str(base / "commands.log"),
+                "log": str(base / "commands.log"), "legacy": legacy,
+                "candidate_started": str(base / "candidate-started"),
             }
             config_path = base / "fixture.json"
             config_path.write_bytes(release.json_bytes(config))
@@ -417,8 +456,14 @@ elif command == "docker":
             print("-- consistent synthetic player snapshot")
         elif "ps" in args and "--quiet" in args:
             print("fixture-" + args[-1])
-        elif "up" in args and str(Path(value("--file")).resolve().parent) == config["candidate"] and config["failure"] == "startup-failure":
-            sys.exit(17)
+        elif "up" in args:
+            candidate = str(Path(value("--file")).resolve().parent) == config["candidate"]
+            if candidate:
+                Path(config["candidate_started"]).touch()
+            if candidate and config["failure"] == "startup-failure":
+                sys.exit(17)
+            if config["legacy"] and config["failure"] == "rollback-failure" and Path(config["candidate_started"]).exists():
+                sys.exit(18)
 elif command == "python3":
     operation = args[1]
     directory = Path(value("--directory"))
@@ -440,8 +485,11 @@ elif command == "python3":
             for command in ("az", "docker", "python3", "mountpoint", "findmnt", "df", "id"):
                 (commands / command).symlink_to(shim)
             env = {**os.environ, "PATH": str(commands) + os.pathsep + os.environ["PATH"], "MS2_FIXTURE": str(config_path)}
+            arguments = ["bash", str(package / script_name), release.SUBSCRIPTION, candidate_name, fingerprint]
+            if not legacy:
+                arguments.append(REVISION)
             result = subprocess.run(
-                ["bash", str(package / "deploy-release.sh"), release.SUBSCRIPTION, candidate_name, fingerprint, REVISION],
+                arguments,
                 text=True, capture_output=True, env=env, timeout=30,
             )
             output = result.stdout + result.stderr
@@ -450,7 +498,7 @@ elif command == "python3":
             if failure == "none":
                 self.assertEqual(result.returncode, 0, output)
                 self.assertEqual((root / "current").resolve(), candidate)
-                self.assertIn("MS2_RELEASE_DEPLOYED " + REVISION, output)
+                self.assertIn("MS2_CONFIGURATION_UPDATED" if legacy else "MS2_RELEASE_DEPLOYED " + REVISION, output)
                 self.assertIn("MS2_BACKUP_UPLOADED", output)
                 backups = list((root / "backups").glob("ms2-*.tar.gz"))
                 self.assertEqual(len(backups), 1)
@@ -462,12 +510,13 @@ elif command == "python3":
                 self.assertNotEqual(result.returncode, 0, output)
                 self.assertEqual((root / "current").resolve(), previous)
                 self.assertNotIn("MS2_RELEASE_DEPLOYED", output)
+                self.assertNotIn("MS2_CONFIGURATION_UPDATED", output)
                 if failure in ("incompatible", "wrong-mount", "low-space"):
                     self.assertNotIn(" stop ", log)
                 elif failure == "rollback-failure":
-                    self.assertIn("MS2_ROLLBACK_FAILED", output)
+                    self.assertIn("MS2_CONFIGURATION_ROLLBACK_FAILED" if legacy else "MS2_ROLLBACK_FAILED", output)
                 else:
-                    self.assertIn("MS2_ROLLBACK_VERIFIED", output)
+                    self.assertIn("MS2_CONFIGURATION_ROLLBACK_VERIFIED" if legacy else "MS2_ROLLBACK_VERIFIED", output)
             self.assertNotIn("volume rm", log)
             self.assertNotIn("database=game-server", log)
             self.assertNotIn("efbundle", log)
@@ -487,6 +536,11 @@ elif command == "python3":
 
     def test_failed_rollback_never_reports_success(self):
         self.scenario("rollback-failure")
+
+    def test_legacy_configuration_updates_recover_failed_startup(self):
+        for failure in ("none", "incompatible", "startup-failure", "rollback-failure"):
+            with self.subTest(failure=failure):
+                self.scenario(failure, legacy=True)
 
 
 @unittest.skipUnless(os.environ.get("MS2_CICD_DOCKER_TESTS") == "1",

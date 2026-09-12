@@ -127,7 +127,10 @@ decision, never an automatic fallback. Retain the static metadata/navigation
 artifacts named by the release manifest.
 
 `update-configuration.sh` permits source/image/static-data-identical updates and
-takes a backup first. `install-application.sh` is initial-installation-only and
+takes a backup first. Failed legacy configuration starts restore the previous
+release and rerun its image/container-health checks; failed recovery is explicit.
+The updater also rejects a changed active release before stopping writers.
+`install-application.sh` is initial-installation-only and
 refuses to overwrite an initialized application. Code/schema upgrades need a
 separately reviewed migration and rollback procedure.
 
@@ -175,8 +178,11 @@ The probes run on the VM because GitHub-hosted runners are not admitted by the
 pilot's `/32` ingress. They are not a substitute for external gameplay acceptance.
 
 **Automatic promotion is limited to data-compatible code releases.** Migration,
-database model/context/converter, metadata model/storage, importer and selected
-database-tool changes stop before downtime for an operator-reviewed data release.
+database model/context/converter, model-project, metadata-storage, importer and
+selected database-tool changes stop before downtime for operator review.
+The entire `Maple2.Model` project is gated because EF-owned and JSON-persisted
+types also live in its Game, Common and Enum directories. This deliberately
+includes model-only edits that may turn out not to require a migration.
 The updater preserves MySQL/Caddy images, database identities, persistent mounts,
 published ports and the existing memory ceiling. It neither re-ingests metadata
 nor executes EF migrations. Code fixes that do not change those contracts can be

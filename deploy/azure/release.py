@@ -42,7 +42,8 @@ REVIEW_PREFIXES = (
     "Maple2.Server.World/Migrations/", "Maple2.Database/Context/",
     "Maple2.Database/Model/", "Maple2.Database/Extensions/",
     "Maple2.Database/Storage/Metadata/", "Maple2.File.Ingest/",
-    "Maple2.Model/Metadata/",
+    # ponytail: gate the whole model project; narrow only with a verified EF/JSON type inventory.
+    "Maple2.Model/",
 )
 REVIEW_FILES = {
     ".config/dotnet-tools.json", "Maple2.Database/Maple2.Database.csproj",
