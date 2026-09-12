@@ -16,10 +16,11 @@ COPY . .
 WORKDIR "/src/Maple2.Server.World"
 
 FROM build AS publish
-RUN dotnet publish "Maple2.Server.World.csproj" -c Debug
+ARG BUILD_CONFIGURATION=Debug
+RUN dotnet publish "Maple2.Server.World.csproj" -c "$BUILD_CONFIGURATION" -o /app/publish
 
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /src/Maple2.Server.World/bin/Debug/net8.0/publish .
+COPY --from=publish /app/publish .
 
 ENTRYPOINT ["dotnet", "Maple2.Server.World.dll"]

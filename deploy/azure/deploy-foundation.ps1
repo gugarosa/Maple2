@@ -45,6 +45,9 @@ if ($exists -eq 'true') {
         -not $existing.tags.PSObject.Properties['project'] -or $existing.tags.project -ne 'maple2') {
         throw "Refusing to adopt a resource group not identified as this Maple2 foundation: $group"
     }
+    if ($Apply -and $existing.tags.PSObject.Properties['application']) {
+        throw 'An application deployment owns this group''s ingress. Use the application procedure; reapplying the empty foundation would remove its access rules.'
+    }
 } elseif ($exists -ne 'false') {
     throw 'Azure returned an unexpected resource-group existence result.'
 }

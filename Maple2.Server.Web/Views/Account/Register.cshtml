@@ -1,6 +1,7 @@
 @model Maple2.Server.Web.Model.RegistrationForm
 @{
     Layout = null;
+    string? playerWebsiteUrl = Environment.GetEnvironmentVariable("PLAYER_WEBSITE_URL");
 }
 <!doctype html>
 <html lang="en">
@@ -8,34 +9,53 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="same-origin" />
-    <title>Maple2 account registration</title>
+    <title>MapleStory 2 account registration</title>
     <style>
-        :root { color-scheme: light dark; font: 1rem/1.5 system-ui, sans-serif; }
-        body { margin: 0; padding: 2rem 1rem; background: #14231e; color: #f0f6f2; }
-        main { max-width: 32rem; margin: 3rem auto; padding: 2rem; border: 1px solid #587467; border-radius: 1rem; background: #20372d; }
-        h1 { margin-top: 0; font-size: 1.8rem; }
+        :root {
+            color-scheme: light; font: 1rem/1.6 "Segoe UI", system-ui, sans-serif;
+            --page: #fbfdff; --surface: #fff; --soft: #eef5f9; --ink: #19334a;
+            --muted: #526b7d; --line: #dce6ed; --accent: #086f94; --input-border: #748a9c;
+            --error: #a12626; --error-bg: #fff2f2; --success: #12634c; --success-bg: #edf9f3;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 2rem 1rem; background: var(--page); color: var(--ink); }
+        main { max-width: 32rem; margin: 3rem auto; padding: 2rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); }
+        h1 { margin-top: 0; font-size: 1.8rem; overflow-wrap: anywhere; }
+        h2 { font-size: 1.25rem; }
         label { display: block; margin-top: 1.25rem; font-weight: 600; }
-        input { box-sizing: border-box; width: 100%; padding: .7rem; margin-top: .3rem; border: 1px solid #aac2b6; border-radius: .3rem; background: #f6faf7; color: #14231e; font: inherit; }
-        button { width: 100%; margin-top: 1.5rem; padding: .8rem; border: 0; border-radius: .3rem; background: #f4cf64; color: #18271f; font: inherit; font-weight: 700; cursor: pointer; }
-        input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #f4cf64; outline-offset: 3px; }
-        small, .note { color: #c5d8cd; }
-        .errors { padding: .8rem 1rem; border: 1px solid #ffa8a8; border-radius: .3rem; color: #ffdede; }
+        input { width: 100%; min-height: 2.75rem; padding: .7rem; margin-top: .3rem; border: 1px solid var(--input-border); border-radius: .5rem; background: var(--soft); color: var(--ink); font: inherit; }
+        button { width: 100%; min-height: 2.75rem; margin-top: 1.5rem; padding: .8rem; border: 0; border-radius: .5rem; background: #f6ca63; color: #19334a; font: inherit; font-weight: 700; cursor: pointer; }
+        button:hover { background: #ffdf92; }
+        input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+        small, .note { color: var(--muted); }
+        .errors { padding: .8rem 1rem; border: 1px solid var(--error); border-radius: .5rem; color: var(--error); background: var(--error-bg); }
         .errors ul { margin: 0; padding-left: 1.2rem; }
-        .success { padding: 1rem; border: 1px solid #9ae5b2; border-radius: .3rem; }
-        code { overflow-wrap: anywhere; }
-        a { color: #f4cf64; }
+        .success { padding: 1rem; border: 1px solid var(--success); border-radius: .5rem; color: var(--success); background: var(--success-bg); }
+        p, code, a { overflow-wrap: anywhere; }
+        a { color: var(--accent); text-underline-offset: .2em; }
+        @@media (max-width: 30rem) {
+            body { padding: 1rem; }
+            main { margin: 1rem auto; padding: 1.25rem; }
+        }
+        @@media (prefers-color-scheme: dark) {
+            :root {
+                color-scheme: dark; --page: #101d29; --surface: #162633; --soft: #1b3040;
+                --ink: #e8f1f7; --muted: #adbfce; --line: #304758; --accent: #80d2ef; --input-border: #7494aa;
+                --error: #ffb4b4; --error-bg: #40292d; --success: #9ae5b2; --success-bg: #183b30;
+            }
+        }
     </style>
 </head>
 <body>
 <main>
-    <h1>Maple2 account</h1>
+    <h1>MapleStory 2 account</h1>
     @if (Model.RegisteredUsername != null) {
         <div class="success" role="status">
             Account <strong>@Model.RegisteredUsername</strong> is ready.
         </div>
         <h2>Sign in to the game</h2>
         <p>Open your compatible MapleStory2 client and enter your username and password on its login screen.</p>
-        <p>For local play, select server <code>127.0.0.1</code>, port <code>20001</code>. Leave automatic login disabled if you want to type credentials in the client.</p>
+        <p>Select Login server <code>@Maple2.Server.Core.Constants.Target.LoginIp</code>, port <code>@Maple2.Server.Core.Constants.Target.LoginPort</code> in Mushroom. Leave automatic login disabled if you want to type credentials in the client.</p>
         <p class="note">Registration does not grant administrator access. Existing characters remain attached to their existing accounts.</p>
         <p><a href="/account">Register another account</a></p>
     } else {
@@ -68,6 +88,10 @@
             <p class="note">Use this HTTP page only on your own computer or trusted local network. Public servers must provide HTTPS for registration.</p>
         }
     }
+    @if (playerWebsiteUrl != null) {
+        <p><a href="@playerWebsiteUrl">Client setup &amp; play guide</a></p>
+    }
+    <p class="note"><a href="@(Environment.GetEnvironmentVariable("SERVER_SOURCE_URL") ?? "https://github.com/gugarosa/Maple2")">Server source</a></p>
 </main>
 </body>
 </html>

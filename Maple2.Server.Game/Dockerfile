@@ -18,11 +18,12 @@ COPY . .
 WORKDIR "/src/Maple2.Server.Game"
 
 FROM build AS publish
-RUN dotnet publish "Maple2.Server.Game.csproj" -c Debug /p:IsDockerBuild=true
+ARG BUILD_CONFIGURATION=Debug
+RUN dotnet publish "Maple2.Server.Game.csproj" -c "$BUILD_CONFIGURATION" -o /app/publish /p:IsDockerBuild=true
 
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /src/Maple2.Server.Game/bin/Debug/net8.0/publish .
+COPY --from=publish /app/publish .
 COPY --from=build /src/Maple2.Server.Game/Navmeshes /app/Navmeshes
 
 ENTRYPOINT ["dotnet", "Maple2.Server.Game.dll"]

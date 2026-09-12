@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the private Maple2 pilot during a short maintenance window
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/srv/maple2/current/backup-application.sh
+TimeoutStartSec=15min

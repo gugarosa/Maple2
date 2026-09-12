@@ -12,6 +12,7 @@ using Maple2.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
@@ -38,9 +39,26 @@ Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(configRoot)
     .CreateLogger();
 
-int.TryParse(Environment.GetEnvironmentVariable("WEB_PORT") ?? "4000", out int webPort);
+string listenPort = Environment.GetEnvironmentVariable("WEB_BIND_PORT")
+    ?? Environment.GetEnvironmentVariable("WEB_PORT") ?? "4000";
+if (!ushort.TryParse(listenPort, out ushort webPort) || webPort == 0) {
+    throw new InvalidOperationException("WEB_BIND_PORT (or WEB_PORT) must be a port from 1 to 65535.");
+}
+foreach (string name in new[] { "SERVER_SOURCE_URL", "PLAYER_WEBSITE_URL" }) {
+    string? url = Environment.GetEnvironmentVariable(name);
+    if (url != null && (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) ||
+        uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0)) {
+        throw new InvalidOperationException($"{name} must be an absolute HTTPS URL without embedded credentials.");
+    }
+}
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+bool requireHttpsRegistration = builder.Configuration.GetValue<bool>("REQUIRE_HTTPS_REGISTRATION");
+builder.Services.Configure<ForwardedHeadersOptions>(options => {
+    // The Azure proxy shares Web's network namespace and connects over loopback.
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
+builder.Services.AddAntiforgery(options => options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest);
 builder.WebHost.UseKestrel(options => {
     options.Listen(new IPEndPoint(IPAddress.Any, webPort), listen => {
         listen.Protocols = HttpProtocols.Http1;
@@ -82,6 +100,18 @@ builder.Host.ConfigureContainer<ContainerBuilder>(autofac => {
 });
 
 WebApplication app = builder.Build();
+app.UseForwardedHeaders();
+if (requireHttpsRegistration) {
+    app.Use(async (context, next) => {
+        if (context.Request.Path.StartsWithSegments("/account", StringComparison.OrdinalIgnoreCase) &&
+            !context.Request.IsHttps) {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsync("Account registration requires HTTPS.");
+            return;
+        }
+        await next(context);
+    });
+}
 app.UseRouting();
 app.UseRateLimiter();
 app.MapControllers();
