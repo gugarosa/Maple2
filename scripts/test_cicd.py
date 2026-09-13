@@ -103,6 +103,32 @@ def compose_fixture(directory):
     return config
 
 
+def runtime_fixture(source):
+    images = {}
+    for role in (*release.APP_ROLES, *release.VENDOR_ROLES):
+        images[role] = {
+            "reference": f"maple2/{role}:fixture",
+            "id": "sha256:" + hashlib.sha256((role + "-manifest").encode()).hexdigest(),
+            "configId": "sha256:" + hashlib.sha256((role + "-config").encode()).hexdigest(),
+        }
+    manifest = {
+        "deploymentKind": "ci", "gitCommit": REVISION, "gitBase": REVISION,
+        "sourceSha256": source, "images": images,
+    }
+    states = []
+    for name, role in (("mysql", "mysql"), ("world", "world"), ("login", "login"), ("web", "web"),
+                       ("game-ch0", "game"), ("game-ch1", "game"), ("proxy", "proxy")):
+        labels = {"com.docker.compose.project": "maple2-azure", "com.docker.compose.service": name}
+        if role in release.APP_ROLES:
+            labels.update({"org.mapletime.source.sha256": source, "org.opencontainers.image.revision": REVISION})
+        states.append({
+            "Image": images[role]["configId"],
+            "Config": {"Image": images[role]["reference"], "Labels": labels},
+            "State": {"Running": True, "Health": {"Status": "healthy"}, "OOMKilled": False},
+        })
+    return manifest, states
+
+
 class ReleaseTests(unittest.TestCase):
     def test_paths_and_source_allowlist(self):
         for name in ("../secret", "/etc/passwd", "source/../.env", "source\\other", "a//b"):
@@ -349,6 +375,98 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn("./efbundle", deployment)
         self.assertNotIn("--entrypoint /migrations/efbundle", deployment)
         self.assertNotIn("mysql --", deployment)
+
+
+class RuntimeProbeTests(unittest.TestCase):
+    SOURCE_BYTES = b"corresponding server source"
+
+    def fixture(self):
+        return runtime_fixture(hashlib.sha256(self.SOURCE_BYTES).hexdigest())
+
+    def probe(self, manifest, states):
+        def command(arguments, **kwargs):
+            if arguments[:2] == ["docker", "compose"]:
+                return "mysql world login web game-ch0 game-ch1 proxy"
+            if arguments[:2] == ["docker", "inspect"]:
+                return release.json_bytes(states)
+            if arguments[0] == "curl":
+                if arguments[-1].endswith("/Channels"):
+                    return b"\0\0\0\0\3\x0a\x01\x01"
+                if arguments[-1].endswith("/source/server-source.tar.gz"):
+                    return self.SOURCE_BYTES
+                if arguments[-1] == "http://127.0.0.1:4000/account":
+                    return "403"
+                if arguments[-1].endswith("/account"):
+                    return b"__RequestVerificationToken /account/register"
+            self.fail(f"Unexpected runtime probe command: {arguments}")
+
+        handshake = bytearray(25)
+        handshake[6:8] = (1).to_bytes(2, "little")
+        handshake[8:12] = (12).to_bytes(4, "little")
+        with patch.object(release, "read_json", return_value=manifest), \
+                patch.object(release, "run", side_effect=command), \
+                patch.object(release.socket, "create_connection") as connect, \
+                patch("sys.stdout", new=io.StringIO()) as console:
+            connect.return_value.__enter__.return_value.recv.return_value = handshake
+            release.probe(Path("candidate"))
+        self.assertEqual(connect.call_count, 3)
+        self.assertIn("MS2_RELEASE_HEALTHY " + REVISION, console.getvalue())
+
+    def test_probe_accepts_config_and_manifest_image_identities(self):
+        for identity in ("configId", "id"):
+            manifest, states = self.fixture()
+            for state in states:
+                image = next(image for image in manifest["images"].values()
+                             if image["reference"] == state["Config"]["Image"])
+                state["Image"] = image[identity]
+            with self.subTest(identity=identity):
+                self.probe(manifest, states)
+
+    def test_probe_checks_the_identity_of_every_service(self):
+        for index in range(7):
+            for identity in (None, "", "sha256:" + "c" * 64):
+                manifest, states = self.fixture()
+                states[index]["Image"] = identity
+                name = states[index]["Config"]["Labels"]["com.docker.compose.service"]
+                with self.subTest(service=name, identity=identity), self.assertRaisesRegex(ValueError, "image"):
+                    self.probe(manifest, states)
+
+    def test_healthy_endpoints_do_not_hide_stale_or_mislabeled_containers(self):
+        cases = ("image-id", "image-reference", "source", "revision", "project",
+                 "duplicate-service", "unknown-service", "missing-labels")
+        for change in cases:
+            manifest, states = self.fixture()
+            state = states[4]
+            if change == "image-id":
+                state["Image"] = "sha256:" + "c" * 64
+            elif change == "image-reference":
+                state["Config"]["Image"] = "maple2/game:previous-release"
+            elif change == "source":
+                state["Config"]["Labels"]["org.mapletime.source.sha256"] = "c" * 64
+            elif change == "revision":
+                state["Config"]["Labels"]["org.opencontainers.image.revision"] = "c" * 40
+            elif change == "project":
+                state["Config"]["Labels"]["com.docker.compose.project"] = "another-stack"
+            elif change == "duplicate-service":
+                state["Config"]["Labels"]["com.docker.compose.service"] = "game-ch1"
+            elif change == "unknown-service":
+                state["Config"]["Labels"]["com.docker.compose.service"] = "game-ch2"
+            else:
+                state["Config"]["Labels"] = None
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "image|provenance|topology"):
+                self.probe(manifest, states)
+
+    def test_legacy_rollback_still_requires_the_retained_images(self):
+        manifest, states = self.fixture()
+        del manifest["deploymentKind"]
+        del manifest["gitCommit"]
+        for state in states:
+            state["Config"]["Labels"].pop("org.mapletime.source.sha256", None)
+            state["Config"]["Labels"].pop("org.opencontainers.image.revision", None)
+        self.probe(manifest, states)
+        states[0]["Image"] = "sha256:" + "c" * 64
+        with self.assertRaisesRegex(ValueError, "image"):
+            self.probe(manifest, states)
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash") and shutil.which("jq"),
@@ -622,8 +740,9 @@ class DockerArchiveTests(unittest.TestCase):
             retained = release.retained_compose(config, directory)
             self.assertEqual(len(retained["services"]), 7)
 
-    def test_real_image_store_provenance_round_trip(self):
+    def test_real_image_and_container_provenance_round_trip(self):
         tags = []
+        containers = []
         try:
             with tempfile.TemporaryDirectory(prefix="maple2-image-check-") as temporary:
                 root = Path(temporary)
@@ -654,9 +773,23 @@ class DockerArchiveTests(unittest.TestCase):
                     identity = release.run(["docker", "image", "inspect", references[role],
                                             "--format", "{{.Id}}"], text=True).strip()
                     self.assertIn(identity, (image["id"], image["configId"]))
+                    container_id = release.run([
+                        "docker", "create", "--network", "none", "--read-only",
+                        references[role], "/not-executed-fixture",
+                    ], text=True).strip()
+                    containers.append(container_id)
+                    container = json.loads(release.run(["docker", "inspect", container_id]))[0]
+                    self.assertEqual(container["Config"]["Image"], image["reference"])
+                    self.assertIn(container["Image"], (image["id"], image["configId"]))
+                    self.assertEqual(container["Config"]["Labels"]["org.mapletime.source.sha256"], SOURCE)
+                    self.assertEqual(container["Config"]["Labels"]["org.opencontainers.image.revision"], REVISION)
         finally:
-            if tags:
-                release.run(["docker", "image", "rm", *tags])
+            try:
+                if containers:
+                    release.run(["docker", "rm", *containers])
+            finally:
+                if tags:
+                    release.run(["docker", "image", "rm", *tags])
 
 
 if __name__ == "__main__":
