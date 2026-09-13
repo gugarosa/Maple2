@@ -6,168 +6,190 @@
   <meta name="description" content="MapleTime MS2: an invite-only MapleStory 2 pilot. Account registration, client setup, and connection steps.">
   <meta name="robots" content="noindex, nofollow">
   <title>MapleTime MS2 - Private pilot</title>
-  <link rel="icon" href="mark.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
   <header class="site-header">
-    <div class="nav-shell">
+    <div class="nav-shell container">
       <a class="brand" href="/" aria-label="MapleTime MS2 home">
-        <img src="mark.svg" width="32" height="32" alt="">
+        <img src="/mark.svg" width="32" height="32" alt="">
         <span>MapleTime <b>MS2</b></span>
       </a>
-      <nav class="desktop-nav" aria-label="Main navigation">
-        <a href="#getting-started">Play</a>
-        <a href="#downloads">Downloads</a>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#getting-started">Start here</a>
+        <a href="#downloads">Client setup</a>
         <a href="#updates">Updates</a>
-        <a href="#status">Status</a>
+        <a href="#status">Pilot status</a>
       </nav>
-      <a class="other-world" href="https://mapletime.dev">Visit MS1 <span aria-hidden="true">&nearr;</span></a>
-      <details class="mobile-nav">
-        <summary aria-label="Navigation menu">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-        </summary>
-        <nav aria-label="Mobile navigation">
-          <a href="#getting-started">Play</a>
-          <a href="#downloads">Downloads</a>
-          <a href="#updates">Updates</a>
-          <a href="#status">Status</a>
-        </nav>
-      </details>
+      <a class="other-world text-link" href="https://mapletime.dev">Visit MS1
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
+      </a>
     </div>
   </header>
   <main id="main-content" class="container" tabindex="-1">
     <section class="hero" aria-labelledby="page-title">
-      <div class="hero-copy">
-        <div class="hero-meta">
-          <img class="game-logo" src="ms2-logo.png" width="640" height="246" alt="MapleStory 2" decoding="async">
-          <p class="pilot-label"><span aria-hidden="true"></span>Private pilot</p>
-        </div>
+      <div class="hero-opening">
         <h1 id="page-title">A new dimension <em>of MapleTime.</em></h1>
-        <p class="intro">A MapleStory 2 project for classes, quests, and co-op adventures.</p>
-        <div class="hero-actions">
-          <a class="button" href="#getting-started">Get started <span aria-hidden="true">&rarr;</span></a>
-          <a class="button secondary" href="#downloads">Downloads</a>
+        <div class="hero-details">
+          <p class="intro">A MapleStory 2 project for classes, quests, and co-op adventures.</p>
+          <a class="button" href="#getting-started">Get ready to play
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+          </a>
+          <p class="availability" id="pilot-access">Registration and play are invite-only. Your network must be approved. Bring your own compatible Windows client.</p>
         </div>
-        <p class="availability" id="pilot-access">Registration and play are invite-only. Your network must be approved.</p>
       </div>
       <figure class="hero-art">
         <picture>
-          <source media="(max-width: 60rem)" srcset="ms2-world-mobile.webp" width="1128" height="620">
-          <img src="ms2-world.webp" width="1920" height="620"
-            alt="MapleStory 2 class characters in a colorful, block-built world."
+          <source media="(max-width: 60rem)" srcset="/ms2-world-mobile.webp" width="1128" height="620">
+          <img src="/ms2-world.webp" width="1920" height="620"
+            alt="MapleStory 2 class characters, floating cubes, and a rainbow over a colorful castle."
             fetchpriority="high" decoding="async">
         </picture>
+        <figcaption>
+          <picture class="game-logo">
+            <source type="image/webp" srcset="/ms2-logo.webp" width="640" height="246">
+            <img src="/ms2-logo.png" width="640" height="246" alt="MapleStory 2" decoding="async">
+          </picture>
+        </figcaption>
       </figure>
     </section>
 
     <section id="getting-started" class="section" aria-labelledby="setup-title">
       <div class="section-heading">
-        <h2 id="setup-title">Get ready to play</h2>
+        <h2 id="setup-title">Your first steps into MS2</h2>
+        <p>For invited testers with an approved network.</p>
       </div>
-      <div class="steps">
-        <article class="step-card">
-          <svg class="feature-icon" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
-            <circle cx="10" cy="11" r="6"/><path d="m14 15 13 13M21 22l4-4M24 25l4-4"/>
-          </svg>
-          <h3>Create an account</h3>
-          <p>Invited testers register on our secure account page. MS1 accounts and characters do not carry over.</p>
-          <a href="https://play.ms2.mapletime.dev/account" aria-describedby="pilot-access">Pilot registration <span aria-hidden="true">&nearr;</span></a>
-        </article>
-        <article class="step-card">
-          <svg class="feature-icon" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
-            <rect x="3" y="4" width="26" height="18" rx="3"/><path d="M16 22v6M10 28h12M7 18h18"/>
-          </svg>
-          <h3>Get your client ready</h3>
-          <p>Use your existing, lawfully obtained MS2 client with official Mushroom Launcher.</p>
-          <a href="#downloads">Client options <span aria-hidden="true">&rarr;</span></a>
-        </article>
-        <article class="step-card">
-          <svg class="feature-icon" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
-            <circle cx="12" cy="10" r="5"/><path d="M3 28v-4a9 9 0 0 1 18 0v4M26 5v14M26 5l5 3-5 3"/>
-          </svg>
-          <h3>Connect with Mushroom</h3>
-          <p>Select MapleTime MS2 Azure and sign in inside the game. Create your character there.</p>
-          <a href="#connection-steps">Connection steps <span aria-hidden="true">&rarr;</span></a>
-        </article>
-      </div>
+      <ol class="steps" role="list">
+        <li>
+          <span class="step-number" aria-hidden="true">1</span>
+          <div>
+            <h3>Create your account</h3>
+            <p>MS1 accounts and characters do not carry over. Register a separate MS2 account on the secure pilot page.</p>
+            <a class="text-link" href="https://play.ms2.mapletime.dev/account" aria-describedby="pilot-access">Pilot registration
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
+            </a>
+          </div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">2</span>
+          <div>
+            <h3>Prepare your client</h3>
+            <p>Use your existing, lawfully obtained MS2 client with official Mushroom Launcher.</p>
+            <a class="text-link" href="#downloads">Check client requirements
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            </a>
+          </div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">3</span>
+          <div>
+            <h3>Connect with Mushroom</h3>
+            <p>Add the pilot server, launch the game, and sign in there. Your character is created in the game.</p>
+            <a class="text-link" href="#connection-steps">Connection steps
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
+            </a>
+          </div>
+        </li>
+      </ol>
     </section>
 
     <section id="downloads" class="section" aria-labelledby="downloads-title">
       <div class="section-heading">
         <h2 id="downloads-title">Client &amp; launcher</h2>
-        <a id="launcher-download" href="https://github.com/shuabritze/mushroom-launcher/releases/tag/v2.0.3">Get Mushroom 2.0.3 <span aria-hidden="true">&nearr;</span></a>
+        <a class="text-link" id="launcher-download" href="https://github.com/shuabritze/mushroom-launcher/releases/tag/v2.0.3">Get Mushroom 2.0.3
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
+        </a>
       </div>
-      <p class="section-intro" id="download-status">The MS2 installer is on hold for antivirus review. No game-client download is published here.</p>
-      <details class="setup-help">
-        <summary>Client requirements</summary>
-        <p>Windows 10 or newer, x64 (not ARM), and the compatible NA client <code>20.8.1.0316</code>.
-          Mushroom is the launcher, not the game-client download. Keep your original game files.</p>
-      </details>
-      <details class="setup-help">
-        <summary>Manual connection for invited testers</summary>
-        <ol id="connection-steps">
-          <li>In Mushroom, choose the client root containing <code>Data</code> and <code>x64</code>, not the x64 folder itself.</li>
-          <li>Add <strong>MapleTime MS2 Azure</strong> with Login host <code>20.226.79.46</code> and port <code>20001</code>.</li>
-          <li>Leave automatic login off. Select that server, launch the game, and enter the account you registered.</li>
-        </ol>
-      </details>
+      <div class="client-layout">
+        <div class="client-requirements">
+          <p class="download-status" id="download-status">The MS2 installer is on hold for antivirus review. No game-client download is published here.</p>
+          <dl class="requirements">
+            <div><dt>System</dt><dd>Windows 10 or newer, x64 (not ARM)</dd></div>
+            <div><dt>NA client</dt><dd><code>20.8.1.0316</code></dd></div>
+            <div><dt>Launcher</dt><dd>Official Mushroom Launcher</dd></div>
+          </dl>
+          <p class="note">Mushroom is the launcher, not the game-client download. Keep your original game files.</p>
+        </div>
+        <div class="connection-help">
+          <details class="setup-help" id="connection-steps" open>
+            <summary>Manual connection for invited testers</summary>
+            <ol>
+              <li>In Mushroom, choose the client root containing <code>Data</code> and <code>x64</code>, not the x64 folder itself.</li>
+              <li>Add <strong>MapleTime MS2 Azure</strong> with Login host <code>20.226.79.46</code> and port <code>20001</code>.</li>
+              <li>Leave automatic login off. Select that server, launch the game, and enter the account you registered.</li>
+            </ol>
+          </details>
+          <details class="setup-help" id="registration-help">
+            <summary>Registration page won't open?</summary>
+            <p>The account service is restricted to approved networks. Ask the person who invited you to confirm your access and check the pilot if the page stays unavailable. Never send your password.</p>
+          </details>
+        </div>
+      </div>
     </section>
 
     <section id="updates" class="section" aria-labelledby="updates-title">
       <div class="section-heading">
-        <h2 id="updates-title">Project updates</h2>
-        <a href="https://github.com/gugarosa/Maple2/pulls?q=is%3Apr+is%3Amerged">All updates <span aria-hidden="true">&nearr;</span></a>
+        <h2 id="updates-title">From the project</h2>
+        <a class="text-link" href="https://github.com/gugarosa/Maple2/pulls?q=is%3Apr+is%3Amerged">All updates
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
+        </a>
       </div>
       <div class="updates">
         <a class="update-card" href="https://github.com/gugarosa/Maple2/pull/8">
-          <div class="update-meta">
-            <img class="update-monster" src="ms2-slime.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
-            <time datetime="2026-09-11">September 11, 2026</time>
+          <img class="update-monster" src="/ms2-slime.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
+          <div class="update-copy">
+            <h3>A home for MS2</h3>
+            <p>An isolated Azure pilot and a working website.</p>
           </div>
-          <h3>A home for MS2 <span aria-hidden="true">&nearr;</span></h3>
-          <p>An isolated Azure pilot and a working website.</p>
+          <time datetime="2026-09-11">September 11, 2026</time>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
         </a>
         <a class="update-card" href="https://github.com/gugarosa/Maple2/pull/6">
-          <div class="update-meta">
-            <img class="update-monster" src="ms2-pig.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
-            <time datetime="2026-09-11">September 11, 2026</time>
+          <img class="update-monster" src="/ms2-pig.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
+          <div class="update-copy">
+            <h3>One client, one launcher</h3>
+            <p>A clean setup with official Mushroom Launcher.</p>
           </div>
-          <h3>One client, one launcher <span aria-hidden="true">&nearr;</span></h3>
-          <p>A clean setup with official Mushroom Launcher.</p>
+          <time datetime="2026-09-11">September 11, 2026</time>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
         </a>
         <a class="update-card" href="https://github.com/gugarosa/Maple2/pull/4">
-          <div class="update-meta">
-            <img class="update-monster" src="ms2-mushroom.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
-            <time datetime="2026-09-11">September 11, 2026</time>
+          <img class="update-monster" src="/ms2-mushroom.webp" width="64" height="64" alt="" loading="lazy" decoding="async">
+          <div class="update-copy">
+            <h3>Accounts before login</h3>
+            <p>Explicit registration and reliable local sign-in.</p>
           </div>
-          <h3>Accounts before login <span aria-hidden="true">&nearr;</span></h3>
-          <p>Explicit registration and reliable local sign-in.</p>
+          <time datetime="2026-09-11">September 11, 2026</time>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
         </a>
       </div>
     </section>
 
     <section id="status" class="status-panel" aria-labelledby="status-title">
       <div>
-        <h2 id="status-title">Pilot status</h2>
+        <h2 id="status-title">A private pilot, not a public launch</h2>
         <p>The Azure pilot is running with restricted access. Installer review, client distribution and full gameplay checks must pass before public launch.</p>
-        <p class="status-note">This page is not a live server-health monitor and does not collect passwords.</p>
+        <p class="note">This page is not a live server-health monitor and does not collect passwords.</p>
       </div>
-      <a class="button secondary" href="https://github.com/gugarosa/Maple2/blob/master/DEVELOPMENT_STATUS.md">Development status <span aria-hidden="true">&nearr;</span></a>
+      <a class="button secondary" href="https://github.com/gugarosa/Maple2/blob/master/DEVELOPMENT_STATUS.md">Development status
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 17 10-10M7 7h10v10"/></svg>
+      </a>
     </section>
   </main>
   <footer class="site-footer">
     <div class="container">
       <div class="footer-main">
         <a class="brand" href="/" aria-label="MapleTime MS2 home">
-          <img src="mark.svg" width="32" height="32" alt="">
+          <img src="/mark.svg" width="32" height="32" alt="">
           <span>MapleTime <b>MS2</b></span>
         </a>
         <nav aria-label="Footer navigation">
-          <a href="https://github.com/gugarosa/Maple2">Project source</a>
-          <a href="#downloads">Client setup</a>
-          <a href="https://mapletime.dev">MapleTime MS1</a>
+          <a class="text-link" href="https://github.com/gugarosa/Maple2">Project source</a>
+          <a class="text-link" href="#downloads">Client setup</a>
+          <a class="text-link" href="https://mapletime.dev">MapleTime MS1</a>
         </nav>
       </div>
       <p class="legal">An independent, non-commercial server project. Not affiliated with Nexon.

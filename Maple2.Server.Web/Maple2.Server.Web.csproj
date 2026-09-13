@@ -38,5 +38,6 @@
 
     <ItemGroup>
       <Content Include="Data\system\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <EmbeddedResource Include="..\website\theme.css" LogicalName="Maple2.Server.Web.PlayerTheme.css" />
     </ItemGroup>
 </Project>

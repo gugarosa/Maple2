@@ -1,0 +1,451 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T23:31:03.179-03:00",
+  "title": "Design System: MapleTime MS2",
+  "extensions": {
+    "sourceAuthority": {
+      "primitives": "DESIGN.md frontmatter, extracted from website/theme.css",
+      "sharedTheme": "website/theme.css",
+      "embeddedResource": {
+        "project": "Maple2.Server.Web/Maple2.Server.Web.csproj",
+        "logicalName": "Maple2.Server.Web.PlayerTheme.css",
+        "reader": "Maple2.Server.Web/Helpers/PlayerTheme.cs",
+        "consumer": "Maple2.Server.Web/Views/Shared/_AccountLayout.cshtml"
+      },
+      "layoutSources": [
+        "website/styles.css",
+        "Maple2.Server.Web/Views/Shared/_AccountLayout.cshtml"
+      ],
+      "stateSources": [
+        "website/index.html",
+        "website/404.html",
+        "Maple2.Server.Web/Views/Account/Register.cshtml",
+        "Maple2.Server.Web/Views/Account/Notice.cshtml",
+        "Maple2.Server.Web/Helpers/RegistrationResponses.cs",
+        "Maple2.Server.Web/Helpers/AccountPageProtection.cs",
+        "Maple2.Server.Web/ViewResults/AccountNoticeResult.cs",
+        "Maple2.Server.Web/Filters/AccountPageAttribute.cs"
+      ],
+      "product": "PRODUCT.md",
+      "surfaceBriefs": [
+        ".impeccable/surfaces/website-index-html.md",
+        ".impeccable/surfaces/maple2-server-web-views-account-register-cshtml.md",
+        ".impeccable/surfaces/website-404-html.md"
+      ],
+      "form": "Confirmed existing-world refinement; no seed, QUALITY BAR, generated comp or retrospective per-route approval."
+    },
+    "previewPolicy": {
+      "scope": "Ten self-contained ds- HTML/CSS excerpts. Root CSS variables inherit into the shadow DOM; no framework, external image, font, script or stylesheet is required by a snippet.",
+      "interaction": "Buttons are type=button, fields have no submission name or form, and links are fragment-only. Error-summary previews omit autofocus so the panel does not steal focus. These are not operational account/API controls or actual account results.",
+      "states": "Authored hover, active and focus states are retained where the source has them. Fields have no invented hover treatment; the success paragraph is noninteractive. Browser disclosure, validation and autofill surfaces remain native.",
+      "rasterPatterns": "The panorama and raster-led update rows remain documented source patterns, not recreated with substitute art or glyphs in the previews.",
+      "tonalRamps": "Swatch-display metadata only, never normative CSS tokens or approved contrast pairs. Surface strips use the eight existing dark-to-light ground roles (light page and surface intentionally coincide). Other strips use synthetic relative-OKLCH lightness stops while retaining each recorded color's chroma/hue. Do not inherit these strips as a new palette scale."
+    },
+    "colorMeta": {
+      "page": {
+        "role": "neutral",
+        "displayName": "Page ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Control and disclosure surface",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "soft": {
+        "role": "neutral",
+        "displayName": "Soft grouping ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "inset": {
+        "role": "neutral",
+        "displayName": "Inset identity and disabled ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Primary ink",
+        "tonalRamp": ["oklch(from #1a1d21 0.15 c h)", "oklch(from #1a1d21 0.25 c h)", "oklch(from #1a1d21 0.35 c h)", "oklch(from #1a1d21 0.45 c h)", "oklch(from #1a1d21 0.55 c h)", "oklch(from #1a1d21 0.65 c h)", "oklch(from #1a1d21 0.80 c h)", "oklch(from #1a1d21 0.95 c h)"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Secondary ink",
+        "tonalRamp": ["oklch(from #5c6370 0.15 c h)", "oklch(from #5c6370 0.25 c h)", "oklch(from #5c6370 0.35 c h)", "oklch(from #5c6370 0.45 c h)", "oklch(from #5c6370 0.55 c h)", "oklch(from #5c6370 0.65 c h)", "oklch(from #5c6370 0.80 c h)", "oklch(from #5c6370 0.95 c h)"]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Content boundary",
+        "tonalRamp": ["oklch(from #d1d5db 0.15 c h)", "oklch(from #d1d5db 0.25 c h)", "oklch(from #d1d5db 0.35 c h)", "oklch(from #d1d5db 0.45 c h)", "oklch(from #d1d5db 0.55 c h)", "oklch(from #d1d5db 0.65 c h)", "oklch(from #d1d5db 0.80 c h)", "oklch(from #d1d5db 0.95 c h)"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Maple orange",
+        "tonalRamp": ["oklch(from #c2410c 0.15 c h)", "oklch(from #c2410c 0.25 c h)", "oklch(from #c2410c 0.35 c h)", "oklch(from #c2410c 0.45 c h)", "oklch(from #c2410c 0.55 c h)", "oklch(from #c2410c 0.65 c h)", "oklch(from #c2410c 0.80 c h)", "oklch(from #c2410c 0.95 c h)"]
+      },
+      "accent-strong": {
+        "role": "primary",
+        "displayName": "Maple orange hover",
+        "tonalRamp": ["oklch(from #9a3412 0.15 c h)", "oklch(from #9a3412 0.25 c h)", "oklch(from #9a3412 0.35 c h)", "oklch(from #9a3412 0.45 c h)", "oklch(from #9a3412 0.55 c h)", "oklch(from #9a3412 0.65 c h)", "oklch(from #9a3412 0.80 c h)", "oklch(from #9a3412 0.95 c h)"]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Action foreground",
+        "tonalRamp": ["oklch(from #ffffff 0.15 c h)", "oklch(from #ffffff 0.25 c h)", "oklch(from #ffffff 0.35 c h)", "oklch(from #ffffff 0.45 c h)", "oklch(from #ffffff 0.55 c h)", "oklch(from #ffffff 0.65 c h)", "oklch(from #ffffff 0.80 c h)", "oklch(from #ffffff 0.95 c h)"]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Soft orange hover ground",
+        "tonalRamp": ["oklch(from #fff7ed 0.15 c h)", "oklch(from #fff7ed 0.25 c h)", "oklch(from #fff7ed 0.35 c h)", "oklch(from #fff7ed 0.45 c h)", "oklch(from #fff7ed 0.55 c h)", "oklch(from #fff7ed 0.65 c h)", "oklch(from #fff7ed 0.80 c h)", "oklch(from #fff7ed 0.95 c h)"]
+      },
+      "input-border": {
+        "role": "neutral",
+        "displayName": "Strong control boundary",
+        "tonalRamp": ["oklch(from #77818f 0.15 c h)", "oklch(from #77818f 0.25 c h)", "oklch(from #77818f 0.35 c h)", "oklch(from #77818f 0.45 c h)", "oklch(from #77818f 0.55 c h)", "oklch(from #77818f 0.65 c h)", "oklch(from #77818f 0.80 c h)", "oklch(from #77818f 0.95 c h)"]
+      },
+      "error": {
+        "role": "secondary",
+        "displayName": "Error text and border",
+        "tonalRamp": ["oklch(from #a12626 0.15 c h)", "oklch(from #a12626 0.25 c h)", "oklch(from #a12626 0.35 c h)", "oklch(from #a12626 0.45 c h)", "oklch(from #a12626 0.55 c h)", "oklch(from #a12626 0.65 c h)", "oklch(from #a12626 0.80 c h)", "oklch(from #a12626 0.95 c h)"]
+      },
+      "error-bg": {
+        "role": "secondary",
+        "displayName": "Error ground",
+        "tonalRamp": ["oklch(from #fff2f2 0.15 c h)", "oklch(from #fff2f2 0.25 c h)", "oklch(from #fff2f2 0.35 c h)", "oklch(from #fff2f2 0.45 c h)", "oklch(from #fff2f2 0.55 c h)", "oklch(from #fff2f2 0.65 c h)", "oklch(from #fff2f2 0.80 c h)", "oklch(from #fff2f2 0.95 c h)"]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Confirmed-result text and border",
+        "tonalRamp": ["oklch(from #166534 0.15 c h)", "oklch(from #166534 0.25 c h)", "oklch(from #166534 0.35 c h)", "oklch(from #166534 0.45 c h)", "oklch(from #166534 0.55 c h)", "oklch(from #166534 0.65 c h)", "oklch(from #166534 0.80 c h)", "oklch(from #166534 0.95 c h)"]
+      },
+      "success-bg": {
+        "role": "secondary",
+        "displayName": "Confirmed-result ground",
+        "tonalRamp": ["oklch(from #f0fdf4 0.15 c h)", "oklch(from #f0fdf4 0.25 c h)", "oklch(from #f0fdf4 0.35 c h)", "oklch(from #f0fdf4 0.45 c h)", "oklch(from #f0fdf4 0.55 c h)", "oklch(from #f0fdf4 0.65 c h)", "oklch(from #f0fdf4 0.80 c h)", "oklch(from #f0fdf4 0.95 c h)"]
+      },
+      "dark-page": {
+        "role": "neutral",
+        "displayName": "Dark page ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "dark-surface": {
+        "role": "neutral",
+        "displayName": "Dark control and disclosure surface",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "dark-soft": {
+        "role": "neutral",
+        "displayName": "Dark soft grouping ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "dark-inset": {
+        "role": "neutral",
+        "displayName": "Dark inset identity and disabled ground",
+        "tonalRamp": ["#0d1117", "#161b22", "#1c2128", "#242a33", "#f1f3f5", "#f8f9fa", "#ffffff", "#ffffff"]
+      },
+      "dark-ink": {
+        "role": "neutral",
+        "displayName": "Dark primary ink",
+        "tonalRamp": ["oklch(from #e6edf3 0.15 c h)", "oklch(from #e6edf3 0.25 c h)", "oklch(from #e6edf3 0.35 c h)", "oklch(from #e6edf3 0.45 c h)", "oklch(from #e6edf3 0.55 c h)", "oklch(from #e6edf3 0.65 c h)", "oklch(from #e6edf3 0.80 c h)", "oklch(from #e6edf3 0.95 c h)"]
+      },
+      "dark-muted": {
+        "role": "neutral",
+        "displayName": "Dark secondary ink",
+        "tonalRamp": ["oklch(from #9ba6b2 0.15 c h)", "oklch(from #9ba6b2 0.25 c h)", "oklch(from #9ba6b2 0.35 c h)", "oklch(from #9ba6b2 0.45 c h)", "oklch(from #9ba6b2 0.55 c h)", "oklch(from #9ba6b2 0.65 c h)", "oklch(from #9ba6b2 0.80 c h)", "oklch(from #9ba6b2 0.95 c h)"]
+      },
+      "dark-line": {
+        "role": "neutral",
+        "displayName": "Dark content boundary",
+        "tonalRamp": ["oklch(from #39424e 0.15 c h)", "oklch(from #39424e 0.25 c h)", "oklch(from #39424e 0.35 c h)", "oklch(from #39424e 0.45 c h)", "oklch(from #39424e 0.55 c h)", "oklch(from #39424e 0.65 c h)", "oklch(from #39424e 0.80 c h)", "oklch(from #39424e 0.95 c h)"]
+      },
+      "dark-accent": {
+        "role": "primary",
+        "displayName": "Dark maple orange",
+        "tonalRamp": ["oklch(from #fb923c 0.15 c h)", "oklch(from #fb923c 0.25 c h)", "oklch(from #fb923c 0.35 c h)", "oklch(from #fb923c 0.45 c h)", "oklch(from #fb923c 0.55 c h)", "oklch(from #fb923c 0.65 c h)", "oklch(from #fb923c 0.80 c h)", "oklch(from #fb923c 0.95 c h)"]
+      },
+      "dark-accent-strong": {
+        "role": "primary",
+        "displayName": "Dark maple orange hover",
+        "tonalRamp": ["oklch(from #fdba74 0.15 c h)", "oklch(from #fdba74 0.25 c h)", "oklch(from #fdba74 0.35 c h)", "oklch(from #fdba74 0.45 c h)", "oklch(from #fdba74 0.55 c h)", "oklch(from #fdba74 0.65 c h)", "oklch(from #fdba74 0.80 c h)", "oklch(from #fdba74 0.95 c h)"]
+      },
+      "dark-accent-ink": {
+        "role": "primary",
+        "displayName": "Dark action foreground",
+        "tonalRamp": ["oklch(from #0d1117 0.15 c h)", "oklch(from #0d1117 0.25 c h)", "oklch(from #0d1117 0.35 c h)", "oklch(from #0d1117 0.45 c h)", "oklch(from #0d1117 0.55 c h)", "oklch(from #0d1117 0.65 c h)", "oklch(from #0d1117 0.80 c h)", "oklch(from #0d1117 0.95 c h)"]
+      },
+      "dark-accent-soft": {
+        "role": "primary",
+        "displayName": "Dark soft orange hover ground",
+        "tonalRamp": ["oklch(from #322318 0.15 c h)", "oklch(from #322318 0.25 c h)", "oklch(from #322318 0.35 c h)", "oklch(from #322318 0.45 c h)", "oklch(from #322318 0.55 c h)", "oklch(from #322318 0.65 c h)", "oklch(from #322318 0.80 c h)", "oklch(from #322318 0.95 c h)"]
+      },
+      "dark-input-border": {
+        "role": "neutral",
+        "displayName": "Dark strong control boundary",
+        "tonalRamp": ["oklch(from #8391a2 0.15 c h)", "oklch(from #8391a2 0.25 c h)", "oklch(from #8391a2 0.35 c h)", "oklch(from #8391a2 0.45 c h)", "oklch(from #8391a2 0.55 c h)", "oklch(from #8391a2 0.65 c h)", "oklch(from #8391a2 0.80 c h)", "oklch(from #8391a2 0.95 c h)"]
+      },
+      "dark-error": {
+        "role": "secondary",
+        "displayName": "Dark error text and border",
+        "tonalRamp": ["oklch(from #ffb4b4 0.15 c h)", "oklch(from #ffb4b4 0.25 c h)", "oklch(from #ffb4b4 0.35 c h)", "oklch(from #ffb4b4 0.45 c h)", "oklch(from #ffb4b4 0.55 c h)", "oklch(from #ffb4b4 0.65 c h)", "oklch(from #ffb4b4 0.80 c h)", "oklch(from #ffb4b4 0.95 c h)"]
+      },
+      "dark-error-bg": {
+        "role": "secondary",
+        "displayName": "Dark error ground",
+        "tonalRamp": ["oklch(from #40292d 0.15 c h)", "oklch(from #40292d 0.25 c h)", "oklch(from #40292d 0.35 c h)", "oklch(from #40292d 0.45 c h)", "oklch(from #40292d 0.55 c h)", "oklch(from #40292d 0.65 c h)", "oklch(from #40292d 0.80 c h)", "oklch(from #40292d 0.95 c h)"]
+      },
+      "dark-success": {
+        "role": "secondary",
+        "displayName": "Dark confirmed-result text and border",
+        "tonalRamp": ["oklch(from #9ae5b2 0.15 c h)", "oklch(from #9ae5b2 0.25 c h)", "oklch(from #9ae5b2 0.35 c h)", "oklch(from #9ae5b2 0.45 c h)", "oklch(from #9ae5b2 0.55 c h)", "oklch(from #9ae5b2 0.65 c h)", "oklch(from #9ae5b2 0.80 c h)", "oklch(from #9ae5b2 0.95 c h)"]
+      },
+      "dark-success-bg": {
+        "role": "secondary",
+        "displayName": "Dark confirmed-result ground",
+        "tonalRamp": ["oklch(from #183b30 0.15 c h)", "oklch(from #183b30 0.25 c h)", "oklch(from #183b30 0.35 c h)", "oklch(from #183b30 0.45 c h)", "oklch(from #183b30 0.55 c h)", "oklch(from #183b30 0.65 c h)", "oklch(from #183b30 0.80 c h)", "oklch(from #183b30 0.95 c h)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Shared display heading", "purpose": "Georgia h1; homepage narrow override belongs to its layout, not a modular scale." },
+      "account-display": { "displayName": "Account task heading", "purpose": "Registration, result and notice h1 within the focused account frame." },
+      "headline": { "displayName": "Section headline", "purpose": "Regular-weight serif h2; status has its own smaller local override." },
+      "title": { "displayName": "Compact task title", "purpose": "Sans h3 for steps/updates and the error-summary h2 with normal letter spacing." },
+      "body": { "displayName": "Interface body", "purpose": "Readable copy and input text, normally bounded at 72ch for paragraphs." },
+      "label": { "displayName": "Field label", "purpose": "Visible medium-weight field names; not an eyebrow or display role." },
+      "note": { "displayName": "Helper and navigation copy", "purpose": "Notes, helpers, navigation and dates; note color is muted." },
+      "button": { "displayName": "Action label", "purpose": "Medium-weight control text with shorter line height and wrapping." },
+      "brand": { "displayName": "MapleTime identity label", "purpose": "Bold local sans label beside the unchanged cube and subordinate MS2 tag." },
+      "data": { "displayName": "Connection and version data", "purpose": "Relative-size local code stack with tabular numerals, not decorative technical styling." }
+    },
+    "shadows": [],
+    "depth": {
+      "method": "No authored box/text shadows, gradients, glass blur or hover lift. Use the existing tonal surfaces, spacing and thin boundaries; artwork retains its natural depth.",
+      "rule": "1px dashed var(--line)",
+      "layers": { "layer-header": 10, "layer-skip": 20 }
+    },
+    "motion": [
+      { "name": "duration-feedback", "value": "140ms", "purpose": "Shared button background, border and text-color transitions." },
+      { "name": "ease-feedback", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Shared short control feedback, without transforms or entrance animation." }
+    ],
+    "mediaOverrides": {
+      "(prefers-reduced-motion: reduce)": { "--duration-feedback": "0s" },
+      "(prefers-color-scheme: dark)": "Use the dark-* frontmatter snapshots as the values of the existing unsuffixed variables, never as --dark-* variables.",
+      "(forced-colors: active)": "Button and brand-label borders use ButtonText; inputs/error/success borders use CanvasText; focus outlines use Highlight."
+    },
+    "breakpoints": [
+      { "name": "max-width-70rem", "value": "70rem", "purpose": "Literal max-width query: tighten portal gaps and stack factual status content/action." },
+      { "name": "max-width-60rem", "value": "60rem", "purpose": "Literal max-width query: static wrapping navigation, stacked portal columns, reordered update rows and mobile panorama source." },
+      { "name": "max-width-30rem", "value": "30rem", "purpose": "Literal max-width query: narrower gutters, stacked requirements, smaller content padding and creature thumbnails." }
+    ],
+    "layout": {
+      "content": { "cssVariable": "--content", "value": "1280px", "purpose": "Shared portal container cap, with 3rem total gutters or 2rem at max-width 30rem." },
+      "control-target": { "cssVariable": "--control-target", "value": "2.75rem", "purpose": "Minimum block size for discrete controls, never a fixed height or a rule for inline-prose links." },
+      "accountFrame": "min(calc(100% - 2rem), 40rem); single-column at every width",
+      "recoveryFrame": "44rem maximum within the shared container; wrapping actions",
+      "anchorClearance": "6rem; var(--space-4) at max-width 60rem",
+      "focus": "3px solid var(--accent), offset 4px; programmatic/native focus also outlined on account summaries/notices",
+      "disclosureTarget": "2px solid var(--accent), offset 4px",
+      "print": "The portal hides header/art/footer/skip link, simplifies columns, avoids splitting grouped content and exposes details content. Source behavior, not cross-browser print certification."
+    },
+    "nativeSurfaces": "Selection uses the accent pair; the caret uses accent; scrollbars use input-border/page. Native summary markers, required-field validation, password/autofill UI and control semantics are not bespoke dialogs, tooltips or menus.",
+    "artwork": {
+      "record": "deploy/azure/README.md#website-artwork",
+      "hashManifest": "scripts/test_pilot_portal.ps1",
+      "permission": "Owner-confirmed website use dated 2026-09-12; not unrestricted redistribution, a new client-distribution grant, or an AGPL artwork license.",
+      "attribution": "MapleStory 2 artwork copyright NEXON. Independent, non-commercial, non-affiliated project; retain the website attribution.",
+      "metadataPolicy": "Provenance belongs in documentation/this sidecar. Do not modify image metadata or any preserved artwork bytes.",
+      "sources": {
+        "libraryHero": {
+          "url": "https://cdn.cloudflare.steamstatic.com/steam/apps/560380/library_hero.jpg",
+          "dimensions": [1920, 620],
+          "sha256": "143f7570c9dce1397ea6b72ff186e42aacd6c0baff697dc8bf627169b7975675"
+        },
+        "gameLogo": {
+          "url": "https://cdn.cloudflare.steamstatic.com/steam/apps/560380/logo.png",
+          "dimensions": [640, 360],
+          "sha256": "88cc543dddb63b211edccb31530a75a8b17c2ce9912843ca5578b30ae236bc96"
+        }
+      },
+      "cube": {
+        "path": "website/mark.svg",
+        "basis": "Existing original MapleTime MS2 cube, unchanged. The account layout uses the same inline SVG paths. Its native colors are artwork, not UI palette tokens."
+      },
+      "cropConvention": "Original-source pixels [left, top, right, bottom], right/bottom exclusive. Original six derivatives used Pillow 12.1.1; no enlargement, repaint or client extraction.",
+      "rasters": {
+        "website/ms2-world.webp": {
+          "sha256": "7f8564037f5f4abe64cd9ad98785f7ea6b5a5be3c318fcd461cd71fa098808a6",
+          "source": "libraryHero",
+          "conversion": "Full hero; WebP quality 88, method 6",
+          "preserved": true
+        },
+        "website/ms2-world-mobile.webp": {
+          "sha256": "41a13d6e5ed4046ac587c19113c775763a1c904ea386818b47c80358611dc622",
+          "source": "libraryHero",
+          "crop": [748, 0, 1876, 620],
+          "conversion": "WebP quality 88, method 6",
+          "preserved": true
+        },
+        "website/ms2-logo.png": {
+          "sha256": "b7ae33c43d14cceb6725965c6fe6cc870e6bd4d743a41a6deba984f8e0991a71",
+          "source": "gameLogo",
+          "crop": [0, 57, 640, 303],
+          "conversion": "Optimized PNG; transparent padding removed only",
+          "bytes": 126770,
+          "purpose": "Unchanged browser fallback and installer source",
+          "preserved": true
+        },
+        "website/ms2-logo.webp": {
+          "sha256": "480dc98b67c55547bbb4430a834efd87dcc0efa333afbabd69a39b2db0fada80",
+          "source": "website/ms2-logo.png",
+          "conversion": "Pillow WebP lossless=True, exact=True, method=6",
+          "bytes": 75896,
+          "decodedRgba": "Identical to the retained PNG in the accepted implementation validation; not recomputed during this documentation pass",
+          "iccProfiles": "None in either logo, per accepted validation",
+          "purpose": "Lossless delivery derivative; no change to approved appearance or rights"
+        },
+        "website/ms2-slime.webp": {
+          "sha256": "7562ca6202efdef433a7dccce1a681ebe2dcffd1e7743b7c0cf4a9738652d7e1",
+          "source": "libraryHero",
+          "crop": [176, 43, 292, 159],
+          "conversion": "WebP quality 90, method 6",
+          "preserved": true
+        },
+        "website/ms2-pig.webp": {
+          "sha256": "5616d7f06d6d7016f28b5692658a94209a3d554bbc185b206e2f910e61328751",
+          "source": "libraryHero",
+          "crop": [1771, 0, 1873, 102],
+          "conversion": "WebP quality 90, method 6",
+          "preserved": true
+        },
+        "website/ms2-mushroom.webp": {
+          "sha256": "71e59ad74c7bfa4fd40b75635df2c55d5d26e45120a9bcaf0dca8ff1170ed17e",
+          "source": "libraryHero",
+          "crop": [1562, 129, 1632, 199],
+          "conversion": "WebP quality 90, method 6",
+          "preserved": true
+        }
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Shared accent control with the actual right-arrow SVG. Type=button preview, not a start or registration action.",
+      "html": "<button class=\"ds-primary\" type=\"button\">Get ready to play <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></button>",
+      "css": ".ds-primary { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3); min-block-size: var(--control-target); max-inline-size: 100%; padding: var(--space-3) var(--space-5); border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-ink); font: 600 1rem/1.4 var(--font-body); text-align: center; text-decoration: none; overflow-wrap: anywhere; cursor: pointer; transition: background-color var(--duration-feedback) var(--ease-feedback), border-color var(--duration-feedback) var(--ease-feedback), color var(--duration-feedback) var(--ease-feedback); } .ds-primary:hover { background: var(--accent-strong); color: var(--accent-ink); } .ds-primary:active { border-color: currentColor; } .ds-primary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-primary:disabled { background: var(--inset); color: var(--muted); border-color: var(--line); cursor: not-allowed; } .ds-primary .ds-icon { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; } @media (prefers-reduced-motion: reduce) { .ds-primary { transition-duration: 0s; } } @media (forced-colors: active) { .ds-primary { border-color: ButtonText; } .ds-primary:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Solid-boundary companion control with the actual outbound-arrow SVG and soft-orange hover; no live navigation.",
+      "html": "<button class=\"ds-secondary\" type=\"button\">Development status <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"m7 17 10-10M7 7h10v10\"/></svg></button>",
+      "css": ".ds-secondary { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3); min-block-size: var(--control-target); max-inline-size: 100%; padding: var(--space-3) var(--space-5); border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: 600 1rem/1.4 var(--font-body); text-align: center; text-decoration: none; overflow-wrap: anywhere; cursor: pointer; transition: background-color var(--duration-feedback) var(--ease-feedback), border-color var(--duration-feedback) var(--ease-feedback), color var(--duration-feedback) var(--ease-feedback); } .ds-secondary:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); } .ds-secondary:active { border-color: currentColor; } .ds-secondary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-secondary:disabled { background: var(--inset); color: var(--muted); border-color: var(--line); cursor: not-allowed; } .ds-secondary .ds-icon { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; } @media (prefers-reduced-motion: reduce) { .ds-secondary { transition-duration: 0s; } } @media (forced-colors: active) { .ds-secondary { border-color: ButtonText; } .ds-secondary:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Cube brand and MS2 identity tag",
+      "kind": "custom",
+      "refersTo": "brand",
+      "description": "The actual inline cube and subordinate identity label, not a filter chip. Native artwork colors are intentionally not theme tokens.",
+      "html": "<a class=\"ds-brand\" id=\"ds-brand-preview\" href=\"#ds-brand-preview\" aria-label=\"MapleTime MS2 home preview\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M20 3 36 12 20 21 4 12Z\" fill=\"#86dac5\"/><path d=\"M4 12 20 21V38L4 29Z\" fill=\"#087995\"/><path d=\"m20 21 16-9v17l-16 9Z\" fill=\"#3aaec4\"/><path d=\"m12 8 16 9M12 17v17\" fill=\"none\" stroke=\"#e5fbef\" stroke-width=\"2\" stroke-linejoin=\"round\"/></svg><span>MapleTime <b>MS2</b></span></a>",
+      "css": ".ds-brand { display: inline-flex; align-items: center; gap: var(--space-3); min-block-size: var(--control-target); min-inline-size: 0; max-inline-size: 100%; color: var(--ink); text-decoration: none; font: 700 1.125rem/1.4 var(--font-body); overflow-wrap: anywhere; } .ds-brand:hover { color: var(--ink); } .ds-brand:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-brand > svg { inline-size: 2rem; block-size: 2rem; flex-shrink: 0; } .ds-brand > span { min-inline-size: 0; } .ds-brand b { display: inline-block; margin-inline-start: var(--space-1); padding: 0.15rem 0.35rem; border-radius: 4px; background: var(--inset); color: var(--muted); font-size: 0.75rem; font-weight: 600; vertical-align: middle; } @media (forced-colors: active) { .ds-brand b { border: 1px solid ButtonText; } .ds-brand:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Wrapping portal navigation",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Four ordinary links stay in flow and wrap; fragment-only destinations demonstrate styling, not site routing or scrollspy.",
+      "html": "<nav class=\"ds-nav\" id=\"ds-nav-preview\" aria-label=\"Main navigation preview\"><a href=\"#ds-nav-preview\">Start here</a><a href=\"#ds-nav-preview\">Client setup</a><a href=\"#ds-nav-preview\">Updates</a><a href=\"#ds-nav-preview\">Pilot status</a></nav>",
+      "css": ".ds-nav { display: flex; flex-wrap: wrap; gap: var(--space-5); font: 400 0.875rem/1.65 var(--font-body); } .ds-nav a { display: inline-flex; align-items: center; min-block-size: var(--control-target); padding-block: var(--space-2); color: var(--muted); text-decoration: none; text-underline-offset: 0.22em; text-decoration-thickness: 1px; overflow-wrap: anywhere; } .ds-nav a:hover { color: var(--accent); text-decoration: underline; } .ds-nav a:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } @media (max-width: 70rem) { .ds-nav { gap: var(--space-4); } } @media (max-width: 60rem) { .ds-nav { justify-content: space-between; border-block-start: var(--rule); } } @media (max-width: 30rem) { .ds-nav { gap: 0 var(--space-3); } } @media (forced-colors: active) { .ds-nav a:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Account field",
+      "kind": "input",
+      "refersTo": "account-field",
+      "description": "Labeled native username field and real helper text. No form or submission name; there is no fabricated field-hover, availability or password-reveal state.",
+      "html": "<div class=\"ds-field\"><label for=\"ds-username-preview\">Username</label><input id=\"ds-username-preview\" value=\"MapleTester\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" minlength=\"3\" maxlength=\"24\" pattern=\"[A-Za-z0-9_]{3,24}\" required aria-describedby=\"ds-username-help\"/><small id=\"ds-username-help\">Use 3-24 letters (A-Z), numbers (0-9), or underscores. Usernames are not case-sensitive.</small></div>",
+      "css": ".ds-field { min-inline-size: 0; color: var(--ink); font: 400 1rem/1.65 var(--font-body); } .ds-field label { display: block; font-weight: 600; } .ds-field input { box-sizing: border-box; display: block; inline-size: 100%; min-inline-size: 0; min-block-size: var(--control-target); margin-block: var(--space-2); padding: var(--space-3); border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; caret-color: var(--accent); } .ds-field input:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-field input[aria-invalid='true'] { border-color: var(--error); } .ds-field small { display: block; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; } @media (forced-colors: active) { .ds-field input { border-color: CanvasText; } .ds-field input:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Field-linked error feedback",
+      "kind": "custom",
+      "refersTo": "account-feedback",
+      "description": "A summary and its invalid-field target excerpt. The actual page orders all field errors and clears secrets; this preview omits form submission and autofocus.",
+      "html": "<div class=\"ds-error-demo\"><section class=\"ds-feedback\" role=\"alert\" aria-labelledby=\"ds-feedback-title\" tabindex=\"-1\"><h2 id=\"ds-feedback-title\">Check your registration details</h2><ul><li><a href=\"#ds-feedback-username\">Username: That username is already registered. Choose another username.</a></li></ul><p>Your username is kept below. Re-enter both password fields before trying again.</p></section><div class=\"ds-error-field\"><label for=\"ds-feedback-username\">Username</label><input id=\"ds-feedback-username\" value=\"MapleTester\" aria-invalid=\"true\" aria-describedby=\"ds-feedback-help ds-feedback-error\"/><small id=\"ds-feedback-help\">Use 3-24 letters (A-Z), numbers (0-9), or underscores. Usernames are not case-sensitive.</small><p id=\"ds-feedback-error\" class=\"ds-field-error\"><span>Error: That username is already registered. Choose another username.</span></p></div></div>",
+      "css": ".ds-error-demo { color: var(--ink); font: 400 1rem/1.65 var(--font-body); } .ds-feedback { margin-block: var(--space-5); padding: var(--space-4) var(--space-5); border: 1px solid var(--error); border-radius: var(--radius); color: var(--error); background: var(--error-bg); } .ds-feedback h2 { margin: 0; font: 650 1.125rem/1.4 var(--font-body); letter-spacing: normal; text-wrap: balance; } .ds-feedback ul { margin-block: var(--space-2); padding-inline-start: var(--space-5); } .ds-feedback li > a { display: block; min-block-size: var(--control-target); padding-block: var(--space-2); color: inherit; text-underline-offset: 0.22em; text-decoration-thickness: 1px; } .ds-feedback li > a:hover { color: inherit; } .ds-feedback p { max-inline-size: 72ch; } .ds-feedback li, .ds-feedback a, .ds-feedback p { overflow-wrap: anywhere; } .ds-feedback > :last-child { margin-block-end: 0; } .ds-feedback:focus, .ds-feedback a:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-error-field { min-inline-size: 0; } .ds-error-field label { display: block; font-weight: 600; } .ds-error-field input { box-sizing: border-box; display: block; inline-size: 100%; min-inline-size: 0; min-block-size: var(--control-target); margin-block: var(--space-2); padding: var(--space-3); border: 1px solid var(--error); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; caret-color: var(--accent); } .ds-error-field input:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-error-field small { display: block; color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; } .ds-field-error { margin-block: var(--space-2) 0; color: var(--error); } .ds-field-error span { display: block; overflow-wrap: anywhere; } @media (forced-colors: active) { .ds-feedback, .ds-error-field input { border-color: CanvasText; } .ds-feedback:focus, .ds-feedback a:focus-visible, .ds-error-field input:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Confirmed account result",
+      "kind": "custom",
+      "refersTo": "account-success",
+      "description": "Noninteractive status paragraph with bidirectional isolation. Example text only: it does not create or confirm a real account, and has no invented hover behavior.",
+      "html": "<p class=\"ds-success\" role=\"status\">Account <strong><bdi>MapleTester</bdi></strong> has been created.</p>",
+      "css": ".ds-success { max-inline-size: 72ch; margin-block: var(--space-5); padding: var(--space-4) var(--space-5); border: 1px solid var(--success); border-radius: var(--radius); color: var(--success); background: var(--success-bg); font: 400 1rem/1.65 var(--font-body); overflow-wrap: anywhere; } @media (forced-colors: active) { .ds-success { border-color: CanvasText; } }"
+    },
+    {
+      "name": "Native connection disclosure",
+      "kind": "custom",
+      "refersTo": "connection-disclosure",
+      "description": "Native open/closed disclosure with the real first connection step excerpt, summary hover/focus and target outline; not a complete configuration guide.",
+      "html": "<details class=\"ds-disclosure\" id=\"ds-disclosure-preview\" open><summary>Manual connection for invited testers</summary><ol><li>In Mushroom, choose the client root containing <code>Data</code> and <code>x64</code>, not the x64 folder itself.</li></ol></details>",
+      "css": ".ds-disclosure { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: 400 1rem/1.65 var(--font-body); } .ds-disclosure summary { min-block-size: var(--control-target); padding: var(--space-4) var(--space-5); color: var(--ink); font-weight: 600; cursor: pointer; } .ds-disclosure summary::marker { color: var(--accent); } .ds-disclosure[open] summary { border-block-end: 1px solid var(--line); } .ds-disclosure summary:hover { color: var(--accent); } .ds-disclosure summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-disclosure:target { outline: 2px solid var(--accent); outline-offset: 4px; } .ds-disclosure ol { margin: var(--space-5); padding-inline-start: var(--space-5); color: var(--muted); } .ds-disclosure li { overflow-wrap: anywhere; } .ds-disclosure li + li { margin-block-start: var(--space-4); } .ds-disclosure code { color: var(--ink); font: 0.95em/1.6 var(--font-data); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; } @media (max-width: 30rem) { .ds-disclosure summary { padding: var(--space-4); } .ds-disclosure ol { margin: var(--space-4); } } @media (forced-colors: active) { .ds-disclosure summary:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Factual status container",
+      "kind": "card",
+      "refersTo": "status-container",
+      "description": "The actual soft-ground prose container and subordinate control, not a health/metric dashboard or a generic marketing card. Button is non-operational.",
+      "html": "<section class=\"ds-status\" aria-labelledby=\"ds-status-title\"><div><h2 id=\"ds-status-title\">A private pilot, not a public launch</h2><p>The Azure pilot is running with restricted access. Installer review, client distribution and full gameplay checks must pass before public launch.</p><p class=\"ds-note\">This page is not a live server-health monitor and does not collect passwords.</p></div><button class=\"ds-status-action\" type=\"button\">Development status <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"m7 17 10-10M7 7h10v10\"/></svg></button></section>",
+      "css": ".ds-status { display: flex; justify-content: space-between; align-items: center; gap: var(--space-7); margin-block: var(--space-4) var(--space-8); padding: var(--space-6); border-radius: var(--radius-lg); background: var(--soft); color: var(--ink); font: 400 1rem/1.65 var(--font-body); } .ds-status > div { min-inline-size: 0; } .ds-status h2 { margin: 0; font: 400 1.875rem/1.25 var(--font-display); letter-spacing: -0.035em; text-wrap: balance; overflow-wrap: anywhere; } .ds-status p { max-inline-size: 72ch; margin: var(--space-4) 0 0; color: var(--muted); overflow-wrap: anywhere; } .ds-status .ds-note { font-size: 0.875rem; } .ds-status-action { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: var(--space-3); min-block-size: var(--control-target); max-inline-size: 100%; padding: var(--space-3) var(--space-5); border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: 600 1rem/1.4 var(--font-body); text-align: center; overflow-wrap: anywhere; cursor: pointer; transition: background-color var(--duration-feedback) var(--ease-feedback), border-color var(--duration-feedback) var(--ease-feedback), color var(--duration-feedback) var(--ease-feedback); } .ds-status-action:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); } .ds-status-action:active { border-color: currentColor; } .ds-status-action:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-status-action .ds-icon { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; } @media (max-width: 70rem) { .ds-status { align-items: flex-start; flex-direction: column; gap: var(--space-5); } } @media (max-width: 30rem) { .ds-status { padding: var(--space-5); margin-block-end: var(--space-7); } } @media (prefers-reduced-motion: reduce) { .ds-status-action { transition-duration: 0s; } } @media (forced-colors: active) { .ds-status-action { border-color: ButtonText; } .ds-status-action:focus-visible { outline-color: Highlight; } }"
+    },
+    {
+      "name": "Discrete text link",
+      "kind": "custom",
+      "refersTo": "text-link",
+      "description": "Underlined companion action with minimum target and the actual right-arrow SVG. Fragment-only excerpt, not a working connection destination.",
+      "html": "<a class=\"ds-text-link\" id=\"ds-text-link-preview\" href=\"#ds-text-link-preview\">Connection steps <svg class=\"ds-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M5 12h14m-6-6 6 6-6 6\"/></svg></a>",
+      "css": ".ds-text-link { display: inline-flex; align-items: center; gap: var(--space-2); min-block-size: var(--control-target); max-inline-size: 100%; padding-block: var(--space-2); color: var(--accent); font: 400 1rem/1.65 var(--font-body); text-underline-offset: 0.22em; text-decoration-thickness: 1px; overflow-wrap: anywhere; } .ds-text-link:hover { color: var(--accent-strong); } .ds-text-link:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; } .ds-text-link .ds-icon { inline-size: 1.125rem; block-size: 1.125rem; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; } @media (forced-colors: active) { .ds-text-link:focus-visible { outline-color: Highlight; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A familiar MapleTime companion",
+    "overview": "This names the confirmed existing-world refinement, not a new metaphor selection or generated concept. Maple-orange controls, near-neutral ground, editorial serif headings and compact rounded forms provide the MS1-family resemblance. The original cube and authentic MS2 scenery, logo and creatures establish the second game's identity; the interface does not repaint them to match its accent.\n\nSpace, reading measure and visible state do the organizing. Dashed rules separate content; tonal containers support disclosures, feedback and bounded information. Density follows the task rather than a universal landing-page composition. Native controls remain useful without JavaScript, and both system color schemes receive explicit colors instead of automatic inversion.",
+    "keyCharacteristics": [
+      "Maple-orange interaction on explicit light and dark neutral grounds.",
+      "Georgia display, local interface and code stacks; no downloaded fonts.",
+      "Authentic MS2 identity kept separate from reusable interface color tokens.",
+      "Flat, rounded controls with native behavior and visible recovery states."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Orange Rule",
+        "body": "Use the current theme's accent pair for interaction; state colors describe outcomes, and the native cube/artwork retain their own colors.",
+        "section": "colors"
+      },
+      {
+        "name": "The Editorial Hierarchy Rule",
+        "body": "Keep Georgia for the large heading hierarchy and the local sans stack for controls, labels and compact task headings.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tone Before Shadow Rule",
+        "body": "Separate authored interface surfaces with tone, spacing and rules, not shadows; retain natural depth inside the MS2 artwork.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** derive shared colors and base controls from `website/theme.css`, including its embedded account use.",
+      "**Do** use the current theme's paired foregrounds, text labels and visible focus to communicate state.",
+      "**Do** preserve native disclosure/form behavior, wrapping controls and reduced-motion feedback.",
+      "**Do** keep approved MS2 artwork bytes, attribution and provenance separate from UI tokens.",
+      "**Do** read the matching surface brief before applying a route's composition or recovery strategy."
+    ],
+    "donts": [
+      "**Don't** duplicate the shared theme or claim Newsreader, downloaded fonts or remote account assets are loaded.",
+      "**Don't** add authored shadows, glass or hover lifts to this flat interface, or flatten the depth in native artwork.",
+      "**Don't** treat the homepage panorama, ordered setup composition or factual status container as mandatory on account and recovery surfaces.",
+      "**Don't** replace SVG interface icons with text glyphs, or turn the MS2 identity tag into an invented chip/filter system.",
+      "**Don't** present preview excerpts, synthetic tonal strips, fixture results or the bounded ship verdict as live-account, deployment or accessibility certification."
+    ]
+  }
+}

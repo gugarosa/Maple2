@@ -1,0 +1,23 @@
+@model Maple2.Server.Web.Model.AccountNotice
+@{
+    Layout = "~/Views/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = Model.Title;
+    string? playerWebsiteUrl = Environment.GetEnvironmentVariable("PLAYER_WEBSITE_URL");
+}
+<section class="account-notice" role="alert" aria-labelledby="notice-title" tabindex="-1" autofocus>
+    <h1 id="notice-title">@Model.Title</h1>
+    <p class="account-intro">@Model.Description</p>
+    @if (Model.RetryAfterSeconds is int seconds) {
+        <p class="note">Wait at least @(seconds == 1 ? "1 second" : $"{seconds} seconds") before trying again.</p>
+    }
+</section>
+<div class="account-actions">
+    @if (Model.AllowReload) {
+        <a class="button account-primary" href="@Url.Content("~/account")">Reload registration</a>
+    }
+    @if (playerWebsiteUrl != null) {
+        <a class="@(Model.AllowReload ? "text-link" : "button account-primary")" href="@playerWebsiteUrl">@(Model.AllowReload ? "Return to the setup guide" : "Open the setup guide")</a>
+    } else if (!Model.AllowReload) {
+        <p>Ask your server operator for the secure registration address.</p>
+    }
+</div>

@@ -4,10 +4,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Threading.RateLimiting;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
 using Maple2.Server.Core.Modules;
+using Maple2.Server.Web.Helpers;
 using Maple2.Tools;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -72,21 +72,7 @@ builder.WebHost.UseKestrel(options => {
 builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = TimeSpan.FromSeconds(15));
 builder.Services.AddMemoryCache();
 builder.Services.AddControllersWithViews();
-builder.Services.AddRateLimiter(options => {
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = async (context, cancellationToken) => {
-        context.HttpContext.Response.ContentType = "text/plain; charset=utf-8";
-        await context.HttpContext.Response.WriteAsync(
-            "Too many registration attempts. Wait a minute, then reload the registration page.", cancellationToken);
-    };
-    options.AddPolicy("account-registration", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions {
-            PermitLimit = 5,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0,
-        }));
-});
+builder.Services.AddRateLimiter(AccountPageProtection.ConfigureRateLimiting);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog(dispose: true);
@@ -102,15 +88,7 @@ builder.Host.ConfigureContainer<ContainerBuilder>(autofac => {
 WebApplication app = builder.Build();
 app.UseForwardedHeaders();
 if (requireHttpsRegistration) {
-    app.Use(async (context, next) => {
-        if (context.Request.Path.StartsWithSegments("/account", StringComparison.OrdinalIgnoreCase) &&
-            !context.Request.IsHttps) {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsync("Account registration requires HTTPS.");
-            return;
-        }
-        await next(context);
-    });
+    app.Use(AccountPageProtection.RequireHttps);
 }
 app.UseRouting();
 app.UseRateLimiter();

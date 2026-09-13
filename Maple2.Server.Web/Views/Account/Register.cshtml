@@ -1,97 +1,111 @@
+@using System.Linq
+@using Maple2.Server.Web.Helpers
 @model Maple2.Server.Web.Model.RegistrationForm
 @{
-    Layout = null;
+    Layout = "~/Views/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = Model.RegisteredUsername != null ? "Account created" : "Create an account";
     string? playerWebsiteUrl = Environment.GetEnvironmentVariable("PLAYER_WEBSITE_URL");
+    string? FieldId(string key) => key[(key.LastIndexOf('.') + 1)..].ToLowerInvariant() switch {
+        "username" => "username",
+        "password" => "password",
+        "confirmpassword" => "confirm-password",
+        _ => null,
+    };
+    var errors = ViewData.ModelState.SelectMany(entry => entry.Value!.Errors.Select(error => new {
+        Field = FieldId(entry.Key),
+        Message = string.IsNullOrWhiteSpace(error.ErrorMessage)
+            ? "Check your details and try again."
+            : error.ErrorMessage,
+    })).OrderBy(error => error.Field switch {
+        "username" => 1,
+        "password" => 2,
+        "confirm-password" => 3,
+        _ => 0,
+    }).ToArray();
+    var usernameErrors = errors.Where(error => error.Field == "username").ToArray();
+    var passwordErrors = errors.Where(error => error.Field == "password").ToArray();
+    var confirmErrors = errors.Where(error => error.Field == "confirm-password").ToArray();
 }
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="referrer" content="same-origin" />
-    <title>MapleStory 2 account registration</title>
-    <style>
-        :root {
-            color-scheme: light; font: 1rem/1.6 "Segoe UI", system-ui, sans-serif;
-            --page: #fbfdff; --surface: #fff; --soft: #eef5f9; --ink: #19334a;
-            --muted: #526b7d; --line: #dce6ed; --accent: #086f94; --input-border: #748a9c;
-            --error: #a12626; --error-bg: #fff2f2; --success: #12634c; --success-bg: #edf9f3;
-        }
-        * { box-sizing: border-box; }
-        body { margin: 0; padding: 2rem 1rem; background: var(--page); color: var(--ink); }
-        main { max-width: 32rem; margin: 3rem auto; padding: 2rem; border: 1px solid var(--line); border-radius: 1rem; background: var(--surface); }
-        h1 { margin-top: 0; font-size: 1.8rem; overflow-wrap: anywhere; }
-        h2 { font-size: 1.25rem; }
-        label { display: block; margin-top: 1.25rem; font-weight: 600; }
-        input { width: 100%; min-height: 2.75rem; padding: .7rem; margin-top: .3rem; border: 1px solid var(--input-border); border-radius: .5rem; background: var(--soft); color: var(--ink); font: inherit; }
-        button { width: 100%; min-height: 2.75rem; margin-top: 1.5rem; padding: .8rem; border: 0; border-radius: .5rem; background: #f6ca63; color: #19334a; font: inherit; font-weight: 700; cursor: pointer; }
-        button:hover { background: #ffdf92; }
-        input:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
-        small, .note { color: var(--muted); }
-        .errors { padding: .8rem 1rem; border: 1px solid var(--error); border-radius: .5rem; color: var(--error); background: var(--error-bg); }
-        .errors ul { margin: 0; padding-left: 1.2rem; }
-        .success { padding: 1rem; border: 1px solid var(--success); border-radius: .5rem; color: var(--success); background: var(--success-bg); }
-        p, code, a { overflow-wrap: anywhere; }
-        a { color: var(--accent); text-underline-offset: .2em; }
-        @@media (max-width: 30rem) {
-            body { padding: 1rem; }
-            main { margin: 1rem auto; padding: 1.25rem; }
-        }
-        @@media (prefers-color-scheme: dark) {
-            :root {
-                color-scheme: dark; --page: #101d29; --surface: #162633; --soft: #1b3040;
-                --ink: #e8f1f7; --muted: #adbfce; --line: #304758; --accent: #80d2ef; --input-border: #7494aa;
-                --error: #ffb4b4; --error-bg: #40292d; --success: #9ae5b2; --success-bg: #183b30;
-            }
-        }
-    </style>
-</head>
-<body>
-<main>
-    <h1>MapleStory 2 account</h1>
-    @if (Model.RegisteredUsername != null) {
-        <div class="success" role="status">
-            Account <strong>@Model.RegisteredUsername</strong> is ready.
-        </div>
-        <h2>Sign in to the game</h2>
-        <p>Open your compatible MapleStory2 client and enter your username and password on its login screen.</p>
-        <p>Select Login server <code>@Maple2.Server.Core.Constants.Target.LoginIp</code>, port <code>@Maple2.Server.Core.Constants.Target.LoginPort</code> in Mushroom. Leave automatic login disabled if you want to type credentials in the client.</p>
-        <p class="note">Registration does not grant administrator access. Existing characters remain attached to their existing accounts.</p>
-        <p><a href="/account">Register another account</a></p>
-    } else {
-        <p>Create an account before signing in. Clicking Login does not create an account.</p>
-        @if (!ViewData.ModelState.IsValid) {
-            <div class="errors" role="alert" id="registration-errors">
-                <ul>
-                    @foreach (var entry in ViewData.ModelState.Values) {
-                        @foreach (var error in entry.Errors) {
-                            <li>@error.ErrorMessage</li>
-                        }
-                    }
-                </ul>
-            </div>
-        }
-        <form method="post" action="/account/register" aria-describedby="registration-help">
-            @Html.AntiForgeryToken()
-            <label for="username">Username</label>
-            <input id="username" name="Username" value="@Model.Username" autocomplete="username" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" required aria-describedby="username-help" />
-            <small id="username-help">3-24 letters, numbers, or underscores. Usernames are not case-sensitive.</small>
-            <label for="password">Password</label>
-            <input id="password" name="Password" type="password" autocomplete="new-password" minlength="8" maxlength="16" required aria-describedby="password-help" />
-            <small id="password-help">8-16 characters. The legacy game client accepts at most 16 characters in its password field.</small>
-            <label for="confirm-password">Confirm password</label>
-            <input id="confirm-password" name="ConfirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="16" required />
-            <button type="submit">Create account</button>
-        </form>
-        <p class="note" id="registration-help">Already registered? Use your existing credentials in the game client. Registering again does not recover an existing account.</p>
-        @if (!Context.Request.IsHttps) {
-            <p class="note">Use this HTTP page only on your own computer or trusted local network. Public servers must provide HTTPS for registration.</p>
-        }
-    }
+@if (Model.RegisteredUsername != null) {
+    <h1>Your MS2 account is ready</h1>
+    <p class="account-success" role="status">Account <strong><bdi>@Model.RegisteredUsername</bdi></strong> has been created.</p>
+    <p class="account-intro">Next, set up your compatible client. Sign in to the game with this username and the password you chose.</p>
     @if (playerWebsiteUrl != null) {
-        <p><a href="@playerWebsiteUrl">Client setup &amp; play guide</a></p>
+        <a class="button account-primary" href="@playerWebsiteUrl">Continue to client setup</a>
+    } else {
+        <p>In Mushroom, select Login host <code>@Maple2.Server.Core.Constants.Target.LoginIp</code> and port <code>@Maple2.Server.Core.Constants.Target.LoginPort</code>. Leave automatic login off, launch your compatible client, and sign in to the game.</p>
+        <p class="note">Ask your server operator for the client setup guide if you need help connecting.</p>
     }
-    <p class="note"><a href="@(Environment.GetEnvironmentVariable("SERVER_SOURCE_URL") ?? "https://github.com/gugarosa/Maple2")">Server source</a></p>
-</main>
-</body>
-</html>
+    <p class="note">This is an ordinary player account, without administrator access. Existing characters remain attached to their existing accounts.</p>
+    <a class="text-link" href="@Url.Content("~/account")">Register another account</a>
+} else {
+    <h1 id="registration-title">Create your MS2 account</h1>
+    <p class="account-intro">Use these credentials to sign in to the game. MS1 accounts and characters do not carry over.</p>
+    <p class="note">Registration and play are for invited testers on approved networks.</p>
+    @if (!ViewData.ModelState.IsValid) {
+        <section class="feedback" role="alert" id="registration-errors" aria-labelledby="registration-errors-title" tabindex="-1" autofocus>
+            <h2 id="registration-errors-title">@(Context.Response.StatusCode == 503 ? "Registration is temporarily unavailable" : "Check your registration details")</h2>
+            <ul>
+                @foreach (var error in errors) {
+                    <li>
+                        @if (error.Field != null) {
+                            string label = error.Field switch {
+                                "username" => "Username",
+                                "password" => "Password",
+                                _ => "Confirm password",
+                            };
+                            <a href="#@error.Field">@label: @error.Message</a>
+                        } else {
+                            @error.Message
+                        }
+                    </li>
+                }
+            </ul>
+            <p>Your username is kept below. Re-enter both password fields before trying again.</p>
+        </section>
+    }
+    <form class="account-form" method="post" action="@Url.Content("~/account/register")" aria-labelledby="registration-title" aria-describedby="registration-help">
+        @Html.AntiForgeryToken()
+        <p class="note form-requirement">All fields are required.</p>
+        <div class="field">
+            <label for="username">Username</label>
+            <input id="username" name="Username" value="@Model.Username" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" required aria-invalid="@(usernameErrors.Length > 0 ? "true" : null)" aria-describedby="@(usernameErrors.Length > 0 ? "username-help username-error" : "username-help")" />
+            <small id="username-help">@RegistrationResponses.USERNAME_REQUIREMENT Usernames are not case-sensitive.</small>
+            @if (usernameErrors.Length > 0) {
+                <p class="field-error" id="username-error">
+                    @foreach (var error in usernameErrors) {
+                        <span>Error: @error.Message</span>
+                    }
+                </p>
+            }
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <input id="password" name="Password" type="password" autocomplete="new-password" minlength="8" maxlength="16" required aria-invalid="@(passwordErrors.Length > 0 ? "true" : null)" aria-describedby="@(passwordErrors.Length > 0 ? "password-help password-error" : "password-help")" />
+            <small id="password-help">8-16 characters. The game client's password field accepts at most 16 characters.</small>
+            @if (passwordErrors.Length > 0) {
+                <p class="field-error" id="password-error">
+                    @foreach (var error in passwordErrors) {
+                        <span>Error: @error.Message</span>
+                    }
+                </p>
+            }
+        </div>
+        <div class="field">
+            <label for="confirm-password">Confirm password</label>
+            <input id="confirm-password" name="ConfirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="16" required aria-invalid="@(confirmErrors.Length > 0 ? "true" : null)" aria-describedby="@(confirmErrors.Length > 0 ? "confirm-password-error" : null)" />
+            @if (confirmErrors.Length > 0) {
+                <p class="field-error" id="confirm-password-error">
+                    @foreach (var error in confirmErrors) {
+                        <span>Error: @error.Message</span>
+                    }
+                </p>
+            }
+        </div>
+        <button class="button account-primary" type="submit">Create account</button>
+    </form>
+    <p class="note" id="registration-help">Already registered? Sign in with your existing credentials in the game client. Creating another account does not recover an existing one.</p>
+    @if (!Context.Request.IsHttps) {
+        <p class="note">Use this HTTP page only on your own computer or trusted local network. Public servers must provide HTTPS for registration.</p>
+    }
+}
