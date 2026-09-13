@@ -30,3 +30,8 @@ Maple2.File.Ingest/Resources
 Maple2.Server.Web/Data/*
 !Maple2.Server.Web/Data/system
 PacketStructures
+.impeccable/review
+.impeccable/live
+.impeccable/mocks
+.impeccable/build
+.impeccable/config.local.json
