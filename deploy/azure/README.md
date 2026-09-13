@@ -357,6 +357,12 @@ brief under `.impeccable/surfaces`. Shared theme primitives live in
 rather than requesting styling from the public portal. This keeps the credential
 page self-contained and prevents a second independently drifting palette.
 Missing website routes retain HTTP 404 and show an authored recovery page.
+The application source archive explicitly includes the authored
+`website/theme.css` build dependency, not the whole website or its artwork.
+Packaging fails before Docker if that required shared input is missing.
+The source-contract regression reads Web's actual embedded-resource declarations
+and verifies their exact bytes in the filtered archive; a full-checkout build
+alone does not establish that the deployment build context is complete.
 
 Web supports optional `PLAYER_WEBSITE_URL` for a setup link on its account and
 success pages. The authored Azure Compose value is
