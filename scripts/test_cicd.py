@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import uuid
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("release", ROOT / "deploy" / "azure" / "release.py")
@@ -138,6 +139,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse(release.source_file("client/MapleStory2.exe"))
         self.assertFalse(release.source_file("Maple2.Server.Game/Navmeshes"))
         self.assertTrue(release.source_file("Maple2.Server.Web/Data/system/banner.png"))
+        self.assertTrue(release.source_file("website/theme.css"))
+        for name in ("website/index.html", "website/styles.css", "website/ms2-logo.png",
+                     "website/ms2-logo.webp", "website/.env", ".impeccable/design.json",
+                     "tools/WebsitePreview/Program.cs"):
+            with self.subTest(name=name):
+                self.assertFalse(release.source_file(name))
         for name in ("Maple2.Server.Web/.env", "Maple2.Server.Web/Data/profile/avatar.png",
                      "Maple2.Tools/key.pfx", "Maple2.File.Ingest/client.m2d", "Maple2.Model/bin/private.dll"):
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -182,6 +189,8 @@ class ReleaseTests(unittest.TestCase):
                     return "".join("100644 abc 0\t" + name + "\0" for name in sorted(names)).encode()
                 if arguments[1] == "build":
                     self.assertIn("BUILD_CONFIGURATION=Release", arguments)
+                    self.assertIn("--progress=plain", arguments)
+                    self.assertNotIn("--quiet", arguments)
                     source_hash = release.digest(output / "source" / "server-source.tar.gz")
                     _, values = image_archive(saved, source=source_hash)
                     expected.update(values)
@@ -205,6 +214,33 @@ class ReleaseTests(unittest.TestCase):
                 self.assertEqual((output / name).read_bytes(), b"committed fixture\n")
             with self.assertRaisesRegex(ValueError, "overwrite"):
                 release.build(repo, output, REVISION)
+
+    def test_real_web_embedded_resources_survive_filtered_source(self):
+        project = ROOT / "Maple2.Server.Web" / "Maple2.Server.Web.csproj"
+        names = {"LICENSE", "global.json", project.relative_to(ROOT).as_posix()}
+        resources = set()
+        for item in ET.parse(project).iter("EmbeddedResource"):
+            resource = (project.parent / item.attrib["Include"].replace("\\", "/")).resolve()
+            name = resource.relative_to(ROOT).as_posix()
+            self.assertTrue(resource.is_file(), name)
+            self.assertTrue(release.source_file(name), f"Embedded build resource excluded from source: {name}")
+            resources.add(name)
+        self.assertIn("website/theme.css", resources)
+        names.update(resources)
+        excluded = {"website/index.html", "website/ms2-logo.png", ".impeccable/design.json"}
+        tracked = "".join(f"100644 abc 0\t{name}\0" for name in sorted(names | excluded)).encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "source.tar.gz"
+            with patch.object(release, "run", side_effect=[REVISION + "\n", "", tracked]):
+                release.make_source(ROOT, REVISION, output)
+            with tarfile.open(output) as archive:
+                self.assertEqual(set(archive.getnames()), names | {"Maple2.Server.Game/Navmeshes"})
+                for name in resources:
+                    self.assertEqual(archive.extractfile(name).read(), (ROOT / name).read_bytes())
+            missing = "".join(f"100644 abc 0\t{name}\0" for name in sorted(names - resources)).encode()
+            with patch.object(release, "run", side_effect=[REVISION + "\n", "", missing]):
+                with self.assertRaisesRegex(ValueError, "Missing shared Web build input"):
+                    release.make_source(ROOT, REVISION, Path(temporary) / "missing.tar.gz")
 
     def test_compatibility_normalizes_text_but_not_runtime_changes(self):
         with tempfile.TemporaryDirectory() as temporary:

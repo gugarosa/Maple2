@@ -6,13 +6,14 @@ $root = Split-Path -Parent $PSScriptRoot
 $site = Join-Path $root 'website'
 $artwork = @{
     'ms2-logo.png' = 'B7AE33C43D14CCEB6725965C6FE6CC870E6BD4D743A41A6DEBA984F8E0991A71'
+    'ms2-logo.webp' = '480DC98B67C55547BBB4430A834EFD87DCC0EFA333AFBABD69A39B2DB0FADA80'
     'ms2-world.webp' = '7F8564037F5F4ABE64CD9AD98785F7EA6B5A5BE3C318FCD461CD71FA098808A6'
     'ms2-world-mobile.webp' = '41A13D6E5ED4046AC587C19113C775763A1C904EA386818B47C80358611DC622'
     'ms2-slime.webp' = '7562CA6202EFDEF433A7DCCCE1A681EBE2DCFFD1E7743B7C0CF4A9738652D7E1'
     'ms2-pig.webp' = '5616D7F06D6D7016F28B5692658A94209A3D554BBC185B206E2F910E61328751'
     'ms2-mushroom.webp' = '71E59AD74C7BFA4FD40B75635DF2C55D5D26E45120A9BCAF0DCA8FF1170ED17E'
 }
-$expected = @(@('index.html', 'mark.svg', 'staticwebapp.config.json', 'styles.css') + @($artwork.Keys) | Sort-Object)
+$expected = @(@('index.html', '404.html', 'mark.svg', 'staticwebapp.config.json', 'theme.css', 'styles.css') + @($artwork.Keys) | Sort-Object)
 $actual = @(Get-ChildItem -LiteralPath $site -Recurse -File |
     ForEach-Object { $_.FullName.Substring($site.Length + 1) } | Sort-Object)
 if (($actual -join ',') -ne ($expected -join ',')) {
@@ -60,7 +61,9 @@ if (@($links | Where-Object { $_ -eq $launcherRelease }).Count -ne 1 -or
     throw 'Provide one official launcher release link and in-page manual connection steps.'
 }
 foreach ($image in [regex]::Matches($html, '(?i)\b(?:src|srcset)=["'']([^"'']+)["'']')) {
-    if ($image.Groups[1].Value -ne 'mark.svg' -and -not $artwork.ContainsKey($image.Groups[1].Value)) {
+    $source = $image.Groups[1].Value
+    if (-not $source.StartsWith('/') -or $source.StartsWith('//') -or
+        ($source -ne '/mark.svg' -and -not $artwork.ContainsKey($source.Substring(1)))) {
         throw 'Pilot artwork must be one of the reviewed, locally served images.'
     }
 }
@@ -68,16 +71,16 @@ foreach ($asset in $artwork.Keys) {
     if ((Get-FileHash -LiteralPath (Join-Path $site $asset) -Algorithm SHA256).Hash -ne $artwork[$asset]) {
         throw "Website artwork differs from its reviewed source: $asset"
     }
-    if (-not $html.Contains('"' + $asset + '"')) {
+    if (-not $html.Contains('"/' + $asset + '"')) {
         throw "Unused artwork must not be included in the website: $asset"
     }
 }
 $monsters = @([regex]::Matches($html, 'class="update-monster" src="([^"]+)"') |
-    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    ForEach-Object { $_.Groups[1].Value.TrimStart('/') } | Sort-Object -Unique)
 if (($monsters -join ',') -ne 'ms2-mushroom.webp,ms2-pig.webp,ms2-slime.webp') {
     throw 'Project updates must use three distinct MS2 monsters.'
 }
-if ($html -notmatch '<source media="\(max-width: 60rem\)" srcset="ms2-world-mobile.webp"') {
+if ($html -notmatch '<source media="\(max-width: 60rem\)" srcset="/ms2-world-mobile.webp"') {
     throw 'Small screens must select the framed mobile MS2 artwork.'
 }
 if ($html -match '@guide|GMS v83|stmapletimeassets|world\.svg|Site illustrations are original|class="(?:eyebrow|step)"') {
@@ -102,6 +105,17 @@ if ($settings.globalHeaders.'Content-Security-Policy' -notmatch "form-action 'no
     $settings.globalHeaders.'Content-Security-Policy' -notmatch "img-src 'self'" -or
     $settings.globalHeaders.'X-Content-Type-Options' -ne 'nosniff') {
     throw 'Pilot portal security headers are incomplete.'
+}
+if ($settings.responseOverrides.'404'.rewrite -ne '/404.html' -or
+    $settings.responseOverrides.'404'.statusCode -ne 404) {
+    throw 'Missing pages must retain HTTP 404 and provide the authored recovery page.'
+}
+foreach ($page in @('index.html', '404.html')) {
+    $markup = Get-Content -LiteralPath (Join-Path $site $page) -Raw -Encoding UTF8
+    if (-not $markup.Contains('href="/theme.css"') -or -not $markup.Contains('href="/styles.css"') -or
+        $markup -match '(?i)<(?:form|input|script|style)\b') {
+        throw "Static pages must use the shared local styles without inline code or credential collection: $page"
+    }
 }
 $tokens = $null
 $errors = $null

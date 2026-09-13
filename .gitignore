@@ -384,3 +384,10 @@ FodyWeavers.xsd
 .mcp.json
 CLAUDE.local.md
 telemetry-id
+
+# Local Impeccable evidence and tooling, never published website content
+.impeccable/review/
+.impeccable/live/
+.impeccable/mocks/
+.impeccable/build/
+.impeccable/config.local.json

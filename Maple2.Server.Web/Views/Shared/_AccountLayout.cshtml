@@ -1,0 +1,68 @@
+@using Maple2.Server.Web.Helpers
+@{
+    string? playerWebsiteUrl = Environment.GetEnvironmentVariable("PLAYER_WEBSITE_URL");
+}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="same-origin" />
+    <title>@ViewData["Title"] &middot; MapleTime MS2</title>
+    <style id="player-theme">@Html.Raw(PlayerTheme.Css)</style>
+    <style>
+        .account-frame { inline-size: min(calc(100% - 2rem), 40rem); margin-inline: auto; }
+        .account-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3) var(--space-5); padding-block: var(--space-5); border-block-end: var(--rule); }
+        .account-main { padding-block: clamp(2rem, 6vw, 4rem); }
+        .account-main h1 { font-size: clamp(2rem, 1.4rem + 2vw, 3rem); }
+        .account-intro { margin-block: var(--space-4) var(--space-5); font-size: 1.0625rem; }
+        .account-form { display: grid; gap: var(--space-5); inline-size: 100%; min-inline-size: 0; margin-block: var(--space-5); }
+        .form-requirement { margin: 0; }
+        .field { min-inline-size: 0; }
+        .field label { display: block; font-weight: 600; }
+        .field input { display: block; inline-size: 100%; min-inline-size: 0; min-block-size: var(--control-target); margin-block: var(--space-2); padding: var(--space-3); border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
+        .field small, .field-error span { display: block; overflow-wrap: anywhere; }
+        .field input[aria-invalid="true"] { border-color: var(--error); }
+        .field-error { margin-block: var(--space-2) 0; color: var(--error); }
+        .account-primary { inline-size: 100%; }
+        .account-actions { display: grid; gap: var(--space-3); margin-block-start: var(--space-6); }
+        .feedback { margin-block: var(--space-5); padding: var(--space-4) var(--space-5); border: 1px solid var(--error); border-radius: var(--radius); color: var(--error); background: var(--error-bg); }
+        .feedback h2 { font: 650 1.125rem/1.4 var(--font-body); letter-spacing: normal; }
+        .feedback ul { margin-block: var(--space-2); padding-inline-start: var(--space-5); }
+        .feedback li > a { display: block; min-block-size: var(--control-target); padding-block: var(--space-2); color: inherit; }
+        .feedback > :last-child { margin-block-end: 0; }
+        .feedback:focus, .account-notice:focus { outline: 3px solid var(--accent); outline-offset: 4px; }
+        .account-success { margin-block: var(--space-5); padding: var(--space-4) var(--space-5); border: 1px solid var(--success); border-radius: var(--radius); color: var(--success); background: var(--success-bg); }
+        .account-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3) var(--space-5); padding-block: var(--space-5); border-block-start: var(--rule); }
+        .account-footer p { margin: 0; }
+        @@media (forced-colors: active) {
+            .feedback, .account-success, .field input { border-color: CanvasText; }
+            .feedback:focus, .account-notice:focus { outline-color: Highlight; }
+        }
+    </style>
+</head>
+<body>
+<a class="skip-link" href="#account-main">Skip to account content</a>
+<header class="account-frame account-header">
+    <a class="brand" href="@(playerWebsiteUrl ?? Url.Content("~/account"))" aria-label="MapleTime MS2 home">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <path d="M20 3 36 12 20 21 4 12Z" fill="#86dac5" />
+            <path d="M4 12 20 21V38L4 29Z" fill="#087995" />
+            <path d="m20 21 16-9v17l-16 9Z" fill="#3aaec4" />
+            <path d="m12 8 16 9M12 17v17" fill="none" stroke="#e5fbef" stroke-width="2" stroke-linejoin="round" />
+        </svg>
+        <span>MapleTime <b>MS2</b></span>
+    </a>
+    @if (playerWebsiteUrl != null) {
+        <a class="text-link" href="@playerWebsiteUrl">Setup guide</a>
+    }
+</header>
+<main class="account-frame account-main" id="account-main" tabindex="-1">
+    @RenderBody()
+</main>
+<footer class="account-frame account-footer">
+    <p class="note">An independent MapleStory 2 project.</p>
+    <a class="text-link" href="@(Environment.GetEnvironmentVariable("SERVER_SOURCE_URL") ?? "https://github.com/gugarosa/Maple2")">Server source</a>
+</footer>
+</body>
+</html>

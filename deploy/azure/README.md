@@ -334,9 +334,10 @@ resource limits, and private multi-client validation.
 
 ## Website deployment
 
-`website` is a script-free MS2 site with the same broad layout as MS1: navigation,
-a hero, setup cards, project updates and status. It uses approved MS2 artwork,
-distinct monsters, light/dark themes, a native mobile menu and concise setup help.
+`website` is a script-free MS2 player companion in the MapleTime design family:
+an unmasked MS2 panorama, an ordered setup journey, project-update rows and
+honest pilot status. It uses approved MS2 artwork, distinct monsters, light/dark
+themes, wrapping navigation and native connection/help disclosures.
 The website can be published independently of the installer and public-game gates.
 
 The separate Azure application is running as an invite-only pilot. The website
@@ -352,6 +353,23 @@ server delivery, change application ingress or publish a native installer.
 
 `scripts\test_pilot_portal.ps1` checks these boundaries and compares the endpoint,
 client version and launcher release to `installer\distribution.json`.
+`python -m unittest discover -s scripts -p test_website_ui.py` also checks
+semantics, anchors, nested missing-page recovery, responsive-image markup,
+non-executable static pages, and the measured payload budgets.
+
+The product and visual authorities are [PRODUCT.md](../../PRODUCT.md),
+[DESIGN.md](../../DESIGN.md), [UI-AUDIT.md](../../UI-AUDIT.md), and the surface
+brief under `.impeccable/surfaces`. Shared theme primitives live in
+`website/theme.css`; registration embeds that source in its compiled assembly
+rather than requesting styling from the public portal. This keeps the credential
+page self-contained and prevents a second independently drifting palette.
+Missing website routes retain HTTP 404 and show an authored recovery page.
+The application source archive explicitly includes the authored
+`website/theme.css` build dependency, not the whole website or its artwork.
+Packaging fails before Docker if that required shared input is missing.
+The source-contract regression reads Web's actual embedded-resource declarations
+and verifies their exact bytes in the filtered archive; a full-checkout build
+alone does not establish that the deployment build context is complete.
 
 Web supports optional `PLAYER_WEBSITE_URL` for a setup link on its account and
 success pages. The authored Azure Compose value is
@@ -360,7 +378,7 @@ credential-bearing URLs. This navigation and the matching light/dark registratio
 design are deployed. Future Web changes use the reviewed code-release workflow,
 not the legacy source-identical configuration updater.
 
-The redesign was published on 2026-09-12 through website-only
+The earlier redesign was published on 2026-09-12 through website-only
 [PR #9](https://github.com/gugarosa/Maple2/pull/9), revision
 `f73db9073e932cb1042a7abd568dba0de49afd1c`, to the existing Static Web App.
 Exact live content and 20 browser cases passed on `https://ms2.mapletime.dev`.
@@ -369,8 +387,11 @@ It uses the authorized MS2 artwork rather than the draft's generic island.
 The MapleTime cube mark remains original identity artwork, separate from the
 official game logo.
 
-Both color schemes follow the browser's preference. The mobile menu uses native
-HTML disclosure; there are no script, font, or external image dependencies.
+Both color schemes follow the browser's preference. The current small navigation
+set stays visible and wraps on mobile instead of covering anchor destinations.
+Connection instructions use native HTML disclosure, and reduced motion retains
+visible control states without animated transitions. There are no script,
+downloadable-font, or external-image dependencies.
 Keep the setup/status anchors stable, link updates to real merged PRs, and do not
 advertise MS1 commands, shared accounts, a bundled game installer, or untested
 MS2 feature completeness.
@@ -390,12 +411,16 @@ revision:
 ```
 
 The script checks the target's `project=maple2` tag and validates the static site
-before retrieving deployment credentials. It uploads only the ten allowlisted
+before retrieving deployment credentials. It uploads only the thirteen allowlisted
 HTML, CSS, configuration, and artwork files using Microsoft's deployment client,
 keeps the token outside the checkout, and compares every served page/style/image
 with its exact uploaded bytes. A still-cached old page or missing image is not
 deployment success. It cannot deploy to the MS1 site. Also verify
-`https://ms2.mapletime.dev` after publication.
+`https://ms2.mapletime.dev` and a nested missing route after publication.
+Root design documentation, Impeccable review artifacts and test fixtures are not
+part of this upload. Registration view changes require the existing reviewed
+application release in addition to the independent static-site publication;
+publishing only the portal does not update the account page.
 
 ### Website artwork
 
@@ -415,7 +440,7 @@ application `560380`:
 | [Library hero](https://cdn.cloudflare.steamstatic.com/steam/apps/560380/library_hero.jpg) | 1920 x 620 | `143f7570c9dce1397ea6b72ff186e42aacd6c0baff697dc8bf627169b7975675` |
 | [Game logo](https://cdn.cloudflare.steamstatic.com/steam/apps/560380/logo.png) | 640 x 360 | `88cc543dddb63b211edccb31530a75a8b17c2ce9912843ca5578b30ae236bc96` |
 
-The checked-in website derivatives were produced with Pillow 12.1.1. Crop boxes
+The original six website derivatives were produced with Pillow 12.1.1. Crop boxes
 below use `(left, top, right, bottom)` in original source pixels, with right/bottom
 exclusive. No image is enlarged, repainted, or extracted from the local client.
 
@@ -424,15 +449,21 @@ exclusive. No image is enlarged, repainted, or extracted from the local client.
 | `ms2-world.webp` | Full hero, WebP quality 88, method 6 |
 | `ms2-world-mobile.webp` | Hero crop `(748, 0, 1876, 620)`, WebP quality 88, method 6 |
 | `ms2-logo.png` | Logo crop `(0, 57, 640, 303)` removes only transparent padding; optimized PNG |
+| `ms2-logo.webp` | Lossless derivative of the reviewed `ms2-logo.png`, using Pillow `lossless=True`, `exact=True`, `method=6`; all decoded RGBA pixels are identical |
 | `ms2-slime.webp` | Hero crop `(176, 43, 292, 159)`, WebP quality 90, method 6 |
 | `ms2-pig.webp` | Hero crop `(1771, 0, 1873, 102)`, WebP quality 90, method 6 |
 | `ms2-mushroom.webp` | Hero crop `(1562, 129, 1632, 199)`, WebP quality 90, method 6 |
 
 The mobile hero keeps the main class characters in frame instead of squeezing
-the desktop banner into a narrow column. News cards use different MS2 monsters,
-not MS1 sprites. `scripts\test_pilot_portal.ps1` pins all six derivative hashes and
+the desktop banner into a narrow column. Update rows use different MS2 monsters,
+not MS1 sprites. `scripts\test_pilot_portal.ps1` pins all seven derivative hashes and
 rejects unused or unreviewed image references. The site serves them locally under
 `img-src 'self'`; no third-party image request or new runtime package is needed.
+
+The lossless logo is 75,896 bytes instead of 126,770 bytes (40.1% smaller).
+Its SHA-256 is `480dc98b67c55547bbb4430a834efd87dcc0efa333afbabd69a39b2db0fada80`.
+The original PNG remains unchanged as the browser fallback and installer source.
+This conversion changes delivery, not the approved image or its rights.
 
 ## Porkbun records
 

@@ -49,6 +49,44 @@ readiness are separate claims. The authored static portal does not collect accou
 
 ## Build and Development Commands
 
+### Website design and player experience
+
+Before changing `website` or the account views, read `PRODUCT.md`, root
+`DESIGN.md`, `UI-AUDIT.md`, and the matching `.impeccable/surfaces/` brief:
+
+- `website-index-html.md`: homepage and portal layout.
+- `maple2-server-web-views-account-register-cshtml.md`: registration, results,
+  notices, shared account layout and directly coupled response handling.
+- `website-404-html.md`: missing-page recovery.
+
+Match `primary_target` or `related_targets`, not just the first brief found.
+Shared `website/theme.css` has global authority in `DESIGN.md`, not a route's
+composition brief; changes there require checking all three surfaces.
+Keep each target in only one brief. Account/notice edits must not inherit the
+homepage panorama or Persuade composition.
+`website/styles.css` also contains recovery-specific rules; read the 404 brief
+when changing those rules, even though the stylesheet has one homepage match.
+`.impeccable/design.json` is a schema-v2 extension to the frontmatter tokens,
+with isolated component previews rather than operational account/API controls.
+Derive documentation updates from the completed implementation, not a proposed
+mockup; do not invent retrospective seeds, comps or approvals.
+
+The MS1 reference is session `6f8a4636-a86c-4fa0-b8c1-d7e85c553b5b`. When its
+history is accessible, check its latest scope and design artifacts at the start,
+before finish review, and before release for useful process changes. Otherwise
+use current MS1 product/design documentation and state the evidence limit.
+Keep the family resemblance without importing MS1 sprites, gameplay claims,
+accounts, or deployment resources.
+
+`website/theme.css` owns the shared player-facing design tokens. Keep the portal
+and embedded registration theme aligned. Preserve approved artwork bytes and
+the exact portal deployment allowlist; never publish design briefs, review
+screenshots, fixture data, live-tool state, or credentials.
+Run the portal contracts and `scripts/test_website_ui.py` after static changes.
+Use local compiled Razor fixtures for account states, never production account
+requests as design tests. Browser emulation is not a physical-device,
+screen-reader, or native-gameplay sign-off.
+
 ### Initial Setup
 
 ```powershell

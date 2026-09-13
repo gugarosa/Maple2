@@ -64,8 +64,8 @@ $envFile = Join-Path $temporary 'deployment.env'
 $null = New-Item -ItemType Directory -Path $content
 try {
     foreach ($file in @(
-        'index.html', 'styles.css', 'staticwebapp.config.json', 'mark.svg',
-        'ms2-logo.png', 'ms2-world.webp', 'ms2-world-mobile.webp',
+        'index.html', '404.html', 'theme.css', 'styles.css', 'staticwebapp.config.json', 'mark.svg',
+        'ms2-logo.png', 'ms2-logo.webp', 'ms2-world.webp', 'ms2-world-mobile.webp',
         'ms2-slime.webp', 'ms2-pig.webp', 'ms2-mushroom.webp'
     )) {
         Copy-Item -LiteralPath (Join-Path (Join-Path $root 'website') $file) -Destination $content
@@ -100,7 +100,7 @@ try {
         try {
             $ready = $true
             foreach ($file in @(
-                'index.html', 'styles.css', 'mark.svg', 'ms2-logo.png',
+                'index.html', '404.html', 'theme.css', 'styles.css', 'mark.svg', 'ms2-logo.png', 'ms2-logo.webp',
                 'ms2-world.webp', 'ms2-world-mobile.webp',
                 'ms2-slime.webp', 'ms2-pig.webp', 'ms2-mushroom.webp'
             )) {
