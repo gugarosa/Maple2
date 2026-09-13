@@ -38,6 +38,7 @@ SOURCE_ROOT_FILES = {
     ".dockerignore", ".editorconfig", ".gitattributes", "global.json",
     "config.yaml", "LICENSE", "README.md", "DEVELOPMENT_STATUS.md", "CLIENT_SETUP.md",
 }
+SOURCE_SHARED_BUILD_FILES = {"website/theme.css"}
 REVIEW_PREFIXES = (
     "Maple2.Server.World/Migrations/", "Maple2.Database/Context/",
     "Maple2.Database/Model/", "Maple2.Database/Extensions/",
@@ -106,6 +107,7 @@ def source_file(name):
     allowed = (
         name.startswith(("Maple2.", ".config/", ".github/workflows/", "deploy/azure/", "scripts/"))
         or name in SOURCE_ROOT_FILES
+        or name in SOURCE_SHARED_BUILD_FILES
         or (len(path.parts) == 1 and path.suffix in (".sln", ".props", ".targets"))
     )
     if not allowed:
@@ -140,6 +142,9 @@ def make_source(repo, revision, destination):
         require(path.is_file() and not path.is_symlink(), f"Source is not a regular file: {name}")
         names.append(name)
     require("LICENSE" in names and "global.json" in names, "Incomplete source allowlist.")
+    if "Maple2.Server.Web/Maple2.Server.Web.csproj" in names:
+        missing = SOURCE_SHARED_BUILD_FILES.difference(names)
+        require(not missing, "Missing shared Web build input: " + ", ".join(sorted(missing)))
     with destination.open("wb") as output, gzip.GzipFile(fileobj=output, filename="", mode="wb", mtime=0) as zipped:
         with tarfile.open(fileobj=zipped, mode="w") as archive:
             for name in sorted(names):
@@ -224,7 +229,7 @@ def build(repo, output, revision):
         for role in APP_ROLES:
             temporary_reference = f"maple2/ci-{role}:{revision}"
             run([
-                "docker", "build", "--quiet", "--platform", "linux/amd64", "--provenance=false",
+                "docker", "build", "--progress=plain", "--platform", "linux/amd64", "--provenance=false",
                 "--build-arg", "BUILD_CONFIGURATION=Release",
                 "--label", f"org.mapletime.source.sha256={source_hash}",
                 "--label", f"org.opencontainers.image.revision={revision}",
