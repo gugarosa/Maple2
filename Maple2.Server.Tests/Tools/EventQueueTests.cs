@@ -29,57 +29,49 @@ public class EventQueueTests {
     public void Schedule_DelayedTask_ExecutesAfterDelay() {
         var queue = new EventQueue(logger);
         queue.Start();
-        bool called = false;
-        queue.Schedule(() => called = true, TimeSpan.FromMilliseconds(50));
-        queue.InvokeAll();
-        Assert.That(called, Is.False);
-        Thread.Sleep(60);
-        queue.InvokeAll();
-        Assert.That(called, Is.True);
+        long calledAt = long.MinValue;
+        long scheduledAt = Environment.TickCount64;
+        queue.Schedule(() => calledAt = Environment.TickCount64, TimeSpan.FromMilliseconds(50));
+
+        PumpUntil(queue, () => calledAt != long.MinValue);
+        Assert.That(calledAt - scheduledAt, Is.GreaterThanOrEqualTo(50));
     }
 
     [Test]
     public void ScheduleRepeated_ExecutesMultipleTimes() {
         var queue = new EventQueue(logger);
         queue.Start();
-        int count = 0;
-        queue.ScheduleRepeated(() => count++, TimeSpan.FromMilliseconds(30));
-        for (int i = 0; i < 3; i++) {
-            Thread.Sleep(35);
-            queue.InvokeAll();
+        var calls = new List<long>();
+        queue.ScheduleRepeated(() => calls.Add(Environment.TickCount64), TimeSpan.FromMilliseconds(30));
+
+        PumpUntil(queue, () => calls.Count == 3);
+        for (int i = 1; i < calls.Count; i++) {
+            Assert.That(calls[i] - calls[i - 1], Is.GreaterThanOrEqualTo(30));
         }
-        Assert.That(count, Is.GreaterThanOrEqualTo(2));
     }
 
     [Test]
     public void ScheduleRepeated_StrictMode_ExecutesAtFixedIntervals() {
         var queue = new EventQueue(logger);
         queue.Start();
-        int count = 0;
-        queue.ScheduleRepeated(() => count++, TimeSpan.FromMilliseconds(20), strict: true);
-        Thread.Sleep(25);
-        queue.InvokeAll();
-        Thread.Sleep(25);
-        queue.InvokeAll();
-        Assert.That(count, Is.EqualTo(2));
+        var calls = new List<long>();
+        long scheduledAt = Environment.TickCount64;
+        queue.ScheduleRepeated(() => calls.Add(Environment.TickCount64), TimeSpan.FromMilliseconds(20), strict: true);
+
+        PumpUntil(queue, () => calls.Count == 2);
+        Assert.That(calls[1] - scheduledAt, Is.GreaterThanOrEqualTo(20));
     }
 
     [Test]
     public void ScheduleRepeated_SkipFirst_SkipsInitialExecution() {
         var queue = new EventQueue(logger);
         queue.Start();
-        int count = 0;
-        queue.ScheduleRepeated(() => count++, TimeSpan.FromMilliseconds(20), skipFirst: true);
-        queue.InvokeAll();
-        Assert.That(count, Is.EqualTo(0));
+        long calledAt = long.MinValue;
+        long scheduledAt = Environment.TickCount64;
+        queue.ScheduleRepeated(() => calledAt = Environment.TickCount64, TimeSpan.FromMilliseconds(20), skipFirst: true);
 
-        // Wait with retry to handle timing imprecision on CI environments
-        int maxRetries = 10;
-        for (int i = 0; i < maxRetries && count == 0; i++) {
-            Thread.Sleep(10);
-            queue.InvokeAll();
-        }
-        Assert.That(count, Is.EqualTo(1));
+        PumpUntil(queue, () => calledAt != long.MinValue);
+        Assert.That(calledAt - scheduledAt, Is.GreaterThanOrEqualTo(20));
     }
 
     [Test]
@@ -146,5 +138,12 @@ public class EventQueueTests {
         Assert.Throws<InvalidOperationException>(queue.DrainImmediate);
         Assert.That(calls, Is.EqualTo(10000));
         Assert.That(queue.Queued, Is.EqualTo(1));
+    }
+
+    private static void PumpUntil(EventQueue queue, Func<bool> completed) {
+        Assert.That(() => {
+            queue.InvokeAll();
+            return completed();
+        }, Is.True.After(5000, 10));
     }
 }

@@ -21,6 +21,10 @@ import time
 
 APP_ROLES = ("game", "world", "login", "web")
 VENDOR_ROLES = ("mysql", "proxy")
+SERVICE_ROLES = {
+    "mysql": "mysql", "world": "world", "login": "login", "web": "web",
+    "game-ch0": "game", "game-ch1": "game", "proxy": "proxy",
+}
 SUBSCRIPTION = "eb09d227-552f-4003-9129-c3f9cc36748d"
 STORAGE = "stmaple2lx7rwls5nb4z2"
 PACKAGE_FILES = {
@@ -304,7 +308,7 @@ def compose(directory):
 
 def retained_compose(config, directory):
     services = config["services"]
-    require(set(services) == {"mysql", "world", "login", "web", "game-ch0", "game-ch1", "proxy"},
+    require(set(services) == set(SERVICE_ROLES),
             "Topology changes need an operator-reviewed rollout.")
     limits = [service.get("mem_limit") for service in services.values()]
     require(all(type(value) is int or (type(value) is str and re.fullmatch(r"[0-9]+", value))
@@ -435,17 +439,42 @@ def read_json_output(arguments):
     return json.loads(run(arguments), object_pairs_hook=unique_object)
 
 
+def verify_running_release(states, manifest):
+    services = set()
+    for container in states:
+        config = container.get("Config", {})
+        labels = config.get("Labels") or {}
+        name = labels.get("com.docker.compose.service")
+        require(labels.get("com.docker.compose.project") == "maple2-azure"
+                and name in SERVICE_ROLES and name not in services,
+                "Running service topology differs from the MS2 release.")
+        services.add(name)
+        role = SERVICE_ROLES[name]
+        image = manifest["images"][role]
+        identity = container.get("Image")
+        require(config.get("Image") == image["reference"]
+                and isinstance(identity, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", identity)
+                and identity in (image["id"], image.get("configId")),
+                f"Running image for {name} differs from the release manifest.")
+        if manifest.get("deploymentKind") == "ci" and role in APP_ROLES:
+            require(labels.get("org.mapletime.source.sha256") == manifest["sourceSha256"]
+                    and labels.get("org.opencontainers.image.revision") == manifest["gitCommit"],
+                    f"Running image provenance for {name} differs from the release.")
+    require(services == set(SERVICE_ROLES), "Running service topology is incomplete.")
+
+
 def probe(directory):
     manifest = read_json(directory / "release.json")
     deadline = time.monotonic() + 90
     while True:
         ids = run([*compose(directory), "ps", "--all", "--quiet"], text=True).split()
         states = json.loads(run(["docker", "inspect", *ids])) if ids else []
-        healthy = len(states) == 7 and all(
+        healthy = len(states) == len(SERVICE_ROLES) and all(
             item["State"]["Running"] and item["State"].get("Health", {}).get("Status") == "healthy"
             and not item["State"].get("OOMKilled") for item in states
         )
         if healthy:
+            verify_running_release(states, manifest)
             response = run([
                 "curl", "--fail", "--silent", "--show-error", "--max-time", "5", "--http2-prior-knowledge",
                 "-H", "content-type: application/grpc", "-H", "te: trailers", "--data-binary", "@-",

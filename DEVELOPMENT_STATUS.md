@@ -161,10 +161,11 @@ It remains on the approved-network HTTPS account service, not an open public sig
 
 ## Delivery automation status
 
-Merge-triggered server delivery is operating, separately from the paused
-gameplay-development work. It reuses PR tests/format checks, builds source-bound
-Release images, takes quiesced backups and promotes only after runtime/source
-checks, with application rollback on failure. Schema, metadata, vendor and
+Merge-triggered server delivery is operating, and backend source/delivery work
+has resumed without clearing the client/protocol or public-launch gates. It reuses
+PR tests/format checks, builds source-bound Release images, takes quiesced backups
+and promotes only after runtime/source checks, with application rollback on failure.
+Schema, metadata, vendor and
 infrastructure changes require separate review; no player database is restored
 automatically.
 
@@ -176,6 +177,18 @@ registration, World channel 1, native assets/handshakes, backup checksum and ret
 player counts were verified. Sixty-four external idle-peer probes completed, and
 Login's post-check resource count was 17 threads rather than the previous 1,430.
 VM size, memory ceilings, budget and ingress were not increased.
+
+Runtime promotion and rollback now require each of the seven expected services
+to run the manifest's exact image reference and content identity. CI application
+containers must also carry the matching source hash and commit labels. Regression
+cases reject stale images, incorrect provenance and duplicate or foreign services
+even when all endpoints report healthy; legacy rollback retains its original
+image identities without requiring newer CI-only labels.
+
+Scheduler timing checks wait for actual queue execution with a bounded deadline
+and assert the minimum delay using the scheduler's monotonic clock. They no longer
+assume short fixed sleeps advance Windows' clock by an exact amount; production
+scheduling behavior is unchanged.
 
 These delivery checks do not clear the installer or complete external-player
 gameplay acceptance. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).

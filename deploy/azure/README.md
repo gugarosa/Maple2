@@ -179,9 +179,12 @@ The pipeline:
 4. Uses Azure Run Command to acquire the existing maintenance lock, validate
    source/image fingerprints and unchanged data contracts, then take a consistent
    player/uploads/keys/TLS backup while writers remain stopped.
-5. Starts the candidate and checks seven healthy services, complete v12
-   handshakes, actual World channel 1, HTTPS registration, native HTTP isolation
-   and the exact served source. Only then is the current-release link advanced.
+5. Starts the candidate and checks all seven services against the release's exact
+   running image identities, Compose service/project labels and, for CI application
+   images, source/commit labels. Healthy endpoints alone cannot certify a stale or
+   mixed release. Complete v12 handshakes, actual World channel 1, HTTPS registration,
+   native HTTP isolation and the exact served source must also pass before the
+   current-release link is advanced.
 6. On backup, startup or health failure, restores and verifies the previous
    application version. Failed rollback is an explicit failure requiring operator
    recovery. It never silently reports success or automatically restores a live
@@ -207,6 +210,10 @@ maintenance work.
 
 The `release.py` helper reads both classic Docker and OCI save formats and verifies
 their cryptographic identities. `deploy-release.sh` handles promotion/recovery.
+The runtime probe accepts the manifest's verified image-config or OCI identity,
+but also requires the expected image reference and exactly one container per
+service. Rollback uses the same identity checks; legacy manual releases do not
+require CI-only provenance labels they never carried.
 The generated Run Command wrapper explicitly selects Bash, including when the VM
 agent initially starts it with `/bin/sh`; its shell handoff has a regression check.
 The backup helper's internal `--deployment` mode requires the inherited
