@@ -185,6 +185,11 @@ cases reject stale images, incorrect provenance and duplicate or foreign service
 even when all endpoints report healthy; legacy rollback retains its original
 image identities without requiring newer CI-only labels.
 
+Scheduler timing checks wait for actual queue execution with a bounded deadline
+and assert the minimum delay using the scheduler's monotonic clock. They no longer
+assume short fixed sleeps advance Windows' clock by an exact amount; production
+scheduling behavior is unchanged.
+
 These delivery checks do not clear the installer or complete external-player
 gameplay acceptance. See [CI/CD operations](deploy/azure/README.md#merge-triggered-cicd).
 
